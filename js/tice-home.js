@@ -2018,11 +2018,14 @@
         const prima = parti[0].replace(/\s+$/, ''), ultima = parti[parti.length - 1].replace(/^\s+/, '');
         const mP = /^(.*?)(\S+)$/.exec(prima) || ['', '', prima], mU = /^(\S+)(.*)$/.exec(ultima) || ['', ultima, ''];
         const voci = [mP[2]].concat(parti.slice(1, -1).map((x) => x.trim()), [mU[1]]);
-        return h`${mP[1]}<span class="caselle-prompt">${voci.map((x) => h`<span class="casella"><i></i>${x ? h`<small>${x}</small>` : ''}</span>`)}</span>${mU[2]}`;
+        return h`${mP[1]}<span class="caselle-prompt">${voci.map(casella)}</span>${mU[2]}`;
     }
+    // una o due lettere (X, ✓, 1) stanno dentro la casella; una parola va sotto
+    const casella = (x) => (x && x.length <= 2 ? h`<span class="casella"><i class="dentro">${x}</i></span>`
+        : h`<span class="casella"><i></i>${x ? h`<small>${x}</small>` : ''}</span>`);
     const casellePrompt = (pv) => {
         const parti = String(pv || '').split(/[|,·]/).map((x) => x.trim()).filter(Boolean);
-        return h`<span class="caselle-prompt" title="Prompt visivo">${parti.length > 1 ? parti.map((x) => h`<span class="casella"><i></i><small>${x}</small></span>`) : h`<span class="casella-testo">${pv}</span>`}</span>`;
+        return h`<span class="caselle-prompt" title="Prompt visivo">${parti.length > 1 ? parti.map(casella) : h`<span class="casella-testo">${pv}</span>`}</span>`;
     };
     // Cosa vale come ✓, P/e+ e ✗: per attività e sottoattività (vuoto = nessuna indicazione)
     function impostaCondizioni(o, v, pp, x) {

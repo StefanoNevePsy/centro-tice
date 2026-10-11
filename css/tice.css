@@ -825,3 +825,10 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice-foglio .mod-voce[hidden], .tice-foglio [data-gruppo][hidden], .tice-foglio [data-gruppo-voci][hidden], .tice-foglio .mod-speciali[hidden] { display: none !important; }
 .tice-foglio [data-si-ta][hidden], .tice-foglio [data-no-ta][hidden] { display: none !important; }
 .tice .cond .caselle-prompt, .tice .sugg-testo .caselle-prompt, .tice .nota-voce .caselle-prompt { margin: 0 4px; }
+.tice .caselle-prompt .casella i.dentro { display: grid; place-items: center; width: 20px; height: 18px; font-style: normal; font-size: .75rem; font-weight: 700; line-height: 1; }
+#tice-stampa .st-caselle { display: inline-flex; gap: 3pt; vertical-align: middle; margin: 0 2pt; }
+#tice-stampa .st-casella { display: inline-flex; flex-direction: column; align-items: center; }
+#tice-stampa .st-casella i { display: inline-grid; place-items: center; width: 9pt; height: 8pt; border: .7pt solid currentColor; font-style: normal; font-size: 5.5pt; font-weight: 700; line-height: 1; }
+#tice-stampa .st-casella small { font-size: 5pt; text-transform: none; letter-spacing: 0; }
+#tice-stampa .st-cond { display: flex; flex-direction: column; gap: 1pt; margin-top: 2pt; font-size: 6.5pt; line-height: 1.3; }
+#tice-stampa .st-cond b { display: inline-block; min-width: 9pt; }

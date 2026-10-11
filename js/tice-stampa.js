@@ -63,9 +63,31 @@
     return lista.sort(function (x, y) { return pos(x) - pos(y) || x.indice - y.indice; });
   }
 
+  // Le caselle sul foglio: «prompt X | X | X (campanella)» → quadratini, come in seduta
+  function caselle(testo) {
+    var t = String(testo || '');
+    if (t.indexOf('|') < 0) return esc(t);
+    var parti = t.split('|');
+    var prima = parti[0].replace(/\s+$/, ''), ultima = parti[parti.length - 1].replace(/^\s+/, '');
+    var mP = /^(.*?)(\S+)$/.exec(prima) || ['', '', prima], mU = /^(\S+)(.*)$/.exec(ultima) || ['', ultima, ''];
+    var voci = [mP[2]].concat(parti.slice(1, -1).map(function (x) { return x.trim(); }), [mU[1]]);
+    return esc(mP[1]) + '<span class="st-caselle">' + voci.map(function (x) {
+      return x && x.length <= 2 ? '<span class="st-casella"><i>' + esc(x) + '</i></span>'
+        : '<span class="st-casella"><i></i>' + (x ? '<small>' + esc(x) + '</small>' : '') + '</span>';
+    }).join('') + '</span>' + esc(mU[2]);
+  }
+  // cosa vale come ✓ / P / ✗, in piccolo sotto l'attività
+  function condizioni(a) {
+    var c = a.condizioni;
+    if (!c) return '';
+    var eco = a.risposte === 'ecoico', tipi = eco ? ['V', 'P', 'X'] : ['V', a.sessionType === 'timedelay' ? 'P' : 'X'];
+    var segno = { V: '✓', P: eco ? 'e+' : 'P', X: '✗' };
+    var r = tipi.filter(function (k) { return c[k]; });
+    return r.length ? '<div class="st-cond">' + r.map(function (k) { return '<span><b>' + segno[k] + '</b> ' + caselle(c[k]) + '</span>'; }).join('') + '</div>' : '';
+  }
   function strategia(v) {
     var f = v.att.field ? ' <span class="st-badge chiaro" title="Field">F' + esc(v.att.field) + '</span>' : '';
-    var pv = v.att.promptVisivo ? ' <span class="st-mini" title="Prompt visivo">P: ' + esc(v.att.promptVisivo) + '</span>' : '';
+    var pv = v.att.promptVisivo ? ' <span class="st-mini" title="Prompt visivo">P: ' + caselle(v.att.promptVisivo.indexOf('|') < 0 ? v.att.promptVisivo.replace(/\s*[,·]\s*/g, ' | ') : v.att.promptVisivo) + '</span>' : '';
     return strategiaTipo(v) + f + pv;
   }
   function strategiaTipo(v) {
@@ -127,7 +149,7 @@
       '<div class="st-att-nome"><span class="st-pallino"></span>' + esc(a.nome) + '</div>' +
       (v.modalita && v.modalita.toLowerCase() !== String(a.nome).toLowerCase() ? '<div class="st-mod">' + esc(v.modalita) + '</div>' : '') +
       '<div class="st-meta">' + strategia(v) + (a.cronometro ? ' <span class="st-badge chiaro" title="Cronometrata"><i class="fa-solid fa-stopwatch"></i></span>' : '') +
-      ' <span class="st-crit">' + esc(criterio(a)) + '</span></div>' +
+      ' <span class="st-crit">' + esc(criterio(a)) + '</span></div>' + condizioni(a) +
       (opz.prossimi && v.prossimo ? '<div class="st-poi">poi: ' + esc(v.prossimo.testo) + '</div>' : '') + '</td>';
     var html = '<table class="st-att"' + stile + '><tbody>';
     if (misure) {
