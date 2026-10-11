@@ -15,10 +15,11 @@ on:
         description: 'Branch da pubblicare (vuoto = quello da cui lanci il workflow)'
         required: false
         type: string
-  # Deploy automatico su main, come prima
+  # Deploy automatico a ogni push sul branch del Centro TICE (e su main, come prima)
   push:
     branches:
       - main
+      - claude/quaderno-tice
 
 permissions:
   contents: read
