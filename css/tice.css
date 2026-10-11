@@ -835,4 +835,5 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .att-testa .mod-var { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 5px; margin-top: 1px; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); }
 .tice .att-testa .mod-var .variante { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: .8rem; }
 .tice .att-testa .mod-var .sep { opacity: .6; }
-.tice .att-testa .mod-var .modalita { color: var(--mod); background: color-mix(in srgb, var(--mod) 13%, transparent); padding: 1px 7px; border-radius: 999px; }
+.tice .att-testa .mod-var .modalita { color: color-mix(in srgb, var(--col, var(--text-secondary)) 72%, var(--text-primary)); border: 1px solid color-mix(in srgb, var(--col, var(--text-secondary)) 45%, transparent); padding: 0 6px; border-radius: 4px; }
+.tice .att-testa .mod-var .variante { white-space: nowrap; }

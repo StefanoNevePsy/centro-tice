@@ -570,10 +570,9 @@
         const v = String(att.variante || '').trim();
         const n = M.normalizza(att.nome || '');
         const parti = [m && M.normalizza(m.nome) !== n ? m.nome : '', v && M.normalizza(v) !== n && (!m || M.normalizza(v) !== M.normalizza(m.nome)) ? v : ''].filter(Boolean);
-        // il colore della modalità viene dalla sua categoria: le RAN sono sempre dello stesso colore
-        const cats = M.elenco(dizionario()).categorie, ci = m ? cats.findIndex((c) => c.id === m.categoria) : -1;
-        const col = ci >= 0 ? `var(--cat-${(ci % 6) + 1})` : 'var(--text-secondary)';
-        return parti.length ? h`<span class="mod-var" style="--mod:${col}">${parti.map((x, i) => h`${i ? h`<span class="sep">·</span>` : ''}<span class="${i || !m ? 'variante' : 'modalita'}">${x}</span>`)}</span>` : '';
+        // la modalità nel colore dell'attività (--col della scheda); la variante solo se c'è
+        const modo = parti[0] && m && parti[0] === m.nome ? parti[0] : '', vv = modo ? parti[1] : parti[0];
+        return parti.length ? h`<span class="mod-var">${modo ? h`<span class="modalita">${modo}</span>` : ''}${vv ? h`<span class="variante">${modo ? h`<span class="sep">·</span> ` : ''}${vv}</span>` : ''}</span>` : '';
     }
     // Una delle prese dati dell'attività (es. Categorizzazione → «Categorizza», «Tact mix»)
     function presaDati(p, att, t, tipo, m, v, crit, soglia) {
