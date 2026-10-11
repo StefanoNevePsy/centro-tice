@@ -2016,12 +2016,12 @@
         if (t.indexOf('\n') >= 0) return t.split('\n').map((r, i) => h`${i ? h`<br>` : ''}${conCaselle(r)}`);
         const parti = t.split('|');
         const prima = parti[0].replace(/\s+$/, ''), ultima = parti[parti.length - 1].replace(/^\s+/, '');
-        const mP = /^(.*?)(\S+)$/.exec(prima) || ['', '', prima], mU = /^(\S+)(.*)$/.exec(ultima) || ['', ultima, ''];
+        const mP = /^(.*?)(\[[^\]]*\]|\S+)$/.exec(prima) || ['', '', prima], mU = /^(\[[^\]]*\]|\S+)(.*)$/.exec(ultima) || ['', ultima, ''];
         const voci = [mP[2]].concat(parti.slice(1, -1).map((x) => x.trim()), [mU[1]]);
         return h`${mP[1]}<span class="caselle-prompt">${voci.map(casella)}</span>${mU[2]}`;
     }
-    // una o due lettere (X, ✓, 1) stanno dentro la casella; una parola va sotto
-    const casella = (x) => (x && x.length <= 2 ? h`<span class="casella"><i class="dentro">${x}</i></span>`
+    // [X] fra parentesi quadre va dentro la casella; senza parentesi va sotto
+    const casella = (x) => (/^\[.*\]$/.test(x || '') ? h`<span class="casella"><i class="dentro">${x.slice(1, -1)}</i></span>`
         : h`<span class="casella"><i></i>${x ? h`<small>${x}</small>` : ''}</span>`);
     const casellePrompt = (pv) => {
         const parti = String(pv || '').split(/[|,·]/).map((x) => x.trim()).filter(Boolean);

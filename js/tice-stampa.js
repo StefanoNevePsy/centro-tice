@@ -69,10 +69,10 @@
     if (t.indexOf('|') < 0) return esc(t);
     var parti = t.split('|');
     var prima = parti[0].replace(/\s+$/, ''), ultima = parti[parti.length - 1].replace(/^\s+/, '');
-    var mP = /^(.*?)(\S+)$/.exec(prima) || ['', '', prima], mU = /^(\S+)(.*)$/.exec(ultima) || ['', ultima, ''];
+    var mP = /^(.*?)(\[[^\]]*\]|\S+)$/.exec(prima) || ['', '', prima], mU = /^(\[[^\]]*\]|\S+)(.*)$/.exec(ultima) || ['', ultima, ''];
     var voci = [mP[2]].concat(parti.slice(1, -1).map(function (x) { return x.trim(); }), [mU[1]]);
     return esc(mP[1]) + '<span class="st-caselle">' + voci.map(function (x) {
-      return x && x.length <= 2 ? '<span class="st-casella"><i>' + esc(x) + '</i></span>'
+      return /^\[.*\]$/.test(x || '') ? '<span class="st-casella"><i>' + esc(x.slice(1, -1)) + '</i></span>'
         : '<span class="st-casella"><i></i>' + (x ? '<small>' + esc(x) + '</small>' : '') + '</span>';
     }).join('') + '</span>' + esc(mU[2]);
   }
