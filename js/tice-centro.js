@@ -82,18 +82,62 @@
     function pillola(p) {
         if (!Y.attivo() || S.fase === 'fuori') return '';
         if (!Y.condiviso(p.id)) return h`<span class="pill grigia">solo su questo dispositivo</span> `;
-        if (Y.inAttesa(p.id)) return h`<span class="pill arancio">da inviare</span> `;
-        return '';
+        const inf = Y.info(p.id);
+        const lucchetto = inf && inf.riservato ? h`<span class="pill grigia" title="Non dell'aula: lo vedono solo ${inf.creatoDa === (Y.io() || {}).email ? 'tu' : (inf.creatoDa || 'chi l\'ha creato')}${inf.condivisi.length ? ' e ' + inf.condivisi.length + (inf.condivisi.length === 1 ? ' persona' : ' persone') : ''}">${icona('lock')} non dell'aula</span> ` : '';
+        if (Y.inAttesa(p.id)) return h`${lucchetto}<span class="pill arancio">da inviare</span> `;
+        return lucchetto;
+    }
+    // nel modulo «Nuovo bambino»: dell'aula (predefinito) o solo mio
+    function sceltaRiservato() {
+        if (!Y.pronto() || !Y.conRiservati() || !Y.puo('creaPazienti')) return '';
+        return h`<div class="campo"><span>Chi lo vede</span><div class="scelta">
+            <label><input type="radio" name="visibilita" value="aula" checked><span>Dell'aula</span></label>
+            <label><input type="radio" name="visibilita" value="mio"><span>${icona('lock')} Solo mio</span></label></div>
+            <span class="sotto piccolo">Solo mio: lo vedi tu e le persone con cui lo condividi, non chi vede tutti i bambini dell'aula. Si cambia poi dalle opzioni del bambino.</span></div>`;
+    }
+    let personeCentro = null;
+    async function condivisioneBambino(p) {
+        const inf = Y.info(p.id), io = (Y.io() || {}).email;
+        const riservato = !!(inf && inf.riservato), creatore = riservato ? inf.creatoDa === io : true;
+        if (riservato && !creatore) { avviso('Solo chi l\'ha creato ne cambia la condivisione.'); return; }
+        try { personeCentro = await Y.chiama('persone.elenco'); } catch (e) { personeCentro = personeCentro || []; }
+        const gia = (inf && inf.condivisi) || [];
+        const altre = personeCentro.filter((x) => x.email !== io && x.email !== (inf && inf.creatoDa)).sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
+        const r = await foglio(h`<form><h2>Chi vede ${p.name}</h2>
+            <div class="scelta">
+                <label><input type="radio" name="vis" value="aula" ${!riservato ? grezzo('checked') : ''}><span>Dell'aula</span></label>
+                <label><input type="radio" name="vis" value="mio" ${riservato ? grezzo('checked') : ''}><span>${icona('lock')} Non dell'aula</span></label></div>
+            <p class="sotto piccolo" data-vis-aula ${riservato ? grezzo('hidden') : ''}>Lo vedono gli amministratori, chi vede tutti i bambini e chi ci è assegnato.</p>
+            <div data-vis-mio ${riservato ? '' : grezzo('hidden')}>
+                <p class="sotto piccolo">Lo vedi tu${riservato && inf.creatoDa !== io ? ' e chi l\'ha creato' : ''}, più le persone che spunti qui. Nessun altro, nemmeno gli amministratori.</p>
+                <div class="campo scelte-stampa"><span>Condividi con</span>${altre.length ? altre.map((x) => h`<label class="spunta-riga"><input type="checkbox" name="c" value="${x.email}" ${gia.includes(x.email) ? grezzo('checked') : ''}><span>${x.nome}${x.nome !== x.email ? h` <small class="sotto">${x.email}</small>` : ''}</span></label>`) : h`<p class="sotto piccolo">Nessun'altra persona nel centro.</p>`}</div>
+            </div>
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, {
+            dopo: (f) => f.querySelectorAll('[name=vis]').forEach((x) => x.addEventListener('change', () => {
+                f.querySelector('[data-vis-aula]').hidden = x.value !== 'aula'; f.querySelector('[data-vis-mio]').hidden = x.value !== 'mio';
+            })),
+            invia: (form) => { const fd = new FormData(form); return { mio: fd.get('vis') === 'mio', condivisi: fd.getAll('c') }; }
+        });
+        if (!r) return;
+        try {
+            await Y.condivisione(p.id, r.mio, r.condivisi);
+            avviso(r.mio ? `${p.name}: non dell'aula${r.condivisi.length ? ', condiviso con ' + r.condivisi.length : ''}` : `${p.name} ora è dell'aula`);
+        } catch (e) { avviso(e.message, 'errore'); }
+        TiceHome.ridisegna();
     }
 
     function opzioniBambino(p) {
         if (!Y.pronto()) return '';
         const cond = Y.condiviso(p.id);
-        return h`${!cond && Y.puo('creaPazienti') ? h`<button class="opzione" data-foglio="est:condividi">${icona('cloud-arrow-up')}<span class="corpo">Condividi con il centro<small>Lo vedranno le persone a cui verrà assegnato</small></span></button>` : ''}
+        const inf = Y.info(p.id), io = (Y.io() || {}).email;
+        const puoCond = cond && Y.conRiservati() && (inf && inf.riservato ? inf.creatoDa === io : true);
+        return h`${puoCond ? h`<button class="opzione" data-foglio="est:visibilita">${icona(inf && inf.riservato ? 'lock' : 'users')}<span class="corpo">Chi lo vede<small>${inf && inf.riservato ? 'Non dell\'aula' + (inf.condivisi.length ? ' · condiviso con ' + inf.condivisi.length : ' · solo ' + (inf.creatoDa === io ? 'tu' : inf.creatoDa)) : 'Dell\'aula · puoi renderlo solo tuo'}</small></span></button>` : ''}
+            ${!cond && Y.puo('creaPazienti') ? h`<button class="opzione" data-foglio="est:condividi">${icona('cloud-arrow-up')}<span class="corpo">Condividi con il centro<small>Lo vedranno le persone a cui verrà assegnato</small></span></button>` : ''}
             ${cond ? h`<button class="opzione" data-foglio="est:versioni">${icona('clock-rotate-left')}<span class="corpo">Versioni precedenti<small>Per recuperare dati cancellati o modificati per errore</small></span></button>` : ''}
             ${cond && Y.puo('eliminaPazienti') ? h`<button class="opzione" data-foglio="est:archivia">${icona('box-archive')}<span class="corpo">Elimina per tutti (archivia)<small>Sparisce dai dispositivi di tutti; resta sul Drive con le sue versioni e si può recuperare</small></span></button>` : ''}`;
     }
     async function sceltaBambino(k, p) {
+        if (k === 'visibilita') return condivisioneBambino(p);
         if (k === 'condividi') {
             try { await Y.condividi(p.id); avviso(`${p.name} ora è sul Drive del centro`); }
             catch (e) { avviso(e.message, 'errore'); }
@@ -124,9 +168,9 @@
         else if (k === 'persone') vai('persone');
     }
 
-    async function nuovoBambino(p) {
+    async function nuovoBambino(p, opz) {
         if (!Y.pronto() || !Y.puo('creaPazienti')) return;
-        try { await Y.condividi(p.id); } catch (e) { avviso('Salvato sul dispositivo; invio al centro non riuscito: ' + e.message, 'errore'); }
+        try { await Y.condividi(p.id, opz); } catch (e) { avviso('Salvato sul dispositivo; invio al centro non riuscito: ' + e.message, 'errore'); }
     }
     const puoProgrammi = (p) => !Y.attivo() || !Y.condiviso(p.id) || Y.puo('programmi');
 
@@ -840,7 +884,7 @@
             'scarica-tutti': scaricaTutti,
             'pubblica-set': pubblicaSet
         },
-        aggancio: { chip, banner, pillola, opzioniBambino, sceltaBambino, condiviso: (pid) => !!(Y.pronto() && Y.condiviso(pid)), opzioniMenu, sceltaMenu, nuovoBambino, puoProgrammi, dopo, limitato: tirocinante,
+        aggancio: { chip, banner, pillola, sceltaRiservato, opzioniBambino, sceltaBambino, condiviso: (pid) => !!(Y.pronto() && Y.condiviso(pid)), opzioniMenu, sceltaMenu, nuovoBambino, puoProgrammi, dopo, limitato: tirocinante,
             // modalità e sinonimi: quelli del centro, uguali per tutti
             dizionario: () => (Y.attivo() && S.io ? S.modalita || {} : null),
             salvaDizionario: (aggiunte) => Y.aggiornaModalita(aggiunte) }

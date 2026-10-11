@@ -516,6 +516,51 @@ prova('turni: le tirocinanti non li cambiano; chiavi strane rifiutate', () => {
   ko(chiama(PROPRIETARIO, 'turni.leggi', { chiave: '../accessi' }), 'richiesta-non-valida');
 });
 
+console.log('\nBambini non dell\'aula');
+const bk = (o, aad) => Object.assign(busta(o, aad), { kid: ok(chiama(PROPRIETARIO, 'io')).kid });
+const PRIV = id('pz'), PROF2 = 'giulia@centrotice.it', ADM3 = 'anna@centrotice.it';
+prova('(due persone nuove: una professionista e un\'admin)', () => {
+  const a = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+  a.utenti[PROF2] = { nome: 'Giulia', ruolo: 'professionista', pazienti: [] };
+  a.utenti[ADM3] = { nome: 'Anna', ruolo: 'admin', pazienti: '*' };
+  ok(chiama(PROPRIETARIO, 'accessi.salva', { versioneBase: a.version, accessi: { utenti: a.utenti } }));
+});
+prova('una professionista crea un bambino riservato: lo vede solo lei', () => {
+  ok(chiama(PROF2, 'paziente.crea', { id: PRIV, busta: bk({ id: PRIV }), etichetta: bk({ nome: 'Privato' }), riservato: true }));
+  assert.ok(ok(chiama(PROF2, 'pazienti.elenco')).some((p) => p.id === PRIV && p.riservato));
+  assert.ok(!ok(chiama(PROPRIETARIO, 'pazienti.elenco')).some((p) => p.id === PRIV), 'il proprietario non deve vederlo');
+  assert.ok(!ok(chiama(ADM3, 'pazienti.elenco')).some((p) => p.id === PRIV), 'gli admin non devono vederlo');
+  ko(chiama(PROPRIETARIO, 'paziente.leggi', { id: PRIV }), 'vietato');
+  assert.strictEqual(ok(chiama(ADM3, 'pazienti.leggi', { ids: [PRIV] })).length, 0);
+  ko(chiama(ADM3, 'paziente.salva', { id: PRIV, busta: bk({}), versioneBase: 1 }), 'vietato');
+  ko(chiama(ADM3, 'paziente.archivia', { id: PRIV }), 'vietato');
+});
+prova('lo condivide con un\'admin: ora la vede, gli altri ancora no', () => {
+  ok(chiama(PROF2, 'paziente.condivisione', { id: PRIV, riservato: true, condivisi: [ADM3] }));
+  assert.ok(ok(chiama(ADM3, 'pazienti.elenco')).some((p) => p.id === PRIV));
+  assert.ok(!ok(chiama(PROPRIETARIO, 'pazienti.elenco')).some((p) => p.id === PRIV));
+  ok(chiama(ADM3, 'paziente.salva', { id: PRIV, busta: bk({ id: PRIV, v: 2 }), versioneBase: 1 }));
+  const v = ok(chiama(PROF2, 'pazienti.elenco')).find((p) => p.id === PRIV);
+  assert.ok(v.riservato && v.condivisi.includes(ADM3), 'resta riservato dopo il salvataggio');
+});
+prova('solo chi l\'ha creato cambia la condivisione di un riservato', () => {
+  ko(chiama(ADM3, 'paziente.condivisione', { id: PRIV, riservato: false }), 'vietato');
+});
+prova('reso dell\'aula, lo vedono di nuovo gli admin', () => {
+  ok(chiama(PROF2, 'paziente.condivisione', { id: PRIV, riservato: false }));
+  assert.ok(ok(chiama(PROPRIETARIO, 'pazienti.elenco')).some((p) => p.id === PRIV && !p.riservato));
+});
+prova('un admin che lo vede può renderlo riservato e resta fra chi lo vede', () => {
+  ok(chiama(PROPRIETARIO, 'paziente.condivisione', { id: PRIV, riservato: true, condivisi: [] }));
+  assert.ok(ok(chiama(PROPRIETARIO, 'pazienti.elenco')).some((p) => p.id === PRIV));
+  assert.ok(ok(chiama(PROF2, 'pazienti.elenco')).some((p) => p.id === PRIV), 'chi l\'ha creato lo vede sempre');
+  assert.ok(!ok(chiama(ADM3, 'pazienti.elenco')).some((p) => p.id === PRIV));
+});
+prova('le persone del centro le vede chiunque, senza ruoli', () => {
+  const l = ok(chiama(TIR, 'persone.elenco'));
+  assert.ok(l.some((x) => x.email === PROF2) && l.every((x) => !x.ruolo));
+});
+
 console.log(`\n${passati} test passati, ${fallimenti.length} falliti`);
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fallimenti.length ? 1 : 0);

@@ -1226,13 +1226,14 @@
                 <label class="campo"><span>Data di nascita (facoltativa)</span><input name="nascita" type="date" max="${oggi()}"></label>
                 <label class="campo"><span>Categoria (facoltativa)</span><input name="cat" maxlength="60" placeholder="es. Aula 1" list="tice-categorie"></label>
                 <datalist id="tice-categorie">${[...new Set(pazienti().map((x) => x.category).filter(Boolean))].map((c) => h`<option value="${c}">`)}</datalist>
+                ${EST.sceltaRiservato ? EST.sceltaRiservato() : ''}
                 <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Crea</button></div></form>`);
             if (!r || !r.nome.trim()) return;
             const p = { id: Date.now().toString(), name: r.nome.trim(), history: [], programma: { attivita: [] } };
             if (r.cat.trim()) p.category = r.cat.trim();
             if (r.nascita) p.nascita = r.nascita;
             await salvaPaziente(p);
-            if (EST.nuovoBambino) await EST.nuovoBambino(p);
+            if (EST.nuovoBambino) await EST.nuovoBambino(p, { riservato: r.visibilita === 'mio' });
             vai('programma', p.id);
         },
         'scc-att': async (b) => { const p = paz(T.pid); await graficoSCC(p, P.attivita(p, b.dataset.id), null); },

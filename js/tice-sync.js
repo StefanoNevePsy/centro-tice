@@ -298,6 +298,8 @@
         fase: 'spento',     // spento | fuori | chiave (admin: frase) | attesa (chiave in arrivo) | pronto
         io: null, cfg: null, chiave: null, chiavi: {}, dispositivi: null,
         condivisi: new Set(), coda: new Set(),
+        // bambini «non dell'aula»: chi li ha creati e con chi sono condivisi (dall'elenco del custode)
+        info: {}, nuoviRiservati: new Set(),
         lavoro: false, errore: null, ultimo: null, etichette: {}
     };
     const ascolta = [];
@@ -395,7 +397,8 @@
             try {
                 let nuovaVersione;
                 if (!r || !r.version) {
-                    nuovaVersione = (await chiama('paziente.crea', Object.assign({ id: pid }, b))).version;
+                    nuovaVersione = (await chiama('paziente.crea', Object.assign({ id: pid }, b, S.nuoviRiservati.has(pid) ? { riservato: true } : {}))).version;
+                    if (S.nuoviRiservati.delete(pid)) { S.info[pid] = { riservato: true, creatoDa: S.io && S.io.email, condivisi: [] }; await scriviMeta('nuoviRiservati', [...S.nuoviRiservati]); await scriviMeta('info', S.info); }
                 } else {
                     nuovaVersione = (await chiama('paziente.salva', Object.assign({ id: pid, versioneBase: r.version }, b))).version;
                 }
@@ -433,6 +436,8 @@
         await salvaLocale(nuovo);
         await scriviRec(record.id, { version: record.version, base: remoto });
         S.condivisi.add(record.id);
+        // cifrato con una chiave precedente (un riservato non lo ricifra chi ha cambiato la chiave): lo si ricifra qui
+        if (S.cfg && record.busta && record.busta.kid !== S.cfg.kid && pronto()) S.coda.add(record.id);
         cambiato('paziente:' + record.id);
     }
     let leggeAGruppi = true;
@@ -450,8 +455,10 @@
         const perId = {};
         recs.forEach((r) => { perId[r.id] = r; });
         const daLeggere = [];
+        const info = {};
         for (const v of elenco) {
             visti.add(v.id);
+            if (v.riservato) info[v.id] = { riservato: true, creatoDa: v.creatoDa, condivisi: v.condivisi || [] };
             try { S.etichette[v.id] = await C.decifra(chiavePer(v.etichetta), v.etichetta, aadE(v.id)); } catch (e) { S.etichette[v.id] = { nome: '(in attesa della chiave)' }; }
             const r = perId[v.id];
             if (v.eliminato) {
@@ -488,6 +495,7 @@
             cambiato('pazienti');
         }
         await scriviMeta('coda', [...S.coda]);
+        S.info = info; await scriviMeta('info', info);
     }
 
     // ---------- ciclo ----------
@@ -678,6 +686,8 @@
         agganciaDB();
         avviaCicli();
         S.coda = new Set((await meta('coda')) || []);
+        S.info = (await meta('info')) || {};
+        S.nuoviRiservati = new Set((await meta('nuoviRiservati')) || []);
         (await tuttiRec()).forEach((r) => S.condivisi.add(r.id));
         const u = Auth.inizia();
         if (!u) { S.fase = 'fuori'; cambiato('stato'); return; }
@@ -831,12 +841,21 @@
     async function dispositivi() { S.dispositivi = await chiama('dispositivi.elenco'); return S.dispositivi; }
     async function togliDispositivo(id) { await chiama('dispositivo.togli', { id }); return dispositivi(); }
     /** Porta sul Drive del centro un bambino che finora era solo su questo dispositivo. */
-    async function condividi(pid) {
+    async function condividi(pid, opz) {
         if (!pronto()) throw new Error('Questo dispositivo non ha ancora la chiave del centro.');
+        if (opz && opz.riservato) { S.nuoviRiservati.add(pid); await scriviMeta('nuoviRiservati', [...S.nuoviRiservati]); }
         S.condivisi.add(pid);
         await scriviRec(pid, { version: 0, base: null });
         await inCoda(pid);
         return sincronizza({ soloCoda: true });
+    }
+    /** Dell'aula o «solo mio», e con chi è condiviso. */
+    async function condivisione(pid, riservato, condivisi) {
+        const v = await chiama('paziente.condivisione', { id: pid, riservato: !!riservato, condivisi: condivisi || [] });
+        if (v.riservato) S.info[pid] = { riservato: true, creatoDa: v.creatoDa, condivisi: v.condivisi || [] }; else delete S.info[pid];
+        await scriviMeta('info', S.info);
+        cambiato('pazienti');
+        return v;
     }
     async function esci(cancellaDati) {
         if (cancellaDati) await cancellaDatiCentro();
@@ -859,7 +878,9 @@
 
     window.TiceSync = {
         S, Auth, chiama, ErroreRete, ErroreCustode,
-        avvia, sincronizza, condividi, esci, creaChiave, inserisciChiave, cambiaChiave, mostraFrase, dispositivi, togliDispositivo,
+        avvia, sincronizza, condividi, condivisione, esci,
+        info: (pid) => S.info[pid] || null, io: () => S.io,
+        conRiservati: () => !!(S.io && (S.io.funzioni || []).indexOf('riservati') >= 0), creaChiave, inserisciChiave, cambiaChiave, mostraFrase, dispositivi, togliDispositivo,
         ripristina, versioni, anteprimaVersione, preparaCentro, eAdmin, leggiModalita, aggiornaModalita, leggiTurni, modificaTurni,
         // l'ultima copia dei turni vista su questo dispositivo, subito (senza rete)
         turniRicordati: async (k) => { try { const x = await meta('turni:' + k); return x && x.dati !== undefined ? x : null; } catch (e) { return null; } }, ruolo: () => (S.io && S.io.ruolo) || null,

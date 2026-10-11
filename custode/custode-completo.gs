@@ -596,7 +596,7 @@ var QT = (function () {
   // risposta di allora invece di rifare l'azione.
   var RIPETIBILI = {
     'cifratura.imposta': true, 'dispositivo.registra': true, 'dispositivi.abilita': true, 'dispositivo.togli': true,
-    'paziente.crea': true, 'paziente.salva': true, 'paziente.archivia': true,
+    'paziente.crea': true, 'paziente.salva': true, 'paziente.archivia': true, 'paziente.condivisione': true,
     'materiali.caricaImmagini': true, 'materiali.pubblica': true, 'materiali.elimina': true, 'accessi.salva': true,
     'modalita.aggiorna': true, 'turni.salva': true,
   };
@@ -760,7 +760,19 @@ var QT = (function () {
     function puo(u, cosa) {
       if (!permessi(u)[cosa]) throw err('vietato', 'Il tuo ruolo (' + u.ruolo + ') non consente questa operazione.');
     }
+    // Un bambino «non dell'aula» (riservato) lo vedono solo chi l'ha creato e le persone
+    // con cui è condiviso: nemmeno gli amministratori o chi vede tutti gli altri.
+    var elencoRichiesta = null;   // l'elenco letto una volta per richiesta
+    function voceDi(pid) {
+      if (!elencoRichiesta) elencoRichiesta = leggiElenco();
+      return elencoRichiesta.pazienti[pid] || null;
+    }
+    function vedeRiservato(u, v) {
+      return v.creatoDa === u.email || (Array.isArray(v.condivisi) && v.condivisi.indexOf(u.email) >= 0);
+    }
     function vede(u, pid) {
+      var v = voceDi(pid);
+      if (v && v.riservato) return vedeRiservato(u, v);
       return permessi(u).vediTutti || u.pazienti === '*' || (Array.isArray(u.pazienti) && u.pazienti.indexOf(pid) >= 0);
     }
     function richiediVisibile(u, pid) {
@@ -776,10 +788,12 @@ var QT = (function () {
       return r;
     }
     function voceElenco(r) {
-      return {
+      var v = {
         id: r.id, version: r.version, etichetta: r.etichetta,
         aggiornato: r.aggiornato, aggiornatoDa: r.aggiornatoDa, eliminato: !!r.eliminato,
       };
+      if (r.riservato) { v.riservato = true; v.creatoDa = r.creatoDa; v.condivisi = r.condivisi || []; }
+      return v;
     }
     function leggiElenco() {
       var e = A.leggiJSON(P.elenco);
@@ -799,6 +813,7 @@ var QT = (function () {
       var elenco = A.leggiJSON(P.elenco) || { schema: SCHEMA, pazienti: {} };
       elenco.pazienti[r.id] = voceElenco(r);
       A.scriviJSON(P.elenco, elenco);
+      elencoRichiesta = elenco;
     }
 
     // Le versioni precedenti di un paziente hanno un piccolo indice (numero, quando,
@@ -863,7 +878,7 @@ var QT = (function () {
       return {
         email: u.email, nome: u.nome, ruolo: u.ruolo, pazienti: u.pazienti,
         proprietario: u.proprietario, scadenza: u.scadenza, permessi: permessi(u),
-        cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa,
+        cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati'],
       };
     };
 
@@ -1067,9 +1082,10 @@ var QT = (function () {
         var ora = amb.ora();
         var r = { schema: SCHEMA, id: pid, version: 1, busta: busta, etichetta: etichetta,
           creato: ora, creatoDa: u.email, aggiornato: ora, aggiornatoDa: u.email };
+        if (d.riservato === true) { r.riservato = true; r.condivisi = []; }
         A.scriviJSON(P.paziente(pid), r);
         aggiornaElenco(r);
-        assegnaSeServe(u, pid);
+        if (!r.riservato) assegnaSeServe(u, pid);
         return r;
       });
     };
@@ -1111,6 +1127,7 @@ var QT = (function () {
         var r = { schema: SCHEMA, id: pid, version: attuale.version + 1, busta: busta, etichetta: etichetta || attuale.etichetta,
           creato: attuale.creato, creatoDa: attuale.creatoDa, aggiornato: ora, aggiornatoDa: u.email };
         if (attuale.eliminato) r.eliminato = true;   // resta archiviato anche se ricifrato
+        if (attuale.riservato) { r.riservato = true; r.condivisi = attuale.condivisi || []; }
         A.scriviJSON(P.paziente(pid), r);
         aggiornaElenco(r);
         return { id: r.id, version: r.version, aggiornato: r.aggiornato, aggiornatoDa: r.aggiornatoDa };
@@ -1138,6 +1155,7 @@ var QT = (function () {
     azioni['paziente.archivia'] = function (u, d) {
       puo(u, 'eliminaPazienti');
       var pid = idV(d.id, RE.pz, 'id');
+      richiediVisibile(u, pid);
       var archiviato = d.archiviato !== false;
       return conLock(function () {
         var r = leggiRecord(pid);
@@ -1147,6 +1165,36 @@ var QT = (function () {
         r.eliminato = archiviato;
         r.aggiornato = amb.ora();
         r.aggiornatoDa = u.email;
+        A.scriviJSON(P.paziente(pid), r);
+        aggiornaElenco(r);
+        return voceElenco(r);
+      });
+    };
+
+    /**
+     * Dell'aula o riservato, e con chi è condiviso. Un riservato lo cambia solo chi l'ha
+     * creato; un bambino dell'aula lo può rendere riservato chi l'ha creato o un
+     * amministratore che lo vede (che allora resta fra le persone con cui è condiviso).
+     */
+    azioni['paziente.condivisione'] = function (u, d) {
+      var pid = idV(d.id, RE.pz, 'id');
+      richiediVisibile(u, pid);
+      var riservato = d.riservato === true;
+      var condivisi = listaV(d.condivisi || [], 50, 'condivisi').map(function (e) {
+        e = String(e || '').trim().toLowerCase();
+        if (!RE.email.test(e)) throw err('richiesta-non-valida', 'Email non valida: ' + e);
+        return e;
+      });
+      return conLock(function () {
+        var r = leggiRecord(pid);
+        var creatore = r.creatoDa === u.email;
+        if (r.riservato && !creatore) throw err('vietato', 'Solo chi ha creato il bambino ne cambia la condivisione.');
+        if (!r.riservato && !creatore && !permessi(u).vediTutti) throw err('vietato', 'Solo chi l\'ha creato o un amministratore può renderlo riservato.');
+        if (riservato) {
+          if (!creatore && condivisi.indexOf(u.email) < 0) condivisi.push(u.email);
+          r.riservato = true;
+          r.condivisi = condivisi.filter(function (e, i) { return e !== r.creatoDa && condivisi.indexOf(e) === i; });
+        } else { delete r.riservato; delete r.condivisi; }
         A.scriviJSON(P.paziente(pid), r);
         aggiornaElenco(r);
         return voceElenco(r);
@@ -1371,6 +1419,19 @@ var QT = (function () {
     };
 
     // --- Accessi ----------------------------------------------------------------
+    // Le persone del centro (nome ed email, niente ruoli né bambini): per scegliere con chi
+    // condividere un bambino riservato. Le vede chiunque sia abilitato.
+    azioni['persone.elenco'] = function () {
+      var a = leggiAccessi(), out = [], prop = String(amb.proprietario() || '').toLowerCase();
+      Object.keys(a.utenti).forEach(function (e) {
+        var x = a.utenti[e];
+        if (x.attivo === false || (x.scadenza && oggi() > x.scadenza)) return;
+        out.push({ email: e, nome: x.nome || e });
+      });
+      if (prop && !a.utenti[prop]) out.push({ email: prop, nome: prop });
+      return out;
+    };
+
     azioni['accessi.leggi'] = function (u) {
       puo(u, 'gestisciAccessi');
       var a = leggiAccessi();
@@ -1436,6 +1497,7 @@ var QT = (function () {
         }
         var dati = richiesta.dati && typeof richiesta.dati === 'object' ? richiesta.dati : {};
         registroImmagini = null;
+        elencoRichiesta = null;
         var chiave = amb.ricordo && RIPETIBILI[richiesta.azione] && typeof richiesta.rid === 'string' && RE_RICHIESTA.test(richiesta.rid)
           ? 'rid:' + u.email + ':' + richiesta.azione + ':' + richiesta.rid : null;
         if (chiave) {
