@@ -99,17 +99,26 @@
   function elenco(diz) {
     diz = diz || {};
     var cat = CATEGORIE.slice();
-    (diz.categorie || []).forEach(function (c) { if (c && c.id && !cat.some(function (x) { return x.id === c.id; })) cat.splice(cat.length - 1, 0, { id: c.id, nome: c.nome, centro: true }); });
+    (diz.categorie || []).forEach(function (c) {
+      if (!c || !c.id) return;
+      var i = -1; cat.forEach(function (x, k) { if (x.id === c.id) i = k; });
+      // una di serie rinominata dal centro
+      if (i >= 0) cat[i] = Object.assign({}, cat[i], { nome: c.nome || cat[i].nome, nascosta: !!c.nascosta, rinominata: true });
+      else cat.splice(cat.length - 1, 0, { id: c.id, nome: c.nome, centro: true, nascosta: !!c.nascosta });
+    });
     var mod = MODALITA.map(function (m) { return { id: m.id, nome: m.nome, categoria: m.categoria, sinonimi: m.sinonimi, modi: m.modi }; });
     (diz.modalita || []).forEach(function (m) {
       if (!m || !m.id) return;
       var i = -1;
       mod.forEach(function (x, k) { if (x.id === m.id) i = k; });
       var nuova = { id: m.id, nome: m.nome, categoria: m.categoria || 'altro', sinonimi: [], modi: [], centro: true };
-      if (i >= 0) mod[i] = Object.assign({}, mod[i], { nome: m.nome || mod[i].nome, categoria: m.categoria || mod[i].categoria });
+      if (m.nascosta) nuova.nascosta = true;
+      if (i >= 0) mod[i] = Object.assign({}, mod[i], { nome: m.nome || mod[i].nome, categoria: m.categoria || mod[i].categoria, nascosta: !!m.nascosta, rinominata: true });
       else mod.push(nuova);
     });
-    return { categorie: cat, modalita: mod };
+    // eliminate dal centro: spariscono dagli elenchi (le attività che le usavano non c'erano più)
+    var catVive = cat.filter(function (c) { return !c.nascosta; });
+    return { categorie: catVive, modalita: mod.filter(function (m) { return !m.nascosta && catVive.some(function (c) { return c.id === m.categoria; }); }) };
   }
   function trovaModalita(id, diz) { return elenco(diz).modalita.filter(function (m) { return m.id === id; })[0] || null; }
   function trovaCategoria(id, diz) { return elenco(diz).categorie.filter(function (c) { return c.id === id; })[0] || null; }
@@ -255,7 +264,10 @@
   function unisci(diz, patch) {
     var d = JSON.parse(JSON.stringify(diz || {}));
     d.categorie = d.categorie || []; d.modalita = d.modalita || []; d.sinonimi = d.sinonimi || {}; d.modi = d.modi || {};
-    (patch.categorie || []).forEach(function (c) { if (!d.categorie.some(function (x) { return x.id === c.id; })) d.categorie.push(c); });
+    (patch.categorie || []).forEach(function (c) {
+      var i = -1; d.categorie.forEach(function (x, k) { if (x.id === c.id) i = k; });
+      if (i >= 0) d.categorie[i] = c; else d.categorie.push(c);
+    });
     (patch.modalita || []).forEach(function (m) {
       var i = -1; d.modalita.forEach(function (x, k) { if (x.id === m.id) i = k; });
       if (i >= 0) d.modalita[i] = m; else d.modalita.push(m);

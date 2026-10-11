@@ -914,11 +914,15 @@ var QT = (function () {
       if (!permessi(u).importa && !permessi(u).programmi) throw err('vietato', 'Non puoi modificare le modalità del centro.');
       var cat = listaV(d.categorie || [], 50, 'categorie').map(function (c) {
         oggettoV(c, 'categoria');
-        return { id: idV(c.id, RE_MOD, 'categoria.id'), nome: testoV(c.nome, 60, true, 'categoria.nome') };
+        var cc = { id: idV(c.id, RE_MOD, 'categoria.id'), nome: testoV(c.nome, 60, true, 'categoria.nome') };
+        if (c.nascosta === true) cc.nascosta = true;
+        return cc;
       });
       var mod = listaV(d.modalita || [], 200, 'modalita').map(function (m) {
         oggettoV(m, 'modalita');
-        return { id: idV(m.id, RE_MOD, 'modalita.id'), nome: testoV(m.nome, 60, true, 'modalita.nome'), categoria: idV(m.categoria, RE_MOD, 'modalita.categoria') };
+        var mm = { id: idV(m.id, RE_MOD, 'modalita.id'), nome: testoV(m.nome, 60, true, 'modalita.nome'), categoria: idV(m.categoria, RE_MOD, 'modalita.categoria') };
+        if (m.nascosta === true) mm.nascosta = true;
+        return mm;
       });
       var sin = {}, modi = {};
       var sinIn = d.sinonimi ? oggettoV(d.sinonimi, 'sinonimi') : {};
