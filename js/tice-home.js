@@ -2202,7 +2202,7 @@
                     <label class="campo"><span>Prompt visivo <small class="sotto">· caselle</small></span><input name="promptVisivo" maxlength="200" value="${a.promptVisivo || ''}" placeholder="es. prima | poi | dopo"></label>
                 </div>
                 <div class="campo"><span>Cosa vale come… <small class="sotto">· facoltativo, compare in seduta sotto i tasti</small></span>${campiCondizioni('', a.condizioni)}</div>
-                <p class="sotto piccolo aiuto">Field: F3 = tre stimoli presentati, uno da scegliere. Prompt visivo: le caselle separate da | (prima | poi | dopo) compaiono in seduta come quadrati da indicare.</p>
+                <p class="sotto piccolo aiuto">Field: F3 = tre stimoli presentati, uno da scegliere. Caselle: separa con | (prima | poi | dopo), qui e in condizioni, suggerimenti e note; la parola va sotto il quadrato, fra parentesi quadre va dentro: [X] | [X].</p>
                 <p class="sotto piccolo aiuto">Con le prove per LU il dato entra quando se ne completano tante, anche in più sedute; vuoto: percentuale a ogni seduta.</p>
                 <label class="spunta-riga"><input type="checkbox" name="mantenimento" ${a.mantenimento ? grezzo('checked') : ''}> <span><b>Mantenimento</b> <span class="sotto piccolo">· si segna, ma fuori da statistiche e criterio</span></span></label>
                 <label class="spunta-riga"><input type="checkbox" name="cronometro" ${a.cronometro ? grezzo('checked') : ''}> <span><b>Cronometra (fluency)</b> <span class="sotto piccolo">· risposte al minuto, grafico SCC</span></span></label>
