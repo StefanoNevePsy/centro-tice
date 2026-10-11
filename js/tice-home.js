@@ -540,7 +540,7 @@
                     <span class="ta-punti">${passi.map((ps, k) => h`<i class="${k === st.i ? 'qui' : ''} ${((v && v.esiti && v.esiti[ps.id]) || '').slice(-1)}"></i>`)}</span>
                 </div>` : ''}
                 ${ms.length ? ms.map((m, i) => presaDati(p, att, t, tipo, m, vm[i], critM[i], soglia)) : h`${tasti(att, tipo)}
-                ${righeCondizioni(att.condizioni, tipo, ecoico(att))}
+                ${righeCondizioni(condizioniDi(att, t), tipo, ecoico(att))}
                 <div class="sotto-tasti">
                     <div class="sequenza ${ecoico(att) ? 'eco' : ''}" aria-label="Sequenza delle risposte">${(v ? v.sequenza : '').split('').map((r) => h`<i class="${r}"></i>`)}</div>
                     ${st ? h`<button class="ib" data-a="salta-passo" data-id="${att.id}" aria-label="Salta il passo" title="Salta il passo">${icona('forward')}</button>
@@ -590,7 +590,7 @@
                 <span class="presa-conto">${tot ? h`<b class="${classePct(Math.round(100 * v.v / tot), soglia)}">${Math.round(100 * v.v / tot)}%</b> <span class="sotto">${v.v}/${tot}${attM.prove ? ' di ' + attM.prove : ''}</span>` : h`<span class="sotto prove-n" title="${attM.prove ? 'LU da ' + attM.prove + ' prove' : 'Dato in percentuale'}">${attM.prove ? h`${icona('layer-group')} ${attM.prove}` : icona('percent')}</span>`}</span></div>
             ${lu && (lu.prec || lu.oggi) ? h`<p class="sotto piccolo lu-attesa">${icona('hourglass-half')} ${testoLU(lu)}</p>` : ''}
             ${tasti(attM, tipoM, k)}
-            ${righeCondizioni(m.condizioni || att.condizioni, tipoM, tm.eco)}
+            ${righeCondizioni(Object.assign({}, condizioniDi(att, t), m.condizioni || {}), tipoM, tm.eco)}
             <div class="sotto-tasti">
                 <div class="sequenza ${tm.eco ? 'eco' : ''}" aria-label="Sequenza delle risposte">${(v ? v.sequenza : '').split('').map((r) => h`<i class="${r}"></i>`)}</div>
                 <button class="ib" data-a="annulla" data-id="${k}" aria-label="Annulla l'ultima di ${m.nome}" title="Annulla l'ultima">${icona('rotate-left')}</button>
@@ -1728,6 +1728,7 @@
                         : h`<button class="opzione" data-foglio="testo">${icona('pen')}<span class="corpo">Modifica il testo</span></button>`}
                     <button class="opzione" data-foglio="passi">${icona('list-ol')}<span class="corpo">${P.passiDi(t).length ? 'Passi della task analysis' : 'Trasforma in task analysis'}<small>${P.passiDi(t).length ? P.passiDi(t).length + ' passi: modifica, aggiungi, riordina' : 'Un passo alla volta in seduta'}</small></span></button>
                     <button class="opzione" data-foglio="suggerimento">${icona('lightbulb')}<span class="corpo">Suggerimenti per questo target<small>${t.suggerimento ? 'Modifica' : 'Note su come somministrarlo, visibili in seduta'}</small></span></button>
+                    <button class="opzione" data-foglio="condizioni">${icona('check-double')}<span class="corpo">Cosa vale come ✓, P, ✗ per questo target<small>${t.condizioni ? 'Modifica' : 'Vuoto: valgono quelle dell\'attività'}</small></span></button>
                     <button class="opzione" data-foglio="su">${icona('arrow-up')}<span class="corpo">Sposta prima</span></button>
                     <button class="opzione" data-foglio="giu">${icona('arrow-down')}<span class="corpo">Sposta dopo</span></button>
                     ${!n ? h`<button class="opzione" data-foglio="elimina">${icona('trash')}<span class="corpo">Elimina</span></button>` : ''}`}
@@ -1748,6 +1749,18 @@
                     <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`);
                 if (!ns) return;
                 t.suggerimento = String(ns.s || '').trim();
+                t.modificato = att.modificato = new Date().toISOString();
+            }
+            else if (r === 'condizioni') {
+                const nc = await foglio(h`<form><h2>${t.testo}</h2>
+                    <p class="sotto piccolo">Scrivi solo quello che cambia per questo target: le voci vuote prendono quelle dell'attività${att.condizioni ? ' (le vedi qui come suggerimento)' : ''}.</p>
+                    <div class="riga-campi campi-cond">
+                        <label class="campo"><span>✓ vale come corretta</span><input name="cV" maxlength="200" value="${(t.condizioni && t.condizioni.V) || ''}" placeholder="${(att.condizioni && att.condizioni.V) || 'es. una casella segnata restando seduto'}"></label>
+                        <label class="campo"><span>P / e+ promptata</span><input name="cP" maxlength="200" value="${(t.condizioni && t.condizioni.P) || ''}" placeholder="${(att.condizioni && att.condizioni.P) || ''}"></label>
+                        <label class="campo"><span>✗ errata</span><input name="cX" maxlength="200" value="${(t.condizioni && t.condizioni.X) || ''}" placeholder="${(att.condizioni && att.condizioni.X) || ''}"></label></div>
+                    <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`);
+                if (!nc) return;
+                impostaCondizioni(t, nc.cV, nc.cP, nc.cX);
                 t.modificato = att.modificato = new Date().toISOString();
             }
             else if (r === 'passi') {
@@ -2099,6 +2112,8 @@
         if (Object.keys(c).length) o.condizioni = c; else delete o.condizioni;
     }
     // in seduta, sotto i tasti: solo le risposte che quell'attività usa
+    // quelle dell'attività, sovrascritte una per una da quelle del target in corso
+    const condizioniDi = (att, t) => (att.condizioni || (t && t.condizioni) ? Object.assign({}, att.condizioni || {}, (t && t.condizioni) || {}) : null);
     function righeCondizioni(c, tipo, eco) {
         if (!c) return '';
         const usate = eco ? ['V', 'P', 'X'] : ['V', nonCorretta(tipo)];

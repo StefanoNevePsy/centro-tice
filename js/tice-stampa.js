@@ -77,8 +77,8 @@
     }).join('') + '</span>' + esc(mU[2]);
   }
   // cosa vale come ✓ / P / ✗, in piccolo sotto l'attività
-  function condizioni(a) {
-    var c = a.condizioni;
+  function condizioni(a, t) {
+    var c = a.condizioni || (t && t.condizioni) ? Object.assign({}, a.condizioni || {}, (t && t.condizioni) || {}) : null;
     if (!c) return '';
     var eco = a.risposte === 'ecoico', tipi = eco ? ['V', 'P', 'X'] : ['V', a.sessionType === 'timedelay' ? 'P' : 'X'];
     var segno = { V: '✓', P: eco ? 'e+' : 'P', X: '✗' };
@@ -149,7 +149,7 @@
       '<div class="st-att-nome"><span class="st-pallino"></span>' + esc(a.nome) + '</div>' +
       (v.modalita && v.modalita.toLowerCase() !== String(a.nome).toLowerCase() ? '<div class="st-mod">' + esc(v.modalita) + '</div>' : '') +
       '<div class="st-meta">' + strategia(v) + (a.cronometro ? ' <span class="st-badge chiaro" title="Cronometrata"><i class="fa-solid fa-stopwatch"></i></span>' : '') +
-      ' <span class="st-crit">' + esc(criterio(a)) + '</span></div>' + condizioni(a) +
+      ' <span class="st-crit">' + esc(criterio(a)) + '</span></div>' + condizioni(a, v.corrente) +
       (opz.prossimi && v.prossimo ? '<div class="st-poi">poi: ' + esc(v.prossimo.testo) + '</div>' : '') + '</td>';
     var html = '<table class="st-att"' + stile + '><tbody>';
     if (misure) {
