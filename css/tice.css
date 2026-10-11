@@ -841,3 +841,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice-foglio .cat-mod .cat-nome i { font-size: .7em; opacity: .5; }
 .tice-foglio .cat-mod button.chip { background: none; color: inherit; font: inherit; font-size: .85rem; padding: 6px 12px; min-height: 36px; cursor: pointer; }
 .tice-foglio .cat-mod button.chip:hover { background: var(--tq-hover, rgba(0,0,0,.05)); }
+.tice .prove-n { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.tice .prove-n { font-size: .95rem; }
+.tice .prove-n i { font-size: 1em; opacity: .75; }
+.tice .att-testa .mod-var { margin-top: 5px; }

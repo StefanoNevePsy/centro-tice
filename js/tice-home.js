@@ -514,7 +514,7 @@
                         ${aCriterio ? h` <span class="pill verde">${icona('flag-checkered')} criterio</span>` : nCrit ? h` <span class="pill verde chiara" title="${ms.filter((m, i) => critM[i]).map((m) => m.nome).join(', ')} a criterio">${icona('flag-checkered')} ${nCrit} di ${nAcq}</span>` : ''}
                     </span>
                     ${modVar(att)}
-                    ${t ? h`<span class="target">${t.setId ? h`${icona(giocabile ? 'layer-group' : 'triangle-exclamation')} ` : ''}${t.testo}${t.setId ? h` · ${etichettaModo(P.modoTarget(att, t))}` : ''}</span>` : (senzaTarget ? (P.inPercentuale(att) ? h`<span class="target">${icona('percent')} Dato in percentuale a ogni seduta</span>` : h`<span class="target">${icona('layer-group')} LU da ${att.prove} prove</span>`)
+                    ${t ? h`<span class="target">${t.setId ? h`${icona(giocabile ? 'layer-group' : 'triangle-exclamation')} ` : ''}${t.testo}${t.setId ? h` · ${etichettaModo(P.modoTarget(att, t))}` : ''}</span>` : (senzaTarget ? ''
                         : !att.temporanea ? h`<span class="target"><i>Nessun target in corso: aggiungilo dal programma.</i></span>` : '')}
                     ${att.promptVisivo ? h`<span class="target riga-prompt">P: ${casellePrompt(att.promptVisivo)}</span>` : ''}
                     ${st ? h`<span class="target ta-riga">${icona('list-ol')} passo <b>${st.i + 1}/${passi.length}</b> · ${st.passo.testo}${st.giri ? h` <span class="pill grigia">giro ${st.giri + 1}</span>` : ''}</span>` : ''}
@@ -522,7 +522,7 @@
                     ${oggiT ? h`<span class="target">${icona('circle-check')} già oggi: ${oggiV}/${oggiT} (${Math.round(100 * oggiV / oggiT)}%)${(() => { const chi = [...new Set(giaOggi.map((x) => x.operatore).filter(Boolean))]; return chi.length ? h` <span class="chi">· ${chi.join(', ')}</span>` : ''; })()}</span>` : ''}
                 </span>
                 <span class="conto">${ms.length ? h`<span class="piccolo sotto conto-ms">${ms.map((m, i) => { const x = vm[i], n = x ? x.v + x.p + x.x : 0; return h`<span>${m.nome}: <b class="${n ? classePct(Math.round(100 * x.v / n), soglia) : ''}">${n ? Math.round(100 * x.v / n) + '%' : '—'}</b></span>`; })}</span>` : tot ? h`<b class="${classePct(pct, soglia)}">${pct}%</b><br><span class="piccolo sotto">${v.v}/${tot}${att.prove ? ' di ' + att.prove : ''}</span>`
-                    : h`<span class="piccolo sotto">${att.prove ? att.prove + ' prove' : 'tocca'}</span>`}</span>
+                    : h`<span class="piccolo sotto prove-n" title="${att.prove ? 'LU da ' + att.prove + ' prove' : 'Dato in percentuale a ogni seduta'}">${att.prove ? h`${icona('layer-group')} ${att.prove}` : icona('percent')}</span>`}</span>
             </button>
             ${hint && T.suggerimenti[att.id] ? h`<div class="att-suggerimenti aperti">
                 ${h`<div class="sugg-testo">
@@ -587,7 +587,7 @@
                 ${m.mantenimento ? h`<span class="pill grigia" title="Il dato si prende ma resta fuori da statistiche e criterio">mantenimento</span>` : ''}
                 ${m.field ? h`<span class="pill field" title="Field: ${m.field} stimoli">F${m.field}</span>` : ''}
                 ${crit ? h`<span class="pill verde">${icona('flag-checkered')} criterio il ${formatoData(crit)}</span>` : ''}
-                <span class="presa-conto">${tot ? h`<b class="${classePct(Math.round(100 * v.v / tot), soglia)}">${Math.round(100 * v.v / tot)}%</b> <span class="sotto">${v.v}/${tot}${attM.prove ? ' di ' + attM.prove : ''}</span>` : h`<span class="sotto">${attM.prove ? attM.prove + ' prove' : ''}</span>`}</span></div>
+                <span class="presa-conto">${tot ? h`<b class="${classePct(Math.round(100 * v.v / tot), soglia)}">${Math.round(100 * v.v / tot)}%</b> <span class="sotto">${v.v}/${tot}${attM.prove ? ' di ' + attM.prove : ''}</span>` : h`<span class="sotto prove-n" title="${attM.prove ? 'LU da ' + attM.prove + ' prove' : 'Dato in percentuale'}">${attM.prove ? h`${icona('layer-group')} ${attM.prove}` : icona('percent')}</span>`}</span></div>
             ${lu && (lu.prec || lu.oggi) ? h`<p class="sotto piccolo lu-attesa">${icona('hourglass-half')} ${testoLU(lu)}</p>` : ''}
             ${tasti(attM, tipoM, k)}
             ${righeCondizioni(m.condizioni || att.condizioni, tipoM, tm.eco)}
