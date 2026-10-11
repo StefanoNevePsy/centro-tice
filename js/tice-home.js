@@ -525,9 +525,9 @@
             </button>
             ${hint && T.suggerimenti[att.id] ? h`<div class="att-suggerimenti aperti">
                 ${h`<div class="sugg-testo">
-                    ${att.suggerimenti ? h`<p>${att.suggerimenti}</p>` : ''}
-                    ${t && t.suggerimento ? h`<p>${att.suggerimenti ? h`<b>${t.testo}:</b> ` : ''}${t.suggerimento}</p>` : ''}
-                    ${ms.filter((m) => m.suggerimenti).map((m) => h`<p><b>${m.nome}:</b> ${m.suggerimenti}</p>`)}
+                    ${att.suggerimenti ? h`<p>${conCaselle(att.suggerimenti)}</p>` : ''}
+                    ${t && t.suggerimento ? h`<p>${att.suggerimenti ? h`<b>${t.testo}:</b> ` : ''}${conCaselle(t.suggerimento)}</p>` : ''}
+                    ${ms.filter((m) => m.suggerimenti).map((m) => h`<p><b>${m.nome}:</b> ${conCaselle(m.suggerimenti)}</p>`)}
                 </div>`}
             </div>` : ''}
             ${aperta ? h`<div class="att-corpo">
@@ -551,7 +551,7 @@
                 ${prev ? h`<p class="avviso-criterio">${icona('flag-checkered')} ${prev}</p>` : ''}
                 ${aCriterio ? (senzaTarget ? h`<p class="avviso-criterio">${icona('flag-checkered')} Criterio raggiunto il ${formatoData(aCriterio)}: dal programma puoi terminare l'attività o aggiungere un target.</p>`
                     : h`<p class="avviso-criterio">${icona('flag-checkered')} Criterio raggiunto il ${formatoData(aCriterio)}. <button class="bt piccolo" data-a="chiudi-target" data-id="${att.id}" data-t="${t.id}">Passa al prossimo target</button></p>`) : ''}
-                ${!ms.length && v && (v.nota || v.decisione) ? h`<p class="nota-voce">${icona('note-sticky')} ${v.decisione ? h`<b>${v.decisione}</b> ` : ''}${v.nota}</p>` : ''}
+                ${!ms.length && v && (v.nota || v.decisione) ? h`<p class="nota-voce">${icona('note-sticky')} ${v.decisione ? h`<b>${v.decisione}</b> ` : ''}${conCaselle(v.nota)}</p>` : ''}
             </div>` : ''}
         </div>`;
     }
@@ -585,7 +585,7 @@
                 <button class="ib" data-a="annulla" data-id="${k}" aria-label="Annulla l'ultima di ${m.nome}" title="Annulla l'ultima">${icona('rotate-left')}</button>
                 <button class="ib" data-a="nota-voce" data-id="${k}" aria-label="Nota e opzioni di ${m.nome}" title="Nota e opzioni">${icona('pen')}</button>
             </div>
-            ${v && (v.nota || v.decisione) ? h`<p class="nota-voce">${icona('note-sticky')} ${v.decisione ? h`<b>${v.decisione}</b> ` : ''}${v.nota}</p>` : ''}
+            ${v && (v.nota || v.decisione) ? h`<p class="nota-voce">${icona('note-sticky')} ${v.decisione ? h`<b>${v.decisione}</b> ` : ''}${conCaselle(v.nota)}</p>` : ''}
         </div>`;
     }
     // ---------- cronometro per le attività di fluency ----------
@@ -2008,6 +2008,18 @@
         if (pv) o.promptVisivo = pv; else delete o.promptVisivo;
     }
     // le caselle: «prima | poi | dopo» → tre quadrati con la parola sotto
+    // Le caselle in mezzo a un testo qualsiasi: «… prompt X | X | X (campanella)» →
+    // «… prompt» □ □ □ «(campanella)». Ogni casella prende la parola accanto alla |.
+    function conCaselle(testo) {
+        const t = String(testo || '');
+        if (t.indexOf('|') < 0) return t;
+        if (t.indexOf('\n') >= 0) return t.split('\n').map((r, i) => h`${i ? h`<br>` : ''}${conCaselle(r)}`);
+        const parti = t.split('|');
+        const prima = parti[0].replace(/\s+$/, ''), ultima = parti[parti.length - 1].replace(/^\s+/, '');
+        const mP = /^(.*?)(\S+)$/.exec(prima) || ['', '', prima], mU = /^(\S+)(.*)$/.exec(ultima) || ['', ultima, ''];
+        const voci = [mP[2]].concat(parti.slice(1, -1).map((x) => x.trim()), [mU[1]]);
+        return h`${mP[1]}<span class="caselle-prompt">${voci.map((x) => h`<span class="casella"><i></i>${x ? h`<small>${x}</small>` : ''}</span>`)}</span>${mU[2]}`;
+    }
     const casellePrompt = (pv) => {
         const parti = String(pv || '').split(/[|,·]/).map((x) => x.trim()).filter(Boolean);
         return h`<span class="caselle-prompt" title="Prompt visivo">${parti.length > 1 ? parti.map((x) => h`<span class="casella"><i></i><small>${x}</small></span>`) : h`<span class="casella-testo">${pv}</span>`}</span>`;
@@ -2023,7 +2035,7 @@
         const usate = eco ? ['V', 'P', 'X'] : ['V', nonCorretta(tipo)];
         const segno = { V: '✓', P: eco ? 'e+' : 'P', X: '✗' };
         const r = usate.filter((k) => c[k]);
-        return r.length ? h`<p class="condizioni">${r.map((k) => h`<span class="cond ${k.toLowerCase()}"><b>${segno[k]}</b> ${c[k]}</span>`)}</p>` : '';
+        return r.length ? h`<p class="condizioni">${r.map((k) => h`<span class="cond ${k.toLowerCase()}"><b>${segno[k]}</b> ${conCaselle(c[k])}</span>`)}</p>` : '';
     }
     const campiCondizioni = (pre, c) => h`<div class="riga-campi campi-cond">
         <label class="campo"><span>✓ vale come corretta</span><input name="${pre + 'cV'}" maxlength="200" value="${(c && c.V) || ''}" placeholder="es. ordina le 3 carte giuste"></label>
