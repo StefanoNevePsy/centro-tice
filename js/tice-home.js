@@ -513,9 +513,9 @@
                         ${mant ? h` <span class="pill arancio" title="${att.mantenimento ? 'Il dato si prende ma non entra nelle statistiche' : 'Il target ha già raggiunto il criterio: si registra come mantenimento finché non si apre il prossimo'}">mantenimento</span>` : ''}
                         ${aCriterio ? h` <span class="pill verde">${icona('flag-checkered')} criterio</span>` : nCrit ? h` <span class="pill verde chiara" title="${ms.filter((m, i) => critM[i]).map((m) => m.nome).join(', ')} a criterio">${icona('flag-checkered')} ${nCrit} di ${nAcq}</span>` : ''}
                     </span>
-                    ${modVar(att)}
-                    ${t ? h`<span class="target target-ora">${t.setId ? h`${icona(giocabile ? 'layer-group' : 'triangle-exclamation')} ` : ''}${t.testo}${t.setId ? h` · ${etichettaModo(P.modoTarget(att, t))}` : ''}</span>` : (senzaTarget ? ''
+                    ${t ? h`<span class="target target-ora">${t.setId ? h`${icona(giocabile ? 'layer-group' : 'triangle-exclamation')} ` : ''}<span class="nome-testo">${t.testo}</span>${t.setId ? h` · ${etichettaModo(P.modoTarget(att, t))}` : ''}</span>` : (senzaTarget ? ''
                         : !att.temporanea ? h`<span class="target"><i>Nessun target in corso: aggiungilo dal programma.</i></span>` : '')}
+                    ${modVar(att)}
                     ${att.promptVisivo ? h`<span class="target riga-prompt">P: ${casellePrompt(att.promptVisivo)}</span>` : ''}
                     ${st ? h`<span class="target ta-riga">${icona('list-ol')} passo <b>${st.i + 1}/${passi.length}</b> · ${st.passo.testo}${st.giri ? h` <span class="pill grigia">giro ${st.giri + 1}</span>` : ''}</span>` : ''}
                     ${lu && (lu.prec || lu.oggi) ? h`<span class="target lu-attesa">${icona('hourglass-half')} ${testoLU(lu)}</span>` : ''}
@@ -2142,6 +2142,18 @@
         return foglio(h`<form class="modulo-att"><h2>${att ? 'Modifica attività' : 'Nuova attività'}</h2>
             <section class="sez">
                 <label class="campo"><span>Nome</span><input name="nome" required maxlength="120" value="${a.nome}" ${att ? '' : grezzo('autofocus')} placeholder="es. TACT, Imitazione motoria"></label>
+                ${att ? h`<div class="target-modulo">
+                ${(att.target || []).length ? h`<div class="campo"><span>Target</span><p class="sotto piccolo" style="margin:2px 0 0">${att.target.map((t) => t.testo).join(' · ')}</p></div>` : ''}
+                <label class="campo"><span>Aggiungi target, uno per riga <small class="sotto">· vanno in coda, dopo quelli che ci sono</small></span><textarea name="nuoviTarget" rows="2" placeholder="es. Vestiti 4"></textarea>
+                    <span class="sotto piccolo">Per rinominarli, riordinarli, collegarli a un set o chiuderli: dal programma, con ⋯ accanto a ogni target.</span></label></div>` : h`<div class="target-modulo">
+                <label class="spunta-riga"><input type="checkbox" name="ta" data-ta-scelta> <span><b>È una task analysis</b> <span class="sotto piccolo">· un compito diviso in passi, uno alla volta in seduta</span></span></label>
+                <label class="campo" data-no-ta><span>Target <small class="sotto">· uno per riga, il primo è quello da cui si parte</small></span><textarea name="target" rows="3" placeholder="es. Animali: cane, gatto&#10;Frutta: mela, banana"></textarea>
+                    <span class="sotto piccolo">Vuoto: li scegli dopo dall'archivio dei set o da una lista; si può anche lavorare senza target.</span></label>
+                <div data-si-ta hidden>
+                    <label class="campo"><span>Compito <small class="sotto">· vuoto: il nome dell'attività</small></span><input name="taCompito" maxlength="200" placeholder="es. Lavarsi le mani"></label>
+                    <label class="campo"><span>Passi, uno per riga, nell'ordine in cui si fanno</span><textarea name="taPassi" rows="7" placeholder="Apre il rubinetto&#10;Mette le mani sotto l'acqua&#10;Prende il sapone"></textarea>
+                        <span class="sotto piccolo">In seduta compare un passo alla volta; finito l'ultimo si ricomincia. I passi si cambiano poi dal programma.</span></label>
+                </div></div>`}
                 <div class="riga-campi">
                     <label class="campo"><span>Modalità</span><select name="modalita" class="campo-in" data-mod-scelta><option value="">Dal nome, in automatico</option>${opzioniModalita(a.modalita)}<option value="+">+ Nuova modalità…</option></select></label>
                     <label class="campo"><span>Procedura <small class="sotto">· facoltativa</small></span><input name="variante" maxlength="80" value="${a.variante || ''}" placeholder="es. intensiva, con modello"></label>
@@ -2180,18 +2192,7 @@
                 <label class="spunta-riga"><input type="checkbox" name="mantenimento" ${a.mantenimento ? grezzo('checked') : ''}> <span><b>Mantenimento</b> <span class="sotto piccolo">· si segna, ma fuori da statistiche e criterio</span></span></label>
                 <label class="spunta-riga"><input type="checkbox" name="cronometro" ${a.cronometro ? grezzo('checked') : ''}> <span><b>Cronometra (fluency)</b> <span class="sotto piccolo">· risposte al minuto, grafico SCC</span></span></label>
             </section>
-            ${att ? h`<section class="sez"><h3 class="sez-titolo">Target</h3>
-                ${(att.target || []).length ? h`<p class="sotto piccolo">${att.target.map((t) => t.testo).join(' · ')}</p>` : ''}
-                <label class="campo"><span>Aggiungi target, uno per riga <small class="sotto">· vanno in coda, dopo quelli che ci sono</small></span><textarea name="nuoviTarget" rows="2" placeholder="es. Vestiti 4"></textarea>
-                    <span class="sotto piccolo">Per rinominarli, riordinarli, collegarli a un set o chiuderli: dal programma, con ⋯ accanto a ogni target.</span></label></section>` : h`<section class="sez"><h3 class="sez-titolo">Target</h3>
-                <label class="spunta-riga"><input type="checkbox" name="ta" data-ta-scelta> <span><b>È una task analysis</b> <span class="sotto piccolo">· un compito diviso in passi, uno alla volta in seduta</span></span></label>
-                <label class="campo" data-no-ta><span>Uno per riga: il primo è quello da cui si parte</span><textarea name="target" rows="3" placeholder="es. Animali: cane, gatto&#10;Frutta: mela, banana"></textarea>
-                    <span class="sotto piccolo">Vuoto: li scegli dopo dall'archivio dei set o da una lista; si può anche lavorare senza target.</span></label>
-                <div data-si-ta hidden>
-                    <label class="campo"><span>Compito <small class="sotto">· vuoto: il nome dell'attività</small></span><input name="taCompito" maxlength="200" placeholder="es. Lavarsi le mani"></label>
-                    <label class="campo"><span>Passi, uno per riga, nell'ordine in cui si fanno</span><textarea name="taPassi" rows="7" placeholder="Apre il rubinetto&#10;Mette le mani sotto l'acqua&#10;Prende il sapone"></textarea>
-                        <span class="sotto piccolo">In seduta compare un passo alla volta; finito l'ultimo si ricomincia. I passi si cambiano poi dal programma.</span></label>
-                </div></section>`}
+
             <details class="sez apribile" ${eGruppo(p) ? grezzo('hidden') : ''} ${nMis ? grezzo('open') : ''}><summary><span class="sez-titolo">Sottoattività</span> <span class="sotto piccolo">${nMis ? nMis + ' · ' : ''}più prese dati nella stessa attività</span></summary>
                 <div class="sottoattivita" data-sotto>${(a.misure || []).map((m, i) => rigaSotto(i, m))}</div>
                 <button type="button" class="bt piccolo fantasma" data-sotto-aggiungi>${icona('plus')} Aggiungi sottoattività</button>
