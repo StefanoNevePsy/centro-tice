@@ -570,7 +570,10 @@
         const v = String(att.variante || '').trim();
         const n = M.normalizza(att.nome || '');
         const parti = [m && M.normalizza(m.nome) !== n ? m.nome : '', v && M.normalizza(v) !== n && (!m || M.normalizza(v) !== M.normalizza(m.nome)) ? v : ''].filter(Boolean);
-        return parti.length ? h`<span class="mod-var">${parti.map((x, i) => h`${i ? h`<span class="sep">·</span>` : ''}<span class="${i || !m ? 'variante' : 'modalita'}">${x}</span>`)}</span>` : '';
+        // il colore della modalità viene dalla sua categoria: le RAN sono sempre dello stesso colore
+        const cats = M.elenco(dizionario()).categorie, ci = m ? cats.findIndex((c) => c.id === m.categoria) : -1;
+        const col = ci >= 0 ? `var(--cat-${(ci % 6) + 1})` : 'var(--text-secondary)';
+        return parti.length ? h`<span class="mod-var" style="--mod:${col}">${parti.map((x, i) => h`${i ? h`<span class="sep">·</span>` : ''}<span class="${i || !m ? 'variante' : 'modalita'}">${x}</span>`)}</span>` : '';
     }
     // Una delle prese dati dell'attività (es. Categorizzazione → «Categorizza», «Tact mix»)
     function presaDati(p, att, t, tipo, m, v, crit, soglia) {
