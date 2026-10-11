@@ -234,4 +234,3 @@
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .modal .modal-header h2 i, :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .modal .modal-header h3 i { display: none; }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .modal-dialog .modal-heading { font-family: var(--f-display); font-weight: 400 !important; font-size: 1.7rem !important; }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .modal-dialog .modal-heading > i { display: none; }
-:root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .target-ora .nome-testo { --q-evid: 24%; }
