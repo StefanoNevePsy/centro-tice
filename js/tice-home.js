@@ -513,6 +513,7 @@
                         ${mant ? h` <span class="pill arancio" title="${att.mantenimento ? 'Il dato si prende ma non entra nelle statistiche' : 'Il target ha già raggiunto il criterio: si registra come mantenimento finché non si apre il prossimo'}">mantenimento</span>` : ''}
                         ${aCriterio ? h` <span class="pill verde">${icona('flag-checkered')} criterio</span>` : nCrit ? h` <span class="pill verde chiara" title="${ms.filter((m, i) => critM[i]).map((m) => m.nome).join(', ')} a criterio">${icona('flag-checkered')} ${nCrit} di ${nAcq}</span>` : ''}
                     </span>
+                    ${modVar(att)}
                     ${t ? h`<span class="target">${t.setId ? h`${icona(giocabile ? 'layer-group' : 'triangle-exclamation')} ` : ''}${t.testo}${t.setId ? h` · ${etichettaModo(P.modoTarget(att, t))}` : ''}</span>` : (senzaTarget ? (P.inPercentuale(att) ? h`<span class="target">${icona('percent')} Dato in percentuale a ogni seduta</span>` : h`<span class="target">${icona('layer-group')} LU da ${att.prove} prove</span>`)
                         : !att.temporanea ? h`<span class="target"><i>Nessun target in corso: aggiungilo dal programma.</i></span>` : '')}
                     ${att.promptVisivo ? h`<span class="target riga-prompt">P: ${casellePrompt(att.promptVisivo)}</span>` : ''}
@@ -562,6 +563,14 @@
             + (lu.resto ? `; ${lu.resto} ${lu.resto === 1 ? 'prova resta' : 'prove restano'} da parte per la prossima seduta` : '');
         const m = lu.n - lu.resto;
         return prima + `ancora ${m} ${m === 1 ? 'prova' : 'prove'} per la LU da ${lu.n}: se non ci arrivi, si completa nella prossima seduta`;
+    }
+    // sotto il nome: modalità e variante, discrete (se il nome non le dice già)
+    function modVar(att) {
+        const m = att.modalita ? M.trovaModalita(att.modalita, dizionario()) : null;
+        const v = String(att.variante || '').trim();
+        const n = M.normalizza(att.nome || '');
+        const parti = [m && M.normalizza(m.nome) !== n ? m.nome : '', v && M.normalizza(v) !== n && (!m || M.normalizza(v) !== M.normalizza(m.nome)) ? v : ''].filter(Boolean);
+        return parti.length ? h`<span class="mod-var">${parti.map((x, i) => h`${i ? h`<span class="sep">·</span>` : ''}<span class="${i || !m ? 'variante' : 'modalita'}">${x}</span>`)}</span>` : '';
     }
     // Una delle prese dati dell'attività (es. Categorizzazione → «Categorizza», «Tact mix»)
     function presaDati(p, att, t, tipo, m, v, crit, soglia) {
