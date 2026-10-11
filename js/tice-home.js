@@ -514,7 +514,7 @@
                         ${aCriterio ? h` <span class="pill verde">${icona('flag-checkered')} criterio</span>` : nCrit ? h` <span class="pill verde chiara" title="${ms.filter((m, i) => critM[i]).map((m) => m.nome).join(', ')} a criterio">${icona('flag-checkered')} ${nCrit} di ${nAcq}</span>` : ''}
                     </span>
                     ${modVar(att)}
-                    ${t ? h`<span class="target">${t.setId ? h`${icona(giocabile ? 'layer-group' : 'triangle-exclamation')} ` : ''}${t.testo}${t.setId ? h` · ${etichettaModo(P.modoTarget(att, t))}` : ''}</span>` : (senzaTarget ? ''
+                    ${t ? h`<span class="target target-ora">${t.setId ? h`${icona(giocabile ? 'layer-group' : 'triangle-exclamation')} ` : ''}${t.testo}${t.setId ? h` · ${etichettaModo(P.modoTarget(att, t))}` : ''}</span>` : (senzaTarget ? ''
                         : !att.temporanea ? h`<span class="target"><i>Nessun target in corso: aggiungilo dal programma.</i></span>` : '')}
                     ${att.promptVisivo ? h`<span class="target riga-prompt">P: ${casellePrompt(att.promptVisivo)}</span>` : ''}
                     ${st ? h`<span class="target ta-riga">${icona('list-ol')} passo <b>${st.i + 1}/${passi.length}</b> · ${st.passo.testo}${st.giri ? h` <span class="pill grigia">giro ${st.giri + 1}</span>` : ''}</span>` : ''}
@@ -820,7 +820,7 @@
             <div class="riga-campi">
                 <label class="campo"><span>Modalità</span><select class="campo-in" ${da('mod-scelta')}>
                     <option value="+" ${!st.modalita ? grezzo('selected') : ''}>Nuova modalità…</option>${opzioniModalita(st.modalita)}</select></label>
-                ${st.modalita ? h`<label class="campo"><span>Variante</span><input class="campo-in" maxlength="80" value="${st.variante || ''}" placeholder="—" ${da('mod-variante')}></label>`
+                ${st.modalita ? h`<label class="campo"><span>Procedura</span><input class="campo-in" maxlength="80" value="${st.variante || ''}" placeholder="—" ${da('mod-variante')}></label>`
                     : h`<label class="campo"><span>Nome</span><input class="campo-in" maxlength="60" value="${st.nuova.nome}" ${da('mod-nuova-nome')}></label>
                     <label class="campo"><span>Categoria</span><select class="campo-in" ${da('mod-nuova-cat')}>${E.categorie.map((c) => h`<option value="${c.id}" ${st.nuova.categoria === c.id ? grezzo('selected') : ''}>${c.nome}</option>`)}</select></label>`}
             </div>
@@ -1691,6 +1691,7 @@
                 att.prove = +r.prove || null;
                 impostaField(att, r.field, r.promptVisivo);
                 impostaCondizioni(att, r.cV, r.cP, r.cX);
+                String(r.nuoviTarget || '').split('\n').map((x) => x.trim()).filter(Boolean).forEach((x) => P.aggiungiTarget(att, x, true));
                 rinominaSedute(p, att);   // nome e categoria delle sedute
             }
             att.modificato = new Date().toISOString();
@@ -2143,7 +2144,7 @@
                 <label class="campo"><span>Nome</span><input name="nome" required maxlength="120" value="${a.nome}" ${att ? '' : grezzo('autofocus')} placeholder="es. TACT, Imitazione motoria"></label>
                 <div class="riga-campi">
                     <label class="campo"><span>Modalità</span><select name="modalita" class="campo-in" data-mod-scelta><option value="">Dal nome, in automatico</option>${opzioniModalita(a.modalita)}<option value="+">+ Nuova modalità…</option></select></label>
-                    <label class="campo"><span>Variante</span><input name="variante" maxlength="80" value="${a.variante || ''}" placeholder="es. intensivo"></label>
+                    <label class="campo"><span>Procedura <small class="sotto">· facoltativa</small></span><input name="variante" maxlength="80" value="${a.variante || ''}" placeholder="es. intensiva, con modello"></label>
                 </div>
                 <div class="campo nuova-modalita" data-mod-nuova hidden><span>Nuova modalità</span>
                     <div class="riga-campi"><input class="campo-in" name="mod_nome" maxlength="60" placeholder="Nome, es. Echo to tact" data-doppione="modalita" autocomplete="off">
@@ -2179,7 +2180,10 @@
                 <label class="spunta-riga"><input type="checkbox" name="mantenimento" ${a.mantenimento ? grezzo('checked') : ''}> <span><b>Mantenimento</b> <span class="sotto piccolo">· si segna, ma fuori da statistiche e criterio</span></span></label>
                 <label class="spunta-riga"><input type="checkbox" name="cronometro" ${a.cronometro ? grezzo('checked') : ''}> <span><b>Cronometra (fluency)</b> <span class="sotto piccolo">· risposte al minuto, grafico SCC</span></span></label>
             </section>
-            ${att ? '' : h`<section class="sez"><h3 class="sez-titolo">Target</h3>
+            ${att ? h`<section class="sez"><h3 class="sez-titolo">Target</h3>
+                ${(att.target || []).length ? h`<p class="sotto piccolo">${att.target.map((t) => t.testo).join(' · ')}</p>` : ''}
+                <label class="campo"><span>Aggiungi target, uno per riga <small class="sotto">· vanno in coda, dopo quelli che ci sono</small></span><textarea name="nuoviTarget" rows="2" placeholder="es. Vestiti 4"></textarea>
+                    <span class="sotto piccolo">Per rinominarli, riordinarli, collegarli a un set o chiuderli: dal programma, con ⋯ accanto a ogni target.</span></label></section>` : h`<section class="sez"><h3 class="sez-titolo">Target</h3>
                 <label class="spunta-riga"><input type="checkbox" name="ta" data-ta-scelta> <span><b>È una task analysis</b> <span class="sotto piccolo">· un compito diviso in passi, uno alla volta in seduta</span></span></label>
                 <label class="campo" data-no-ta><span>Uno per riga: il primo è quello da cui si parte</span><textarea name="target" rows="3" placeholder="es. Animali: cane, gatto&#10;Frutta: mela, banana"></textarea>
                     <span class="sotto piccolo">Vuoto: li scegli dopo dall'archivio dei set o da una lista; si può anche lavorare senza target.</span></label>

@@ -845,3 +845,5 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .prove-n { font-size: .95rem; }
 .tice .prove-n i { font-size: 1em; opacity: .75; }
 .tice .att-testa .mod-var { margin-top: 5px; }
+.tice .att-testa .target.target-ora { color: var(--text-primary); font-weight: 700; font-size: .98rem; margin-top: 4px; }
+.tice .att-testa .target.target-ora i { color: var(--col, var(--accent-color)); }
