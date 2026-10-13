@@ -275,7 +275,13 @@
             sfondo.innerHTML = `<div class="tice-foglio" role="dialog" aria-modal="true">${val(contenuto)}</div>`;
             document.body.appendChild(sfondo);
             const f = sfondo.firstChild;
-            const chiudi = (v) => { sfondo.remove(); document.removeEventListener('keydown', tasto); risolvi(v); };
+            try { history.pushState(Object.assign({}, history.state, { tf: (history.state && history.state.tf || 0) + 1 }), ''); } catch (e) { /* niente */ }
+            const chiudi = (v, daIndietro) => {
+                if (!sfondo.isConnected) return;
+                sfondo.remove(); document.removeEventListener('keydown', tasto); risolvi(v);
+                if (!daIndietro && history.state && history.state.tf) { T.saltaPop = (T.saltaPop || 0) + 1; history.back(); }
+            };
+            sfondo._chiudiIndietro = () => lascia();
             // Toccare fuori o Esc con un modulo modificato: prima si chiede (un tocco
             // distratto non deve buttare via un'attività scritta a metà)
             let iniziale = null, chiedendo = false;
@@ -1093,9 +1099,16 @@
         if (T.mantieniScroll) r.scrollTop = alto;
         T.mantieniScroll = false;
     }
-    function vai(vista, pid) {
+    function vai(vista, pid, daCronologia) {
+        const prima = T.vista + '|' + T.pid;
         T.vista = vista;
         if (pid !== undefined) T.pid = pid;
+        // ogni schermata è una voce della cronologia: il gesto «indietro» del telefono torna alla precedente
+        if (!daCronologia && prima !== T.vista + '|' + T.pid) {
+            const st = { tv: T.vista, tp: T.pid };
+            // un foglio appena chiuso sta ancora togliendo la sua voce: si aspetta che abbia finito
+            if (T.saltaPop) T.dopoPop = st; else { try { history.pushState(st, ''); } catch (e) { /* niente */ } }
+        }
         radice().scrollTop = 0;
         disegna();
     }
@@ -2818,25 +2831,27 @@
     // l'app: si tiene sempre una voce in più nella cronologia e, quando viene consumata,
     // si fa quello che farebbe la freccia ← (o si chiude il foglio aperto) e la si rimette.
     // Solo dalla schermata iniziale l'indietro esce davvero.
+    // Indietro (gesto o tasto del telefono): chiude il foglio in cima, se no torna alla schermata
+    // precedente. Le voci si aggiungono quando si tocca qualcosa, così i browser non le saltano.
     function agganciaIndietro() {
-        // Firefox e Chrome saltano, con «indietro», le voci di cronologia aggiunte senza un
-        // tocco dell'utente: la voce di guardia si mette quindi al primo tocco e si rimette
-        // al tocco successivo dopo ogni «indietro». Così l'indietro resta sempre nell'app.
-        let armato = false;
-        const segna = () => { if (armato) return; try { history.pushState({ tice: 1 }, ''); armato = true; } catch (e) { /* niente */ } };
-        try { if (!(history.state && history.state.tice === 1)) history.replaceState(Object.assign({}, history.state, { tice: 0 }), ''); else armato = true; } catch (e) { /* niente */ }
-        ['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, segna, true));
+        try { history.replaceState({ tv: T.vista, tp: T.pid }, ''); } catch (e) { /* niente */ }
         window.addEventListener('popstate', (e) => {
-            if (e.state && e.state.tice === 1) { armato = true; return; }   // avanti: niente da fare
-            armato = false;
+            if (T.saltaPop) {   // foglio chiuso dall'app: la voce era sua
+                T.saltaPop--;
+                if (!T.saltaPop && T.dopoPop) { try { history.pushState(T.dopoPop, ''); } catch (er) { /* niente */ } T.dopoPop = null; }
+                return;
+            }
             const fogli = document.querySelectorAll('.tice-foglio-sfondo');
-            if (fogli.length) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); segna(); return; }
-            const r = radice();
-            if (r && r.hidden) { apri(); segna(); return; }   // dai giochi si torna al Centro TICE
-            const freccia = r && r.querySelector('.tice-barra [aria-label="Indietro"]');
-            if (freccia) freccia.click();
-            else if (T.vista !== 'turni' && VISTE.turni) vai('turni');
-            segna();
+            if (fogli.length) {
+                const f = fogli[fogli.length - 1];
+                // «Scartare le modifiche?» può fermarlo: allora la voce del foglio torna
+                try { history.pushState(Object.assign({}, e.state, { tf: ((e.state && e.state.tf) || 0) + 1 }), ''); } catch (er) { /* niente */ }
+                if (f._chiudiIndietro) f._chiudiIndietro();
+                return;
+            }
+            const st = e.state || {};
+            if (radice().hidden) { apri(); return; }   // dai giochi si torna al Centro TICE
+            if (st.tv && VISTE[st.tv]) vai(st.tv, st.tp, true);
         });
     }
     async function avvia() {
