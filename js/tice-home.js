@@ -340,6 +340,7 @@
             <div class="titolo"><span class="titolo-testo">${titolo}</span>${sotto ? (sotto.azione ? h`<button type="button" class="sotto-titolo tocca" data-a="${sotto.azione}"><span class="tocca-testo">${sotto.testo}</span>${icona('chevron-down')}</button>` : h`<span class="sotto-titolo">${sotto.testo}</span>`) : ''}</div>
             ${EST.chip ? EST.chip() : ''}
             ${destra || ''}
+            ${document.fullscreenEnabled && !(window.matchMedia && matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches) ? h`<button class="ib" data-a="schermo-intero" aria-label="Schermo intero" title="Schermo intero">${icona(document.fullscreenElement ? 'compress' : 'expand')}</button>` : ''}
         </header>`;
     }
 
@@ -1106,6 +1107,10 @@
         // "casa" sono i turni del giorno; l'elenco completo dei bambini resta a un tocco
         'vai-bambini': () => vai(VISTE.turni ? 'turni' : 'bambini'),
         'vai-elenco': () => vai('bambini'),
+        'schermo-intero': async () => {
+            try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) { /* non consentito */ }
+            T.mantieniScroll = true; disegna();
+        },
         'vai-turni': () => vai('turni'),
         'vai-seduta': () => vai('seduta'),
         'vai-programma': () => vai('programma'),
@@ -2781,6 +2786,7 @@
         };
         arma();
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') arma(); });
+        document.addEventListener('fullscreenchange', () => { if (!radice().hidden) { T.mantieniScroll = true; disegna(); } });
         document.addEventListener('fullscreenchange', () => { if (!aSchermoIntero()) setTimeout(arma, 300); });
     }
     async function opzioniSchermo() {
