@@ -2817,7 +2817,9 @@
     // alcuni browser (Firefox per Android) lasciano le barre di sistema anche con il manifest
     const installata = () => ['fullscreen', 'standalone', 'minimal-ui'].some((m) => window.matchMedia && matchMedia('(display-mode: ' + m + ')').matches);
     const touch = () => !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
-    const vuoleSchermoIntero = () => { const v = leggiPref('tice_schermo_intero'); return v === '1' || (v == null && installata() && touch()); };
+    // su telefono (schermo piccolo e touch) di partenza sì, nel browser o nell'app installata; su computer no
+    const telefono = () => touch() && Math.min(screen.width, screen.height) < 820;
+    const vuoleSchermoIntero = () => { const v = leggiPref('tice_schermo_intero'); return v === '1' || (v == null && telefono()); };
     // Il browser concede lo schermo intero solo dopo un tocco: si chiede al primo
     // tocco, e di nuovo quando l'app torna in primo piano (Android lo toglie uscendo)
     function schermoInteroAlTocco() {
