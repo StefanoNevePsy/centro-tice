@@ -847,3 +847,6 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .att-testa .mod-var { margin-top: 5px; }
 .tice .att-testa .target.target-ora { color: var(--text-primary); font-weight: 700; font-size: .98rem; margin-top: 4px; }
 .tice .att-testa .target.target-ora i { color: var(--col, var(--accent-color)); }
+.tice-foglio .scelte-chi { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; }
+.tice-foglio .scelte-chi .bt { border-radius: 999px; min-height: 36px; }
+.tice-foglio .scelte-chi .bt.on { background: var(--text-primary); color: var(--modal-bg); border-color: var(--text-primary); }

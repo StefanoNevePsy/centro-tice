@@ -563,6 +563,25 @@
             </div>` : ''}
         </div>`;
     }
+    // «Chi ha svolto»: si scrive liberamente o si toccano le persone (anche più di una)
+    function sceltePersone(nomi, campo) {
+        nomi = [...new Set(nomi.filter(Boolean))];
+        return nomi.length ? h`<div class="scelte-chi" data-chi-per="${campo}">${nomi.map((n) => h`<button type="button" class="bt piccolo" data-chi="${n}">${n}</button>`)}</div>` : '';
+    }
+    function agganciaChi(el) {
+        el.querySelectorAll('[data-chi-per]').forEach((box) => {
+            const inp = el.querySelector(`[name="${box.dataset.chiPer}"]`);
+            const lista = () => inp.value.split('+').map((x) => x.trim()).filter(Boolean);
+            const segna = () => box.querySelectorAll('[data-chi]').forEach((b) => b.classList.toggle('on', lista().includes(b.dataset.chi)));
+            box.addEventListener('click', (e) => {
+                const b = e.target.closest('[data-chi]'); if (!b) return;
+                const l = lista(), n = b.dataset.chi;
+                inp.value = (l.includes(n) ? l.filter((x) => x !== n) : l.concat(n)).join(' + ');
+                segna();
+            });
+            inp.addEventListener('input', segna); segna();
+        });
+    }
     // Le prove che non arrivano a una LU intera non si perdono: restano da parte e la completano la volta dopo
     function testoLU(lu) {
         const prima = lu.prec ? `${lu.prec.seq.length} ${lu.prec.seq.length === 1 ? 'prova tenuta' : 'prove tenute'} da parte dal ${formatoData(lu.prec.dal)} · ` : '';
@@ -1405,11 +1424,13 @@
             const msV = msDi(b.dataset.id), mV = misure(att).find((x) => x.id === msV);
             const attesaV = P.conAttesa(attV, tV) ? P.inAttesaDi(att, tV, msV) : null;
             const eco = ecoico(attV), tipoV = v.sessionType === 'timedelay' ? 'timedelay' : 'independent';
+            const calV = EST.chiDi ? await EST.chiDi(p.id, bozza(p.id).data).catch(() => ({ nomi: [], persone: [] })) : { nomi: [], persone: [] };
             const r = await foglio(h`<form class="modulo-att"><h2>${att.nome}${mV ? h` <span class="sotto">· ${mV.nome}</span>` : ''}</h2>
                 <label class="campo"><span>Nota</span><textarea name="nota" maxlength="2000" rows="3">${v.nota || ''}</textarea></label>
                 <label class="campo"><span>Decisione (facoltativa)</span><input name="decisione" maxlength="200" value="${v.decisione || ''}" placeholder="es. Passa a 1&quot; T/D" list="tice-decisioni"></label>
                 <datalist id="tice-decisioni"><option value='Passa a 0" T/D'><option value='Passa a 1" T/D'><option value='Passa a 2" T/D'><option value="Probe"><option value="Stop"></datalist>
                 <label class="campo campo-chi"><span>Svolta da <small class="sotto">· solo se diversa da chi ha svolto la seduta</small></span><input name="operatore" maxlength="120" value="${v.operatore || ''}" placeholder="${chiDellaSeduta(p, bozza(p.id)) || 'Nome'}" autocomplete="off"></label>
+                ${sceltePersone(calV.nomi.concat(calV.persone), 'operatore')}
                 <details class="sez apribile"><summary><span class="sez-titolo">Correggi i dati</span> <span class="sotto piccolo">${[targets.length > 1 ? 'target' : '', eco ? '' : 'tipo', 'conteggi', attesaV ? 'prove in attesa' : ''].filter(Boolean).join(', ')}</span></summary>
                     ${targets.length > 1 ? h`<label class="campo"><span>Target registrato</span><select name="targetId">
                         ${targets.map((t) => h`<option value="${t.id}" ${t.id === v.targetId ? grezzo('selected') : ''}>${t.testo} (${P.STATI_TARGET[t.stato]})</option>`)}</select></label>` : ''}
@@ -1420,18 +1441,19 @@
                     <div class="riga-campi conteggi">
                         <label class="campo"><span>✓ ${eco ? 'Autonome' : 'Corrette'}</span><input name="v" type="number" min="0" max="999" inputmode="numeric" value="${v.v}"></label>
                         ${eco ? h`<label class="campo"><span>e+ Ecoiche</span><input name="eco" type="number" min="0" max="999" inputmode="numeric" value="${v.p}"></label>
-                            <label class="campo"><span>✗ Errate</span><input name="no" type="number" min="0" max="999" inputmode="numeric" value="${v.x}"></label>`
-                            : h`<label class="campo"><span data-etichetta-no>${tipoV === 'timedelay' ? 'P Promptate' : '✗ Errate'}</span><input name="no" type="number" min="0" max="999" inputmode="numeric" value="${v.p + v.x}"></label>`}
+`
+                            : ''}
+                        <label class="campo"><span>Totale</span><input name="tot" type="number" min="0" max="999" inputmode="numeric" value="${v.v + v.p + v.x}"></label>
                     </div>
                     ${attesaV ? h`<label class="spunta-riga"><input type="checkbox" name="scarta"> <span><b>Scarta le ${attesaV.seq.length} prove in attesa</b><br><span class="sotto piccolo">Registrate dal ${formatoData(attesaV.dal)} senza arrivare a una LU da ${attV.prove}: non entreranno nei dati.</span></span></label>` : ''}
                 </details>
                 ${att.temporanea ? h`<button type="button" class="bt pericolo" data-foglio="togli" style="width:100%">Togli dalla seduta</button>` : ''}
                 <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, {
                 dopo: (el) => {
+                    agganciaChi(el);
                     // cambiando tipo: l'etichetta dei conteggi e cosa succede alle risposte già segnate
                     const conv = el.querySelector('[data-conversione]'), et = el.querySelector('[data-etichetta-no]');
                     el.querySelectorAll('[name=tipo]').forEach((x) => x.addEventListener('change', () => {
-                        if (et) et.textContent = x.value === 'timedelay' ? 'P Promptate' : '✗ Errate';
                         const n = x.value === 'timedelay' ? v.x : v.p;
                         conv.textContent = x.value !== tipoV && n ? `Cambiando tipo, ${n} ${n === 1 ? 'risposta' : 'risposte'} ${x.value === 'timedelay' ? '✗' : 'P'} ${n === 1 ? 'diventa' : 'diventano'} ${x.value === 'timedelay' ? 'P' : '✗'}.` : '';
                     }));
@@ -1457,8 +1479,10 @@
             convertiVoce(v, v.sessionType, attV);
             const no = ecoico(attV) ? 'x' : nonCorretta(v.sessionType).toLowerCase();
             const nv = Math.max(0, Math.min(999, parseInt(r.v, 10) || 0));
-            const nn = Math.max(0, Math.min(999, parseInt(r.no, 10) || 0));
+            // si scrivono corrette e totale: le non corrette sono la differenza, del tipo giusto
             const ne = ecoico(attV) ? Math.max(0, Math.min(999, parseInt(r.eco, 10) || 0)) : v.p;
+            const ntot = Math.max(nv + (ecoico(attV) ? ne : 0), Math.min(999, parseInt(r.tot, 10) || 0));
+            const nn = ntot - nv - (ecoico(attV) ? ne : 0);
             if (nv !== v.v || nn !== v[no] || ne !== v.p) {
                 v.p = ne;
                 // la sequenza non corrisponde più ai conteggi: la si ricostruisce in blocco
@@ -1567,8 +1591,9 @@
                     <tfoot><tr><th>Learn unit</th><th class="num">${r0.corrette}/${r0.prove}</th><th class="num">${Math.round(100 * r0.corrette / r0.prove)}%</th></tr></tfoot></table>
                 <label class="campo campo-chi"><span>Chi ha svolto la seduta${!b.operatore && cal.nomi.length ? h` <small class="sotto">· dal calendario</small>` : ''}</span><input name="operatore" maxlength="120" required value="${operatore}" placeholder="Nome, o più nomi separati da +" list="tice-chi" autocomplete="off">
                     <datalist id="tice-chi">${suggeriti.map((n) => h`<option value="${n}">`)}</datalist></label>
+                ${sceltePersone(cal.nomi.concat(cal.persone), 'operatore')}
                 <label class="campo"><span>Note sulla seduta (vanno nel diario del giorno)</span><textarea name="nota" maxlength="5000" placeholder="Comportamento, rinforzatori, osservazioni…"></textarea></label>
-                <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Torna alla seduta</button><button class="bt primario">${icona('check')} Salva</button></div></form>`);
+                <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Torna alla seduta</button><button class="bt primario">${icona('check')} Salva</button></div></form>`, { dopo: agganciaChi });
             if (!dati) return;
             try { localStorage.setItem('tice_operatore', dati.operatore.trim().split('+')[0].trim()); } catch (e) { /* niente */ }
             await salvaSeduta(p, b, dati);
