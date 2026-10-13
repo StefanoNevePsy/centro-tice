@@ -2819,14 +2819,16 @@
         if (!(history.state && history.state.tice)) { try { history.replaceState({ tice: 0 }, ''); } catch (e) { /* niente */ } segna(); }
         window.addEventListener('popstate', (e) => {
             // solo il ritorno alla nostra voce di base (un cambio di #… non è un «indietro»)
-            if (!e.state || e.state.tice !== 0) return;
+            if (e.state && e.state.tice === 1) return;   // avanti: niente da fare
             const fogli = document.querySelectorAll('.tice-foglio-sfondo');
             if (fogli.length) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); segna(); return; }
             const r = radice();
             if (r && r.hidden) { apri(); segna(); return; }   // dai giochi si torna al Centro TICE
             const freccia = r && r.querySelector('.tice-barra [aria-label="Indietro"]');
             if (freccia) { freccia.click(); segna(); return; }
-            history.back();   // schermata iniziale: si esce davvero
+            // schermata iniziale: si resta (uscire lasciava una pagina vuota, soprattutto a schermo intero)
+            if (T.vista !== 'turni' && VISTE.turni) { vai('turni'); }
+            segna();
         });
     }
     async function avvia() {
