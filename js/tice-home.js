@@ -2815,19 +2815,23 @@
     // si fa quello che farebbe la freccia ← (o si chiude il foglio aperto) e la si rimette.
     // Solo dalla schermata iniziale l'indietro esce davvero.
     function agganciaIndietro() {
-        const segna = () => { try { history.pushState({ tice: 1 }, ''); } catch (e) { /* niente */ } };
-        if (!(history.state && history.state.tice)) { try { history.replaceState({ tice: 0 }, ''); } catch (e) { /* niente */ } segna(); }
+        // Firefox e Chrome saltano, con «indietro», le voci di cronologia aggiunte senza un
+        // tocco dell'utente: la voce di guardia si mette quindi al primo tocco e si rimette
+        // al tocco successivo dopo ogni «indietro». Così l'indietro resta sempre nell'app.
+        let armato = false;
+        const segna = () => { if (armato) return; try { history.pushState({ tice: 1 }, ''); armato = true; } catch (e) { /* niente */ } };
+        try { if (!(history.state && history.state.tice === 1)) history.replaceState(Object.assign({}, history.state, { tice: 0 }), ''); else armato = true; } catch (e) { /* niente */ }
+        ['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, segna, true));
         window.addEventListener('popstate', (e) => {
-            // solo il ritorno alla nostra voce di base (un cambio di #… non è un «indietro»)
-            if (e.state && e.state.tice === 1) return;   // avanti: niente da fare
+            if (e.state && e.state.tice === 1) { armato = true; return; }   // avanti: niente da fare
+            armato = false;
             const fogli = document.querySelectorAll('.tice-foglio-sfondo');
             if (fogli.length) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); segna(); return; }
             const r = radice();
             if (r && r.hidden) { apri(); segna(); return; }   // dai giochi si torna al Centro TICE
             const freccia = r && r.querySelector('.tice-barra [aria-label="Indietro"]');
-            if (freccia) { freccia.click(); segna(); return; }
-            // schermata iniziale: si resta (uscire lasciava una pagina vuota, soprattutto a schermo intero)
-            if (T.vista !== 'turni' && VISTE.turni) { vai('turni'); }
+            if (freccia) freccia.click();
+            else if (T.vista !== 'turni' && VISTE.turni) vai('turni');
             segna();
         });
     }
