@@ -340,7 +340,7 @@
             <div class="titolo"><span class="titolo-testo">${titolo}</span>${sotto ? (sotto.azione ? h`<button type="button" class="sotto-titolo tocca" data-a="${sotto.azione}"><span class="tocca-testo">${sotto.testo}</span>${icona('chevron-down')}</button>` : h`<span class="sotto-titolo">${sotto.testo}</span>`) : ''}</div>
             ${EST.chip ? EST.chip() : ''}
             ${destra || ''}
-            ${document.fullscreenEnabled && !(window.matchMedia && matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches) ? h`<button class="ib" data-a="schermo-intero" aria-label="Schermo intero" title="Schermo intero">${icona(document.fullscreenElement ? 'compress' : 'expand')}</button>` : ''}
+            ${(document.fullscreenEnabled || document.webkitFullscreenEnabled) && !(window.matchMedia && matchMedia('(display-mode: fullscreen)').matches) ? h`<button class="ib" data-a="schermo-intero" aria-label="Schermo intero" title="Schermo intero">${icona(document.fullscreenElement || document.webkitFullscreenElement ? 'compress' : 'expand')}</button>` : ''}
         </header>`;
     }
 
@@ -1108,7 +1108,11 @@
         'vai-bambini': () => vai(VISTE.turni ? 'turni' : 'bambini'),
         'vai-elenco': () => vai('bambini'),
         'schermo-intero': async () => {
-            try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) { /* non consentito */ }
+            const d = document, el = d.documentElement;
+            try {
+                if (d.fullscreenElement || d.webkitFullscreenElement) await (d.exitFullscreen ? d.exitFullscreen() : d.webkitExitFullscreen());
+                else await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen());
+            } catch (e) { avviso('Su questo dispositivo lo schermo intero non è consentito.', 'errore'); }
             T.mantieniScroll = true; disegna();
         },
         'vai-turni': () => vai('turni'),
@@ -2786,7 +2790,7 @@
         };
         arma();
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') arma(); });
-        document.addEventListener('fullscreenchange', () => { if (!radice().hidden) { T.mantieniScroll = true; disegna(); } });
+        ['fullscreenchange', 'webkitfullscreenchange'].forEach((t) => document.addEventListener(t, () => { if (!radice().hidden) { T.mantieniScroll = true; disegna(); } }));
         document.addEventListener('fullscreenchange', () => { if (!aSchermoIntero()) setTimeout(arma, 300); });
     }
     async function opzioniSchermo() {
