@@ -47,10 +47,12 @@
                 return JSON.parse(decodeURIComponent(atob(p).split('').map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')));
             } catch (e) { return null; }
         }
-        function imposta(t) {
+        function imposta(t, ripristino) {
             const d = payload(t);
             if (!d || !d.email) return false;
             token = t; scadenza = (d.exp || 0) * 1000;
+            // un accesso nuovo con Google: la sessione lunga di prima (magari non più valida) non si usa più
+            if (!ripristino && sessione) { sessione = null; sessionePer = null; try { localStorage.removeItem(K_SESS); } catch (e) { /* ok */ } }
             utente = { email: String(d.email).toLowerCase(), nome: d.given_name || d.name || d.email };
             try { sessionStorage.setItem(K_TOKEN, t); localStorage.setItem(K_UTENTE, JSON.stringify(utente)); } catch (e) { /* ok */ }
             avvisa();
@@ -115,7 +117,7 @@
             if (!cfgApp().dev && cfgApp().googleClientId) leggiRitorno();
             try {
                 const t = !token && sessionStorage.getItem(K_TOKEN);
-                if (t) imposta(t);
+                if (t) imposta(t, true);
                 if (!utente) { const u = JSON.parse(localStorage.getItem(K_UTENTE) || 'null'); if (u && u.email) utente = u; }
                 if (cfgApp().dev) token = sessionStorage.getItem(K_TOKEN + ':dev') || token;
             } catch (e) { /* ok */ }
@@ -185,7 +187,12 @@
             if (nativo()) window.ticeNativo.esci().catch(() => {});
             avvisa();
         }
-        return { inizia, pulsante, accessoDev, token: prendi, utente: () => utente, haToken: () => cfgApp().dev ? !!token : (valido() || sessioneValida()), invalida, esci, alCambio: (f) => ascoltatori.push(f), ErroreAccesso };
+        function scartaSessione(usato) {
+            if (!sessione || usato !== sessione.token) return false;
+            sessione = null; try { localStorage.removeItem(K_SESS); } catch (e) { /* ok */ }
+            return valido();
+        }
+        return { inizia, pulsante, accessoDev, scartaSessione, token: prendi, utente: () => utente, haToken: () => cfgApp().dev ? !!token : (valido() || sessioneValida()), invalida, esci, alCambio: (f) => ascoltatori.push(f), ErroreAccesso };
     })();
 
     // =====================================================================
@@ -255,7 +262,11 @@
         try { j = JSON.parse(testo); } catch (e) { throw new ErroreRete('Risposta del custode non leggibile.'); }
         if (!j || typeof j !== 'object') throw new ErroreRete('Risposta del custode non leggibile.');
         if (!j.ok) {
-            if (j.errore === 'non-autenticato') { Auth.invalida(); throw new Auth.ErroreAccesso(j.messaggio); }
+            if (j.errore === 'non-autenticato') {
+                // rifiutata la sessione lunga ma c'è un accesso Google valido: si scarta solo lei e si riprova
+                if (Auth.scartaSessione(token)) throw new ErroreRete('sessione scaduta: riprovo con l\'accesso Google');
+                Auth.invalida(); throw new Auth.ErroreAccesso(j.messaggio);
+            }
             throw new ErroreCustode(j.errore, j.messaggio, j.extra);
         }
         // la risposta di "sono attivo" (GET): la richiesta non è arrivata, si riprova
@@ -644,7 +655,13 @@
     }
 
     // ---------- avvio, accesso, chiave ----------
-    async function preparaCentro(senzaSincronizzare) {
+    // una preparazione alla volta: all'accesso partono sia l'avvio sia l'ascolto del login
+    let preparando = null;
+    function preparaCentro(senzaSincronizzare) {
+        if (!preparando) preparando = preparaCentroUnaVolta(senzaSincronizzare).finally(() => { preparando = null; });
+        return preparando;
+    }
+    async function preparaCentroUnaVolta(senzaSincronizzare) {
         if (pulizia) await pulizia.catch(() => {});
         S.io = await chiama('io');
         await scriviMeta('io', S.io);
@@ -696,7 +713,7 @@
         S.cfg = await meta('cfg');
         S.modalita = (await meta('modalita')) || null;
         S.chiavi = await C.portachiavi();
-        if (S.io && S.io.email === u.email) aggiornaFase(); else S.fase = 'fuori';
+        if (S.io && S.io.email === u.email) aggiornaFase(); else if (!preparando) S.fase = 'fuori';
         await controllaScadenza();
         cambiato('stato');
         try { await preparaCentro(); } catch (e) { gestisciErrore(e); cambiato('stato'); }
