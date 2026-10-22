@@ -69,7 +69,7 @@
         return att.map((a) => {
             const P = window.TiceProgramma, col = P && P.coloreDi ? P.coloreDi(patient, a) : '#888';
             const target = (a.target || []).filter((t) => t.stato !== 'pianificato').map((t) => {
-                const s = sed.filter((h) => h.targetId === t.id).sort((x, y) => String(x.date).localeCompare(String(y.date)));
+                const s = (window.unisciSeduteDelGiorno || ((x) => x))(sed.filter((h) => h.targetId === t.id)).sort((x, y) => String(x.date).localeCompare(String(y.date)));
                 const inizio = giorno(t.inizio) || (s[0] && giorno(s[0].date)) || '';
                 const chiuso = ['criterio', 'repertorio', 'chiuso'].includes(t.stato);
                 const fine = chiuso ? (giorno(t.fine) || (s.length && giorno(s[s.length - 1].date)) || inizio) : '';

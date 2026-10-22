@@ -1960,8 +1960,28 @@ function _chartVariantName(sessions, v) {
     return (set && set.variantNames && set.variantNames[v - 1]) || ('Variante ' + v);
 }
 
+// Sedute del Centro TICE salvate in più volte lo stesso giorno (una seduta divisa fra
+// due persone): nel grafico diventano un punto solo, con le risposte sommate.
+function unisciSeduteDelGiorno(sessions) {
+    const out = [], per = {};
+    (sessions || []).forEach((s) => {
+        if (!s || !s.attivitaId || !(s.total > 0) || s.mode === 'fluenza') { out.push(s); return; }
+        const k = s.attivitaId + '|' + (s.targetId || '') + '|' + (s.misura || '') + '|' + getDateKey(s.date);
+        const x = per[k];
+        if (!x) { per[k] = Object.assign({}, s); out.push(per[k]); return; }
+        x.correct = (x.correct || 0) + (s.correct || 0);
+        x.prompts = (x.prompts || 0) + (s.prompts || 0);
+        x.total += s.total;
+        ['rawV', 'rawP', 'rawX'].forEach((f) => { if (s[f] != null || x[f] != null) x[f] = (x[f] || 0) + (s[f] || 0); });
+        x.percentage = Math.round(100 * x.correct / x.total);
+        if (new Date(s.date) > new Date(x.date)) x.date = s.date;
+        if (s.operatore && x.operatore !== s.operatore) x.operatore = [x.operatore, s.operatore].filter(Boolean).join(' + ');
+    });
+    return out;
+}
 function renderActivitySVGChart(container, sessions, typeGroup, modeCode, threshold) {
     if (threshold === undefined) threshold = DEFAULT_CRITERION;
+    sessions = unisciSeduteDelGiorno(sessions);
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("class", "chart-svg");
@@ -4047,3 +4067,4 @@ async function _callGeminiText(prompt, apiKey) {
         throw new Error(err.error?.message || `Errore API (${response.status})`);
     }
 }
+window.unisciSeduteDelGiorno = unisciSeduteDelGiorno;
