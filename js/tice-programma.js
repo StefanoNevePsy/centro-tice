@@ -169,14 +169,22 @@
   }
   function criterioRaggiunto(elenco, criterio) {
     var soglia = (criterio && criterio.soglia) || 90, n = (criterio && criterio.sedute) || 2;
-    var fila = 0, ultimo = null;
-    var ord = elenco.slice().sort(function (a, b) { return new Date(a.date) - new Date(b.date); });
-    for (var i = 0; i < ord.length; i++) {
-      var s = ord[i], g = giorno(s.date);
-      if (s.percentage >= soglia) {
-        if (g !== ultimo) { fila++; ultimo = g; }
-      } else { fila = 0; ultimo = null; }
-      if (fila >= n) return g;
+    // Più salvataggi nello stesso giorno (una seduta divisa fra due persone) valgono come
+    // una giornata sola: si sommano le risposte e si guarda la percentuale del giorno.
+    var perGiorno = {}, giorni = [];
+    elenco.forEach(function (s) {
+      var g = giorno(s.date);
+      if (!perGiorno[g]) { perGiorno[g] = { ok: 0, tot: 0, pct: [] }; giorni.push(g); }
+      var x = perGiorno[g];
+      if (s.total > 0) { x.ok += s.correct || 0; x.tot += s.total; } else x.pct.push(s.percentage || 0);
+    });
+    giorni.sort();
+    var fila = 0;
+    for (var i = 0; i < giorni.length; i++) {
+      var x = perGiorno[giorni[i]];
+      var pct = x.tot ? 100 * x.ok / x.tot : (x.pct.length ? x.pct.reduce(function (a, b) { return a + b; }, 0) / x.pct.length : 0);
+      if (pct >= soglia) fila++; else fila = 0;
+      if (fila >= n) return giorni[i];
     }
     return null;
   }
