@@ -2900,7 +2900,9 @@
     const touch = () => !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
     // su telefono (schermo piccolo e touch) di partenza sì, nel browser o nell'app installata; su computer no
     const telefono = () => touch() && Math.min(screen.width, screen.height) < 820;
-    const vuoleSchermoIntero = () => { const v = leggiPref('tice_schermo_intero'); return v === '1' || (v == null && telefono()); };
+    // automatico solo sul telefono (lì si può spegnere); sul computer mai, anche se un tempo era stato acceso:
+    // resta il tasto ⛶ nella barra in alto
+    const vuoleSchermoIntero = () => telefono() && leggiPref('tice_schermo_intero') !== '0';
     // Il browser concede lo schermo intero solo dopo un tocco: si chiede al primo
     // tocco, e di nuovo quando l'app torna in primo piano (Android lo toglie uscendo)
     function schermoInteroAlTocco() {
@@ -2920,14 +2922,15 @@
             <div class="campo"><span>Dimensione dell'interfaccia</span><div class="scelta">
                 ${SCALE.map(([v, n]) => h`<label><input type="radio" name="scala" value="${v}" ${v === z ? grezzo('checked') : ''}><span>${n}</span></label>`)}
             </div><span class="sotto piccolo">Vale solo per questo dispositivo: più grande sui telefoni, più piccola sui monitor grandi.</span></div>
-            ${puoSchermoIntero() ? h`<label class="spunta-riga"><input type="checkbox" name="intero" ${fs ? grezzo('checked') : ''}> <span><b>Schermo intero</b><br><span class="sotto piccolo">Senza barre del browser e di sistema. Si attiva al primo tocco dopo l'apertura; per uscire, scorri dal bordo dello schermo (o Esc sul computer).</span></span></label>`
+            ${puoSchermoIntero() && telefono() ? h`<label class="spunta-riga"><input type="checkbox" name="intero" ${fs ? grezzo('checked') : ''}> <span><b>Schermo intero</b><br><span class="sotto piccolo">Senza barre del browser e di sistema. Si attiva al primo tocco dopo l'apertura; per uscire, scorri dal bordo dello schermo (o Esc sul computer).</span></span></label>`
+                : puoSchermoIntero() ? h`<p class="sotto piccolo">Sul computer lo schermo intero non parte da solo: usa il tasto ${icona('expand')} nella barra in alto (Esc per uscire).</p>`
                 : h`<p class="sotto piccolo">Su questo dispositivo lo schermo intero non è disponibile: aggiungi l'app alla schermata Home per aprirla senza barre del browser.</p>`}
             <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
         { dopo: (el) => el.querySelectorAll('[name=scala]').forEach((x) => x.addEventListener('change', () => { document.documentElement.style.zoom = x.value === '1' ? '' : x.value; })) });
         if (!r) { applicaScala(); return; }
         scriviPref('tice_scala', r.scala && r.scala !== '1' ? r.scala : null);
         applicaScala();
-        if (puoSchermoIntero()) {
+        if (puoSchermoIntero() && telefono()) {
             scriviPref('tice_schermo_intero', r.intero ? '1' : '0');
             await schermoIntero(!!r.intero);
         }
