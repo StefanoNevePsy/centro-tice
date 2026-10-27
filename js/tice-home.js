@@ -552,7 +552,8 @@
                     <div class="sequenza ${ecoico(att) ? 'eco' : ''}" aria-label="Sequenza delle risposte">${(v ? v.sequenza : '').split('').map((r) => h`<i class="${r}"></i>`)}</div>
                     ${st ? h`<button class="ib" data-a="salta-passo" data-id="${att.id}" aria-label="Salta il passo" title="Salta il passo">${icona('forward')}</button>
                     <button class="ib" data-a="apri-ta" data-id="${att.id}" aria-label="Lista dei passi" title="Lista dei passi">${icona('list-ol')}</button>` : ''}
-                    ${tipo === 'timedelay' ? h`<button class="bt piccolo fantasma td-voce" data-a="td-voce" data-id="${att.id}" title="Cambia il time delay">${icona('stopwatch')} ${tdS != null ? sec(tdS) : 'T/D ?'}</button>` : ''}
+                    ${tipo === 'timedelay' ? h`<button class="bt piccolo fantasma td-voce" data-a="td-voce" data-id="${att.id}" title="Cambia il time delay o passa a indipendente">${icona('stopwatch')} ${tdS != null ? sec(tdS) : 'T/D ?'}</button>`
+                        : !ecoico(att) ? h`<button class="bt piccolo fantasma td-voce" data-a="td-voce" data-id="${att.id}" title="Indipendente: tocca per passare a time delay">${icona('stopwatch')} Indip.</button>` : ''}
                     <button class="ib" data-a="annulla" data-id="${att.id}" aria-label="Annulla l'ultima" title="Annulla l'ultima">${icona('rotate-left')}</button>
                     <button class="ib" data-a="nota-voce" data-id="${att.id}" aria-label="Nota e opzioni" title="Nota e opzioni">${icona('pen')}</button>
                 </div>`}
@@ -1384,33 +1385,58 @@
         'nascondi-ta': () => { if (T.ta) T.ta.nascosta = true; aggiornaSovra(paz(T.pid)); },
         'mostra-ta': () => { if (T.ta) { T.ta.nascosta = false; T.ta.anima = true; } aggiornaSovra(paz(T.pid)); },
         'td-voce': async (b) => {
+            // strategia di oggi (time delay o indipendente) e secondi di attesa, per questa seduta o da oggi in poi
             const p = paz(T.pid);
             const att = attivitaDi(p, b.dataset.id);
             const v = voce(p, att);
             const t = v.targetId ? (att.target || []).find((x) => x.id === v.targetId) : null;
+            const tipoOra = ((v && v.sessionType) || att.sessionType) === 'timedelay' ? 'timedelay' : 'independent';
             const ora = tdOggi(att, v, t);
             const prog = att.temporanea ? null : P.tdDi(att);
             const aggiorna = !att.temporanea && puoProgrammi(p);
-            const r = await foglio(h`<form><h2>Time delay · ${att.nome}</h2>
-                <label class="campo"><span>Secondi di attesa prima dell'aiuto</span><input name="sec" type="number" min="0" max="60" inputmode="numeric" required value="${ora != null ? ora : ''}" autofocus></label>
-                <div class="scelta-rapida">${[0, 1, 2, 3, 4, 5].map((n) => h`<button type="button" class="bt piccolo ${n === ora ? 'primario' : ''}" data-td-rapido="${n}">${sec(n)}</button>`)}</div>
-                ${aggiorna ? h`<label class="spunta-riga"><input type="checkbox" name="programma" checked> <span><b>Da oggi in poi</b><br><span class="sotto piccolo">Aggiorna il programma${prog != null ? ` (ora ${sec(prog)})` : ''}: il cambio resta segnato con la data. Senza spunta vale solo per questa seduta.</span></span></label>`
+            const tipoProg = att.sessionType === 'timedelay' ? 'timedelay' : 'independent';
+            const r = await foglio(h`<form><h2>Strategia · ${att.nome}</h2>
+                <div class="campo"><span>Oggi si lavora in</span><div class="scelta">
+                    <label><input type="radio" name="tipo" value="timedelay" ${tipoOra === 'timedelay' ? grezzo('checked') : ''}><span>Time delay</span></label>
+                    <label><input type="radio" name="tipo" value="independent" ${tipoOra === 'independent' ? grezzo('checked') : ''}><span>Indipendente</span></label>
+                </div><span class="sotto piccolo avviso-doppione" data-conversione></span></div>
+                <div data-solo-td ${tipoOra === 'timedelay' ? '' : grezzo('hidden')}>
+                    <label class="campo"><span>Secondi di attesa prima dell'aiuto</span><input name="sec" type="number" min="0" max="60" inputmode="numeric" value="${ora != null ? ora : ''}" ${tipoOra === 'timedelay' ? grezzo('autofocus') : ''}></label>
+                    <div class="scelta-rapida">${[0, 1, 2, 3, 4, 5].map((n) => h`<button type="button" class="bt piccolo ${n === ora ? 'primario' : ''}" data-td-rapido="${n}">${sec(n)}</button>`)}</div>
+                </div>
+                ${aggiorna ? h`<label class="spunta-riga"><input type="checkbox" name="programma" checked> <span><b>Da oggi in poi</b><br><span class="sotto piccolo">Aggiorna il programma (ora ${tipoProg === 'timedelay' ? 'time delay' + (prog != null ? ' ' + sec(prog) : '') : 'indipendente'}): il cambio dei secondi resta segnato con la data. Senza spunta vale solo per questa seduta.</span></span></label>`
                     : h`<p class="sotto piccolo">Vale per questa seduta: il programma lo aggiorna la referente.</p>`}
                 <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, {
-                dopo: (el) => el.querySelectorAll('[data-td-rapido]').forEach((x) => x.addEventListener('click', () => {
-                    el.querySelector('[name=sec]').value = x.dataset.tdRapido;
-                    el.querySelectorAll('[data-td-rapido]').forEach((y) => y.classList.toggle('primario', y === x));
-                }))
+                dopo: (el) => {
+                    el.querySelectorAll('[data-td-rapido]').forEach((x) => x.addEventListener('click', () => {
+                        el.querySelector('[name=sec]').value = x.dataset.tdRapido;
+                        el.querySelectorAll('[data-td-rapido]').forEach((y) => y.classList.toggle('primario', y === x));
+                    }));
+                    const td = el.querySelector('[data-solo-td]'), conv = el.querySelector('[data-conversione]');
+                    el.querySelectorAll('[name=tipo]').forEach((x) => x.addEventListener('change', () => {
+                        td.hidden = x.value !== 'timedelay';
+                        if (!td.hidden) el.querySelector('[name=sec]').focus();
+                        const n = x.value === 'timedelay' ? v.x : v.p;
+                        conv.textContent = x.value !== tipoOra && n ? `Le ${n === 1 ? 'risposta già segnata' : n + ' risposte già segnate'} ${x.value === 'timedelay' ? '✗' : 'P'} ${n === 1 ? 'diventa' : 'diventano'} ${x.value === 'timedelay' ? 'P' : '✗'}.` : '';
+                    }));
+                }
             });
             if (!r) return;
-            const n = P.secondiTD(r.sec);
-            if (n == null) return;
-            v.tdSeconds = n;
+            const nuovoTipo = r.tipo === 'timedelay' ? 'timedelay' : 'independent';
+            const n = nuovoTipo === 'timedelay' ? P.secondiTD(r.sec) : null;
+            if (nuovoTipo === 'timedelay' && n == null) { avviso('Scrivi i secondi di time delay'); return; }
+            if (nuovoTipo !== tipoOra) { v.sessionType = nuovoTipo; convertiVoce(v, nuovoTipo, att); }
+            if (n != null) v.tdSeconds = n; else delete v.tdSeconds;
             salvaBozza();
-            if (r.programma && aggiorna && P.impostaTD(att, n, { chi: chiOpera(), il: bozza(p.id).data })) {
-                att.modificato = new Date().toISOString();
-                await salvaPaziente(p);
-                avviso(`${att.nome}: time delay a ${sec(n)} da oggi`);
+            if (r.programma && aggiorna) {
+                const cambi = [];
+                if (nuovoTipo !== tipoProg) { att.sessionType = nuovoTipo; cambi.push(nuovoTipo === 'timedelay' ? 'time delay' : 'indipendente'); }
+                if (n != null && P.impostaTD(att, n, { chi: chiOpera(), il: bozza(p.id).data })) cambi.push('time delay a ' + sec(n));
+                if (cambi.length) {
+                    att.modificato = new Date().toISOString();
+                    await salvaPaziente(p);
+                    avviso(`${att.nome}: ${[...new Set(cambi)].join(', ')} da oggi`);
+                }
             }
             aggiornaScheda(p, att.id);
         },
