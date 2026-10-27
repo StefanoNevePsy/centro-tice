@@ -270,6 +270,7 @@
         return h`${barra({ titolo: S.giorno === oggi() ? 'Oggi' : 'Turni', sotto: { testo: S.giorno === oggi() ? lunga(S.giorno).replace(/^Oggi, /, '') : lunga(S.giorno), azione: 'tt-data' },
                 destra: h`<button class="ib" data-a="tt-stampa" aria-label="Stampa i turni" title="Stampa i turni">${icona('print')}</button>
                     <button class="ib" data-a="vai-elenco" aria-label="Tutti i bambini" title="Tutti i bambini">${icona('children')}</button>
+                    <button class="ib" data-a="vai-grafici" aria-label="Grafici dei bambini" title="Grafici">${icona('chart-line')}</button>
                     <button class="ib" data-a="giochi" aria-label="Giochi e attività dell'app" title="Giochi e attività">${icona('gamepad')}</button>
                     <button class="ib" data-a="menu" aria-label="Altro">${icona('ellipsis-vertical')}</button>` })}
             <main class="tice-main tt-main">

@@ -350,6 +350,50 @@
         </header>`;
     }
 
+
+    // ---------- grafici: tutti i bambini, uno dopo l'altro, con lo stesso tipo di grafico ----------
+    const conGrafici = () => pazienti().filter((p) => !eGruppo(p)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
+    function bambinoGrafici() {
+        const tutti = conGrafici();
+        return tutti.find((p) => p.id === T.pid) || tutti.find((p) => (p.history || []).length) || tutti[0] || null;
+    }
+    function vistaGrafici() {
+        const tutti = conGrafici(), p = bambinoGrafici();
+        if (p) T.pid = p.id;
+        const i = p ? tutti.indexOf(p) : -1;
+        return h`${barra({ indietro: 'grafici-indietro', titolo: 'Grafici', sotto: { testo: p ? p.name : 'Nessun bambino' }, destra: p ? h`
+                <button class="ib" data-a="apri-cartella" aria-label="Cartella clinica di ${p.name}" title="Cartella clinica">${icona('folder-open')}</button>` : '' })}
+            <main class="tice-main grafici-main">
+                ${p ? h`<div class="grafici-scelta">
+                    <button class="ib" data-a="grafici-passa" data-d="-1" aria-label="Bambino precedente" title="Precedente (←)" ${tutti.length < 2 ? grezzo('disabled') : ''}>${icona('chevron-left')}</button>
+                    <select class="campo-in" data-cambio="grafici-bambino" aria-label="Bambino">${tutti.map((x) => h`<option value="${x.id}" ${x === p ? grezzo('selected') : ''}>${x.name}${(x.history || []).length ? '' : ' · nessun dato'}</option>`)}</select>
+                    <span class="sotto piccolo grafici-n">${i + 1} di ${tutti.length}</span>
+                    <button class="ib" data-a="grafici-passa" data-d="1" aria-label="Bambino successivo" title="Successivo (→)" ${tutti.length < 2 ? grezzo('disabled') : ''}>${icona('chevron-right')}</button>
+                </div>
+                <div class="grafici-bambini" role="list">${tutti.map((x) => h`<button role="listitem" class="grafici-bimbo ${x === p ? 'qui' : ''}" data-a="grafici-vai" data-pid="${x.id}" ${x === p ? grezzo('aria-current="true"') : ''}>
+                    <span class="avatar">${x.photo ? h`<img src="${x.photo}" alt="">` : iniziali(x.name)}</span><span>${x.name}</span></button>`)}</div>
+                ${(p.history || []).length ? h`<div class="grafici-tela" data-grafici></div>` : h`<div class="vuoto">${p.name}: ancora nessuna seduta registrata.</div>`}`
+                : h`<div class="vuoto">Ancora nessun bambino.</div>`}
+            </main>`;
+    }
+    function montaGrafici(r) {
+        const box = r.querySelector('[data-grafici]'), p = bambinoGrafici();
+        if (box && p && window.renderVizTab) window.renderVizTab(p, box);
+        const qui = r.querySelector('.grafici-bimbo.qui');
+        if (qui) qui.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+    function passaGrafici(d) {
+        const tutti = conGrafici(), p = bambinoGrafici();
+        if (!p || tutti.length < 2) return;
+        T.pid = tutti[(tutti.indexOf(p) + d + tutti.length) % tutti.length].id;
+        T.mantieniScroll = true;
+        disegna();
+    }
+    function apriGrafici() {
+        T.ritornoGrafici = { vista: T.vista, pid: T.pid };
+        vai('grafici', T.vista === 'seduta' || T.vista === 'programma' ? T.pid : (T.pidGrafici || T.pid));
+    }
+
     // ---------- elenco bambini ----------
     function ultimaSeduta(p) {
         let u = null;
@@ -384,6 +428,7 @@
         });
         return h`${barra({ indietro: VISTE.turni ? 'vai-bambini' : null, titolo: 'Tutti i bambini', destra: h`
                 <button class="ib" data-a="vai-turni" aria-label="Turni" title="Turni della settimana">${icona('calendar-week')}</button>
+                <button class="ib" data-a="vai-grafici" aria-label="Grafici dei bambini" title="Grafici">${icona('chart-line')}</button>
                 <button class="ib" data-a="giochi" aria-label="Giochi e attività dell'app" title="Giochi e attività">${icona('gamepad')}</button>
                 <button class="ib" data-a="menu" aria-label="Altro">${icona('ellipsis-vertical')}</button>` })}
             <main class="tice-main">
@@ -1100,7 +1145,7 @@
     }
 
     // ---------- viste e punti di aggancio per le estensioni (tice-centro.js) ----------
-    const VISTE = { bambini: vistaBambini, seduta: vistaSeduta, programma: vistaProgramma, import: vistaImport, classifica: vistaClassifica };
+    const VISTE = { bambini: vistaBambini, seduta: vistaSeduta, programma: vistaProgramma, import: vistaImport, classifica: vistaClassifica, grafici: vistaGrafici };
     const EST = {};
     // Chi può cambiare il programma: sul dispositivo tutti; per i bambini del
     // centro lo decide il ruolo (le tirocinanti registrano, non modificano).
@@ -1115,6 +1160,7 @@
         const alto = r.scrollTop;
         const f = VISTE[T.vista] || vistaBambini;
         r.innerHTML = String(f());
+        if (T.vista === 'grafici') { T.pidGrafici = T.pid; montaGrafici(r); }
         if (EST.dopo) EST.dopo(T.vista, r);
         if (T.mantieniScroll) r.scrollTop = alto;
         T.mantieniScroll = false;
@@ -1152,6 +1198,10 @@
         'vai-seduta': () => vai('seduta'),
         'vai-programma': () => vai('programma'),
         'apri-cartella': () => { if (T.pid) apriCartella(T.pid); },
+        'vai-grafici': () => apriGrafici(),
+        'grafici-passa': (b) => passaGrafici(Number(b.dataset.d) || 1),
+        'grafici-vai': (b) => { T.pid = b.dataset.pid; T.mantieniScroll = true; disegna(); },
+        'grafici-indietro': () => { const r = T.ritornoGrafici || { vista: VISTE.turni ? 'turni' : 'bambini' }; vai(VISTE[r.vista] ? r.vista : 'bambini', r.pid); },
         'vai-import': () => { if (!limitato()) vai('import'); },
         'apri-bambino': (b) => { T.aperte = {}; T.ritorno = T.vista === 'turni' ? 'turni' : 'bambini'; vai('seduta', b.dataset.pid); },
         // indietro dalla presa dati: dove si era (i turni del giorno o l'elenco dei bambini)
@@ -1160,7 +1210,8 @@
         menu: async () => {
             const r = await foglio(h`<h2>Centro TICE</h2><div class="opzioni">
                 <button class="opzione" data-foglio="giochi">${icona('gamepad')}<span class="corpo">Giochi e attività<small>Tutte le attività dell'app, con i set</small></span></button>
-                <button class="opzione" data-foglio="cartelle">${icona('chart-line')}<span class="corpo">Cartelle cliniche<small>Grafici, giornate, diario, report</small></span></button>
+                <button class="opzione" data-foglio="grafici">${icona('chart-line')}<span class="corpo">Grafici<small>Tutti i bambini, uno dopo l'altro, con lo stesso grafico</small></span></button>
+                <button class="opzione" data-foglio="cartelle">${icona('folder-open')}<span class="corpo">Cartelle cliniche<small>Grafici, giornate, diario, report</small></span></button>
                 ${limitato() ? '' : h`<button class="opzione" data-foglio="import">${icona('file-import')}<span class="corpo">Importa quaderni Numbers</span></button>
                 <button class="opzione" data-foglio="archivio">${icona('folder-open')}<span class="corpo">Archivio set</span></button>
                 <button class="opzione" data-foglio="opzioni">${icona('gear')}<span class="corpo">Impostazioni e tema</span></button>`}
@@ -1182,6 +1233,7 @@
             if (r === 'modalita') { await gestisciModalita(); disegna(); return; }
             if (r === 'giochi') chiudi();
             else if (r === 'cartelle') apriDaQui(openPatients);
+            else if (r === 'grafici') apriGrafici();
             else if (r === 'import') vai('import');
             else if (r === 'archivio') apriDaQui(openLibrary);
             else if (r === 'opzioni') apriDaQui(openSettings);
@@ -2757,7 +2809,10 @@
         const el = e.target;
         const c = el.dataset && el.dataset.cambio;
         if (!c) return;
-        if (c === 'cerca') {
+        if (c === 'grafici-bambino') {
+            if (e.type !== 'change') return;
+            T.pid = el.value; T.mantieniScroll = true; disegna();
+        } else if (c === 'cerca') {
             T.cerca = el.value;
             const pos = el.selectionStart;
             disegna();
@@ -2913,6 +2968,14 @@
         r.addEventListener('click', suClick);
         r.addEventListener('input', suCambio);
         r.addEventListener('change', suCambio);
+        // nei grafici le frecce della tastiera passano al bambino prima o dopo
+        document.addEventListener('keydown', (e) => {
+            if (T.vista !== 'grafici' || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+            if (document.querySelector('.tice-foglio') || (e.target.closest && e.target.closest('input, select, textarea, [contenteditable]'))) return;
+            if (!radice() || !radice().isConnected) return;
+            e.preventDefault();
+            passaGrafici(e.key === 'ArrowLeft' ? -1 : 1);
+        });
         r.addEventListener('toggle', (e) => { const d = e.target; if (d.dataset && d.dataset.chiusi) T.chiusiAperti[d.dataset.chiusi] = d.open; }, true);
         window.addEventListener('pagehide', salvaBozza);
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') salvaBozza(); });

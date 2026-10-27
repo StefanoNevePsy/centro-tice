@@ -914,8 +914,13 @@ function vizFilteredPatient(patient) {
 }
 window.setVizFilter = (f, pid) => { state._vizFilter = f; const p = state.patients.find(x => x.id === pid); if (p) renderVizTab(p); };
 
-function renderVizTab(patient) {
-    const content = document.getElementById('report-content');
+// Dove si disegna: la scheda «Visual» della cartella o la schermata Grafici del Centro TICE
+let _vizBox = null;
+function vizContenitore() { return _vizBox && _vizBox.isConnected ? _vizBox : document.getElementById('report-content'); }
+window._vizContenitore = vizContenitore;
+function renderVizTab(patient, box) {
+    if (box !== undefined) _vizBox = box;
+    const content = vizContenitore();
     if (!content) return;
     const cur = state._vizView || 'calendar';
     const sk = getVizSkin();
@@ -954,7 +959,7 @@ function renderVizTab(patient) {
         <div style="display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:14px; -webkit-overflow-scrolling:touch; align-items:center;">${viewBtns}</div>
         <div id="viz-canvas" style="min-height:120px;"></div>`;
 
-    const canvas = document.getElementById('viz-canvas');
+    const canvas = content.querySelector('#viz-canvas');
     const view = VIZ_VIEWS.find(v => v.id === cur) || VIZ_VIEWS[0];
     const fp = vizFilteredPatient(patient);
     if (!(fp.history || []).length) { canvas.innerHTML = '<p style="color:var(--text-secondary); text-align:center; padding:24px;">Nessuna seduta nel periodo selezionato.</p>'; return; }

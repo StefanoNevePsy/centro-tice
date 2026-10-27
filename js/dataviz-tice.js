@@ -216,11 +216,12 @@
 
     // ---------- leggibilità: nessun testo sotto i 10px sullo schermo ----------
     const orig = window.renderVizTab;
-    window.renderVizTab = function (patient) {
+    window.renderVizTab = function (patient, box) {
         // per i bambini con un programma TICE si parte dai target
         if (!state._vizView && patient && righeProgramma(patient).length) state._vizView = 'tice-tempo';
-        orig(patient);
-        const tela = document.getElementById('viz-canvas');
+        orig(patient, box);
+        const dove = window._vizContenitore ? window._vizContenitore() : document;
+        const tela = dove && dove.querySelector('#viz-canvas');
         if (!tela) return;
         requestAnimationFrame(() => tela.querySelectorAll('svg').forEach((svg) => {
             const vb = svg.viewBox && svg.viewBox.baseVal, w = svg.getBoundingClientRect().width;

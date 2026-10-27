@@ -644,7 +644,7 @@ window.switchReportTab = (tab, pid) => {
     if (tab === 'overview') renderOverviewTab(p);
     else if (tab === 'dates') renderDatesTab(p);
     else if (tab === 'activities') renderActivitiesTab(p);
-    else if (tab === 'viz') renderVizTab(p);
+    else if (tab === 'viz') renderVizTab(p, null);
     else if (tab === 'diary') renderDiaryTab(p);
 };
 
