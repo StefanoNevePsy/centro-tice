@@ -716,6 +716,8 @@
         Object.keys(b.voci).forEach((k) => { const v = b.voci[k], a = attivitaDi(p, k), mm = a ? misure(a).find((x) => x.id === msDi(k)) : null; if (haDati(v) && !(a && a.mantenimento) && !(mm && mm.mantenimento)) { n++; corrette += v.v; prove += v.v + v.p + v.x; } });
         return { corrette, prove, n };
     }
+    // tutte le risposte della bozza, anche quelle in mantenimento
+    const provaNonSalvate = (p) => { const b = leggiBozza(p.id) || (T.bozza && T.bozza.pid === p.id ? T.bozza : null); return b ? Object.values(b.voci).reduce((n, v) => n + (haDati(v) ? v.v + v.p + v.x : 0), 0) : 0; };
     function testoPiede(p) {
         const r = riassunto(p);
         if (!r.n) return 'Nessuna risposta ancora';
@@ -1246,7 +1248,7 @@
                 <button class="opzione" data-foglio="giochi">${icona('gamepad')}<span class="corpo">Giochi con ${p.name}<small>Le sedute dei giochi vanno nella sua cartella</small></span></button>
                 <button class="opzione" data-foglio="stampa">${icona('print')}<span class="corpo">Stampa le griglie<small>Per prendere i dati su carta e ricopiarli dopo</small></span></button>
                 <button class="opzione" data-foglio="data">${icona('calendar-day')}<span class="corpo">Cambia la data della seduta<small>Per ricopiare un foglio di un altro giorno</small></span></button>
-                <button class="opzione" data-foglio="annulla">${icona('rotate-left')}<span class="corpo">Annulla la seduta in corso</span></button>
+                ${(() => { const n = provaNonSalvate(p); return n ? h`<button class="opzione pericolo-testo" data-foglio="annulla">${icona('trash-can')}<span class="corpo">Scarta la seduta non salvata<small>${n} ${n === 1 ? 'risposta registrata' : 'risposte registrate'} e non ancora ${n === 1 ? 'salvata' : 'salvate'}: si cancellano, il resto resta com'è</small></span></button>` : ''; })()}
                 ${limitato() ? '' : eGruppo(p) ? h`<button class="opzione" data-foglio="dati">${icona('users')}<span class="corpo">Modifica il gruppo<small>Nome e bambini</small></span></button>`
                     : h`<button class="opzione" data-foglio="dati">${icona('pen')}<span class="corpo">Modifica i dati del bambino<small>Nome, data di nascita, categoria</small></span></button>`}
                 ${EST.opzioniBambino ? EST.opzioniBambino(p) : ''}
@@ -1590,13 +1592,17 @@
             salvaBozza();
             disegna();
         },
+        // scarta la bozza: solo ciò che non è ancora salvato (le sedute già salvate e il programma non si toccano)
         'annulla-seduta': async () => {
             const p = paz(T.pid);
-            const r = riassunto(p);
-            if (r.prove && !await conferma('Annullare la seduta?', `Le ${r.prove} risposte registrate andranno perse.`, { ok: 'Annulla seduta', pericolo: true })) return;
+            const n = provaNonSalvate(p), b = bozza(p.id);
+            const att = Object.keys(b.voci).filter((k) => haDati(b.voci[k])).length;
+            if (!n && !b.temp.length && !b.extra.length) { avviso('Non c\'è niente da scartare'); return; }
+            if (!await conferma('Scartare la seduta non salvata?', `${n ? `Si cancellano ${n} ${n === 1 ? 'risposta' : 'risposte'} in ${att} ${att === 1 ? 'attività' : 'attività'}` : 'Si tolgono le attività aggiunte per oggi'}${b.data !== oggi() ? ' (seduta del ' + formatoData(b.data) + ')' : ''}. Le sedute già salvate e il programma restano come sono. Non si può annullare.`, { ok: 'Scarta la seduta', pericolo: true })) return;
             eliminaBozza(p.id);
             T.aperte = {};
             disegna();
+            avviso('Seduta scartata');
         },
         'aggiungi-oggi': async () => {
             const p = paz(T.pid);
