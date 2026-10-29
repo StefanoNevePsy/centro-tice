@@ -869,3 +869,13 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice-foglio .sedute-da-spostare { display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; margin: 8px 0; }
 .tice-foglio .scelta.verticale { flex-direction: column; }
 .tice-foglio .scelta input:checked + span .sotto { color: inherit; opacity: 0.85; }
+
+/* tastiera nella presa dati (solo dove c'è un mouse): l'attività che riceve i tasti */
+@media (pointer: fine) {
+    .tice .att.da-tastiera { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+    .tice .att.da-tastiera .att-corpo::after {
+        content: 'Tastiera: 1 · 2 · 3 per segnare · Z annulla · S o → salta il passo · ← passo prima';
+        display: block; margin-top: 8px; font-size: 0.72rem; color: var(--text-secondary); text-align: right;
+    }
+}
+.tice .tasto.premuto { transform: scale(0.96); filter: brightness(1.15); }

@@ -553,7 +553,7 @@
         const st = passi.length ? statoTA(v, passi) : null;
         const tdS = tipo === 'timedelay' ? tdOggi(att, v, t || null) : null;
         const lu = ms.length ? null : statoLU(att, v, t || null);
-        return h`<div class="att ${haDati(v) || vm.some(haDati) ? 'con-dati' : ''} ${hint ? 'con-hint' : ''}" data-att="${att.id}" style="--col:${P.coloreDi(p, att)}">
+        return h`<div class="att ${haDati(v) || vm.some(haDati) ? 'con-dati' : ''} ${hint ? 'con-hint' : ''} ${T.tastiera && baseId(T.tastiera) === att.id ? 'da-tastiera' : ''}" data-att="${att.id}" style="--col:${P.coloreDi(p, att)}">
             ${hint ? h`<button class="ib hint-tasto ${T.suggerimenti[att.id] ? 'on' : ''}" data-a="suggerimenti" data-id="${att.id}" aria-expanded="${T.suggerimenti[att.id] ? 'true' : 'false'}" aria-label="Suggerimenti" title="Suggerimenti per chi somministra">${icona('lightbulb')}</button>` : ''}
             <button class="att-testa" data-a="apri-att" data-id="${att.id}" aria-expanded="${aperta ? 'true' : 'false'}">
                 <span class="corpo">
@@ -3001,7 +3001,67 @@
     }
 
     // ---------- eventi ----------
+
+    // ---------- tastiera nella presa dati ----------
+    // 1/2/3 (o V, P, X) segnano sull'ultima attività toccata, o sulla task analysis aperta;
+    // S o → saltano il passo, ← torna al passo prima, Z o Backspace annullano l'ultima risposta
+    function voceTastiera(p) {
+        if (T.ta && !T.ta.nascosta && T.ta.pid === p.id) return T.ta.attId;
+        if (T.tastiera && attivitaDi(p, T.tastiera)) return T.tastiera;
+        const aperte = Object.keys(T.aperte).filter((k) => T.aperte[k] && attivitaDi(p, k));
+        return aperte.length === 1 ? aperte[0] : null;
+    }
+    function segnaScelta() {
+        const r = radice();
+        if (!r) return;
+        const k = T.tastiera ? baseId(T.tastiera) : null;
+        r.querySelectorAll('.att.da-tastiera').forEach((x) => { if (x.dataset.att !== k) x.classList.remove('da-tastiera'); });
+        if (k) { const x = r.querySelector(`.att[data-att="${CSS.escape(k)}"]`); if (x) x.classList.add('da-tastiera'); }
+    }
+    function tastieraSeduta(e) {
+        if (T.vista !== 'seduta' || e.altKey || e.ctrlKey || e.metaKey) return;
+        if (document.querySelector('.tice-foglio') || (e.target.closest && e.target.closest('input, select, textarea, [contenteditable]'))) return;
+        const r = radice();
+        if (!r || !r.isConnected || r.hidden) return;
+        const p = paz(T.pid);
+        if (!p) return;
+        const k = voceTastiera(p);
+        if (!k) return;
+        const tasto = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        const fai = (azione, extra) => { e.preventDefault(); T.tastiera = k; T.mantieniScroll = true; azioni[azione]({ dataset: Object.assign({ id: k }, extra || {}) }); segnaScelta(); };
+        if (['1', '2', '3', 'v', 'p', 'x'].includes(tasto)) {
+            // i tasti dell'attività, così come sono a schermo (con il tipo di oggi)
+            const att = attivitaDi(p, k), v = voce(p, att, k);
+            const eco = ecoico(attPerVoce(att, k)), tipo = v.sessionType || att.sessionType;
+            const ris = eco ? ['V', 'P', 'X'] : ['V', tipo === 'timedelay' ? 'P' : 'X'];
+            const rr = /[123]/.test(tasto) ? ris[+tasto - 1] : ris.find((x) => x.toLowerCase() === tasto);
+            if (!rr) return;
+            fai('segna', { r: rr });
+            const bt = r.querySelector(`[data-a="segna"][data-id="${CSS.escape(k)}"][data-r="${rr}"]`) || document.querySelector(`#tice-ta [data-a="segna"][data-r="${rr}"]`);
+            if (bt) { bt.classList.add('premuto'); setTimeout(() => bt.classList.remove('premuto'), 160); }
+        } else if (tasto === 's' || tasto === 'ArrowRight') {
+            const att = attivitaDi(p, k);
+            if (passiVoce(att, voce(p, att, k)).length) fai('salta-passo');
+        } else if (tasto === 'ArrowLeft') {
+            const att = attivitaDi(p, k), v = voce(p, att, k), passi = passiVoce(att, v);
+            if (!passi.length) return;
+            e.preventDefault();
+            const st = statoTA(v, passi);
+            if (st.i > 0) v.passo = st.i - 1; else if (st.giri > 0) { v.passo = passi.length - 1; v.giri = st.giri - 1; } else return;
+            salvaBozza(); aggiornaScheda(p, att.id); segnaScelta();
+        } else if (tasto === 'z' || tasto === 'Backspace') {
+            e.preventDefault();
+            annullaUltima(p, k); segnaScelta();
+        }
+    }
+
     function suClick(e) {
+        // l'ultima attività toccata riceve i tasti della tastiera
+        if (T.vista === 'seduta' && e.target.closest) {
+            const seg = e.target.closest('[data-a="segna"]'), box = e.target.closest('.att[data-att]');
+            const nuova = seg ? seg.dataset.id : box ? box.dataset.att : (e.target.closest('#tice-ta') && T.ta ? T.ta.attId : null);
+            if (nuova && nuova !== T.tastiera) { T.tastiera = nuova; segnaScelta(); }
+        }
         const b = e.target.closest('[data-a]');
         if (!b || !radice().contains(b)) return;
         const f = azioni[b.dataset.a];
@@ -3175,6 +3235,7 @@
         r.addEventListener('click', suClick);
         r.addEventListener('input', suCambio);
         r.addEventListener('change', suCambio);
+        document.addEventListener('keydown', tastieraSeduta);
         // nei grafici le frecce della tastiera passano al bambino prima o dopo
         document.addEventListener('keydown', (e) => {
             if (T.vista !== 'grafici' || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
