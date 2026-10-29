@@ -868,3 +868,4 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 /* correzione a posteriori: elenco delle sedute da spostare e scelta del target */
 .tice-foglio .sedute-da-spostare { display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; margin: 8px 0; }
 .tice-foglio .scelta.verticale { flex-direction: column; }
+.tice-foglio .scelta input:checked + span .sotto { color: inherit; opacity: 0.85; }
