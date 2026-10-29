@@ -1620,7 +1620,9 @@
             const sospese = dalProgramma.filter((a) => a.stato !== 'terminato');
             const terminate = dalProgramma.filter((a) => a.stato === 'terminato');
             const r = await foglio(h`<form><h2>Aggiungi per questa seduta</h2>
-                <label class="campo"><span>Nuova attività</span><input name="nome" maxlength="120" placeholder="Nome dell'attività" list="tice-liste" autocomplete="off" autofocus></label>
+                <div class="campo"><span>Modalità <small class="sotto">· come per le attività del programma</small></span>
+                    <input type="hidden" name="modalita" value=""><button type="button" class="campo-in scegli-mod" data-mod-oggi><span>Scegli o aggiungi una modalità</span>${icona('magnifying-glass')}</button></div>
+                <label class="campo"><span>Nome per oggi <small class="sotto">· facoltativo se hai scelto la modalità</small></span><input name="nome" maxlength="120" placeholder="Nome dell'attività" list="tice-liste" autocomplete="off"></label>
                 <datalist id="tice-liste">${daListe.map((x) => h`<option value="${x.nome}">${x.lista}</option>`)}</datalist>
                 <div class="scelta" style="margin-bottom:10px">
                     <label><input type="radio" name="tipo" value="independent" checked><span>Indipendente</span></label>
@@ -1629,22 +1631,50 @@
                 <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Aggiungi</button></div>
                 ${sospese.length ? h`<h3>Sospese nel programma</h3><div class="opzioni">${sospese.map(opz)}</div>` : ''}
                 ${terminate.length ? h`<details style="margin-top:12px"><summary class="sotto">Riprendi un'attività terminata (${terminate.length})</summary><div class="opzioni" style="margin-top:6px">${terminate.map(opz)}</div></details>` : ''}
-                </form>`);
+                </form>`, { dopo: (f) => {
+                    // la modalità si sceglie dallo stesso foglio del programma (con ricerca e «nuova»); il nome si compila da sé
+                    const bt = f.querySelector('[data-mod-oggi]'), hid = f.querySelector('[name=modalita]'), nome = f.querySelector('[name=nome]');
+                    let autoNome = '';
+                    bt.addEventListener('click', async () => {
+                        const v = await scegliModalita(hid.value && hid.value.indexOf('+') !== 0 ? hid.value : '');
+                        if (v == null) return;
+                        const [scelta, cat, nuovo] = v.split('|');
+                        let nm = '';
+                        if (scelta === '+') {
+                            nm = String(nuovo || nome.value || '').trim() || String(prompt('Nome della nuova modalità') || '').trim();
+                            if (!nm) return;
+                            hid.value = '+|' + (cat || 'altro') + '|' + nm;
+                            bt.innerHTML = `<span>Nuova: ${esc(nm)}</span>${icona('magnifying-glass')}`;
+                        } else if (scelta) {
+                            const m = M.trovaModalita(scelta, dizionario());
+                            hid.value = scelta; nm = m ? m.nome : '';
+                            bt.innerHTML = `<span>${esc(nm)}${m ? ` <small>${esc(nomeCategoria(m.categoria))}</small>` : ''}</span>${icona('magnifying-glass')}`;
+                        } else { hid.value = ''; bt.innerHTML = `<span>Scegli o aggiungi una modalità</span>${icona('magnifying-glass')}`; }
+                        if (nm && (!nome.value.trim() || nome.value === autoNome)) { nome.value = nm; autoNome = nm; }
+                    });
+                } });
             if (!r) return;
             if (typeof r === 'string' && r.startsWith('p:')) {
                 b.extra.push(r.slice(2));
                 T.aperte[r.slice(2)] = true;
             } else {
-                const nome = String(r.nome || '').trim();
-                if (!nome) return;
+                let modalita = String(r.modalita || '');
+                if (modalita.indexOf('+|') === 0) {
+                    const [, cat, nm] = modalita.split('|');
+                    try { modalita = await creaModalita(nm, cat || 'altro') || ''; } catch (e) { avviso('Modalità non creata: ' + (e.message || e), 'errore'); modalita = ''; }
+                }
+                const mod = modalita ? M.trovaModalita(modalita, dizionario()) : null;
+                const nome = String(r.nome || '').trim() || (mod ? mod.nome : '');
+                if (!nome) { avviso('Scegli una modalità o scrivi il nome', 'errore'); return; }
                 const tipo = r.tipo === 'timedelay' ? 'timedelay' : 'independent';
                 if (r.programma) {
                     const att = P.nuovaAttivita(p, { nome, sessionType: tipo });
+                    if (modalita) att.modalita = modalita; else modalitaDaModulo(att, {});
                     await salvaPaziente(p);
                     T.aperte[att.id] = true;
                 } else {
                     const id = P.nuovoId('tmp');
-                    b.temp.push({ id, nome, sessionType: tipo });
+                    b.temp.push(Object.assign({ id, nome, sessionType: tipo }, modalita ? { modalita } : {}));
                     T.aperte[id] = true;
                 }
             }
@@ -2487,7 +2517,7 @@
             const resto = conDati().length;
             const nt = M.normalizza(t.nome);
             const candidati = P.programma(p).attivita.filter((a) => !misure(a).length);
-            const simile = (a) => { const na = M.normalizza(a.nome); return na && nt && (na === nt || na.includes(nt) || nt.includes(na)); };
+            const simile = (a) => { const na = M.normalizza(a.nome); return (t.modalita && a.modalita === t.modalita) || (na && nt && (na === nt || na.includes(nt) || nt.includes(na))); };
             const vicine = candidati.filter(simile);
             const altre = candidati.filter((a) => !simile(a)).sort((x, y) => (x.stato === 'attivo' ? 0 : 1) - (y.stato === 'attivo' ? 0 : 1) || String(x.nome).localeCompare(String(y.nome), 'it'));
             const opz = (a) => h`<button type="button" class="opzione" data-foglio="${'u:' + a.id}"><span class="corpo">${a.nome}<small>${ETICHETTE_STATO[a.stato] || a.stato}${(() => { const c = P.targetCorrente(a); return c ? ' · ' + c.target.testo : ''; })()}</small></span>${icona('arrow-right')}</button>`;
@@ -2503,7 +2533,7 @@
             if (r === 'fuori') { t.fuori = true; salvaBozza(); continue; }
             let dest = null;
             if (r === 'nuova') {
-                const m = await moduloAttivita(p, null, { nome: t.nome, sessionType: t.sessionType || 'independent' });
+                const m = await moduloAttivita(p, null, Object.assign({ nome: t.nome, sessionType: t.sessionType || 'independent' }, t.modalita ? { modalita: t.modalita } : {}));
                 if (!m) continue;
                 dest = await creaAttivitaDaModulo(p, m);
             } else if (typeof r === 'string' && r.startsWith('u:')) dest = P.attivita(p, r.slice(2));
