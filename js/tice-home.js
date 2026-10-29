@@ -1655,6 +1655,8 @@
         termina: async () => {
             const p = paz(T.pid);
             const b = bozza(p.id);
+            if (!await sistemaTemporanee(p, b)) { T.mantieniScroll = true; disegna(); return; }
+            T.mantieniScroll = true; disegna();
             const r0 = riassunto(p);
             if (!r0.n) { avviso('Nessuna risposta registrata.', 'errore'); return; }
             const righe = Object.keys(b.voci).filter((k) => haDati(b.voci[k])).map((k) => {
@@ -1768,25 +1770,7 @@
             if (!puoProgrammi(p)) return;
             const r = await moduloAttivita(p, null);
             if (!r) return;
-            try { await risolviNuovaModalita(r); } catch (e) { avviso('Modalità non creata: ' + (e.message || e), 'errore'); r.modalita = ''; }
-            const passiTA = r.ta ? String(r.taPassi || '').split('\n').map((x) => x.trim()).filter(Boolean) : [];
-            const righe = passiTA.length ? [String(r.taCompito || '').trim() || String(r.nome || '').trim() || 'Compito']
-                : String(r.target || '').split('\n').map((x) => x.trim()).filter(Boolean);
-            const att = P.nuovaAttivita(p, Object.assign({}, r, { target: null, sessionType: r.sessionType === 'timedelay' ? 'timedelay' : 'independent' }));
-            if (r.sessionType === 'ecoico') { att.risposte = 'ecoico'; att.nomeP = 'Ecoica'; }
-            if (r.colore) att.colore = r.colore;
-            impostaField(att, r.field, r.promptVisivo);
-            impostaCondizioni(att, r.cV, r.cP, r.cX);
-            if (eGruppo(p)) allineaMembri(p); else impostaMisure(att, r);
-            modalitaDaModulo(att, r);
-            righe.forEach((x, i) => P.aggiungiTarget(att, x, i === 0));
-            if (passiTA.length && att.target && att.target[0]) att.target[0].passi = P.nuoviPassi(passiTA, []);
-            await salvaPaziente(p);
-            if (!righe.length) {
-                // nessun target scritto: si sceglie subito da set, liste o a mano
-                const rt = await moduloTarget(att);
-                if (rt) { aggiungiTargetDaModulo(att, rt); await salvaPaziente(p); }
-            }
+            await creaAttivitaDaModulo(p, r);
             T.mantieniScroll = true;
             disegna();
         },
@@ -2279,8 +2263,31 @@
             return m;
         });
     }
-    function moduloAttivita(p, att) {
-        const a = att || { nome: '', area: '', descrizione: '', sessionType: 'independent', criterio: { soglia: 90, sedute: 2 }, prove: null };
+    // Una nuova attività dal modulo (dal programma o da una seduta): modalità, target, sottoattività
+    async function creaAttivitaDaModulo(p, r) {
+        try { await risolviNuovaModalita(r); } catch (e) { avviso('Modalità non creata: ' + (e.message || e), 'errore'); r.modalita = ''; }
+        const passiTA = r.ta ? String(r.taPassi || '').split('\n').map((x) => x.trim()).filter(Boolean) : [];
+        const righe = passiTA.length ? [String(r.taCompito || '').trim() || String(r.nome || '').trim() || 'Compito']
+            : String(r.target || '').split('\n').map((x) => x.trim()).filter(Boolean);
+        const att = P.nuovaAttivita(p, Object.assign({}, r, { target: null, sessionType: r.sessionType === 'timedelay' ? 'timedelay' : 'independent' }));
+        if (r.sessionType === 'ecoico') { att.risposte = 'ecoico'; att.nomeP = 'Ecoica'; }
+        if (r.colore) att.colore = r.colore;
+        impostaField(att, r.field, r.promptVisivo);
+        impostaCondizioni(att, r.cV, r.cP, r.cX);
+        if (eGruppo(p)) allineaMembri(p); else impostaMisure(att, r);
+        modalitaDaModulo(att, r);
+        righe.forEach((x, i) => P.aggiungiTarget(att, x, i === 0));
+        if (passiTA.length && att.target && att.target[0]) att.target[0].passi = P.nuoviPassi(passiTA, []);
+        await salvaPaziente(p);
+        if (!righe.length) {
+            // nessun target scritto: si sceglie subito da set, liste o a mano
+            const rt = await moduloTarget(att);
+            if (rt) { aggiungiTargetDaModulo(att, rt); await salvaPaziente(p); }
+        }
+        return att;
+    }
+    function moduloAttivita(p, att, base) {
+        const a = att || Object.assign({ nome: '', area: '', descrizione: '', sessionType: 'independent', criterio: { soglia: 90, sedute: 2 }, prove: null }, base || {});
         const tdA = att ? P.tdDi(att) : null;
         const tipoA = ecoico(a) ? 'ecoico' : a.sessionType === 'timedelay' ? 'timedelay' : 'independent';
         const nMis = (a.misure || []).length;
@@ -2469,6 +2476,65 @@
     }
     const chiDellaSeduta = (p, b) => (b.operatore ? b.operatore : chiDalCalendario(p.id, b.data).nomi.join(' + '));
 
+    // Prima di salvare: le attività scritte solo per questa seduta vanno unite a una del programma
+    // o aggiunte come nuove (con modalità e target, come dal programma), così i dati non restano sparsi.
+    // Restituisce false se si torna alla seduta.
+    async function sistemaTemporanee(p, b) {
+        const conDati = () => b.temp.filter((t) => !t.fuori && haDati(b.voci[t.id]));
+        let giro = 0;
+        while (conDati().length && giro++ < 50) {
+            const t = conDati()[0], v = b.voci[t.id], n = v.v + v.p + v.x;
+            const resto = conDati().length;
+            const nt = M.normalizza(t.nome);
+            const candidati = P.programma(p).attivita.filter((a) => !misure(a).length);
+            const simile = (a) => { const na = M.normalizza(a.nome); return na && nt && (na === nt || na.includes(nt) || nt.includes(na)); };
+            const vicine = candidati.filter(simile);
+            const altre = candidati.filter((a) => !simile(a)).sort((x, y) => (x.stato === 'attivo' ? 0 : 1) - (y.stato === 'attivo' ? 0 : 1) || String(x.nome).localeCompare(String(y.nome), 'it'));
+            const opz = (a) => h`<button type="button" class="opzione" data-foglio="${'u:' + a.id}"><span class="corpo">${a.nome}<small>${ETICHETTE_STATO[a.stato] || a.stato}${(() => { const c = P.targetCorrente(a); return c ? ' · ' + c.target.testo : ''; })()}</small></span>${icona('arrow-right')}</button>`;
+            const r = await foglio(h`<div><h2>«${t.nome}»</h2>
+                <p class="sotto">L'hai aggiunta solo per questa seduta (${n} ${n === 1 ? 'risposta' : 'risposte'}). Prima di salvare, dove vanno questi dati?${resto > 1 ? h` <b>${resto} da sistemare.</b>` : ''}</p>
+                ${vicine.length ? h`<h3>Forse è</h3><div class="opzioni">${vicine.map(opz)}</div>` : ''}
+                ${puoProgrammi(p) ? h`<div class="opzioni" style="margin-top:10px"><button type="button" class="opzione" data-foglio="nuova">${icona('plus')}<span class="corpo">Aggiungila al programma come attività nuova<small>Con modalità, target e criterio, come dal programma</small></span></button></div>` : ''}
+                ${altre.length ? h`<details class="sez apribile" ${vicine.length ? '' : grezzo('open')}><summary><span class="sez-titolo">Unisci a un'altra attività del programma</span> <span class="sotto piccolo">${altre.length}</span></summary><div class="opzioni">${altre.map(opz)}</div></details>` : ''}
+                <details style="margin-top:12px"><summary class="sotto piccolo">Altro</summary>
+                    <div class="opzioni" style="margin-top:6px"><button type="button" class="opzione" data-foglio="fuori"><span class="corpo">Lasciala fuori dal programma${puoProgrammi(p) ? '' : ': la sistema la referente'}<small>I dati restano con il nome «${t.nome}», senza grafico dell'attività né criterio</small></span></button></div></details>
+                <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Torna alla seduta</button></div></div>`);
+            if (!r) return false;
+            if (r === 'fuori') { t.fuori = true; salvaBozza(); continue; }
+            let dest = null;
+            if (r === 'nuova') {
+                const m = await moduloAttivita(p, null, { nome: t.nome, sessionType: t.sessionType || 'independent' });
+                if (!m) continue;
+                dest = await creaAttivitaDaModulo(p, m);
+            } else if (typeof r === 'string' && r.startsWith('u:')) dest = P.attivita(p, r.slice(2));
+            if (!dest) continue;
+            unisciTemporanea(p, b, t, dest);
+        }
+        return true;
+    }
+    // I dati di un'attività di un giorno passano a una del programma (sommandosi a quelli già presi oggi)
+    function unisciTemporanea(p, b, t, att) {
+        const v = Object.assign({}, b.voci[t.id]), c = P.targetCorrente(att);
+        const gia = b.voci[att.id];
+        if (gia && haDati(gia)) {
+            // stesso tipo di risposte (✗ o P) prima di sommare
+            const tipo = gia.sessionType || att.sessionType || 'independent';
+            if ((v.sessionType || 'independent') !== tipo) { v.sessionType = tipo; convertiVoce(v, tipo, att); }
+            gia.v += v.v; gia.p += v.p; gia.x += v.x;
+            gia.sequenza = (gia.sequenza || '') + (v.sequenza || '');
+            gia.nota = [gia.nota, v.nota].filter(Boolean).join(' — ');
+            if (!gia.decisione) gia.decisione = v.decisione || '';
+        } else {
+            // la voce tiene il tipo con cui è stata presa (vale più di quello dell'attività)
+            b.voci[att.id] = Object.assign(v, { targetId: c ? c.target.id : null, mantenimento: !!(c && c.mantenimento) });
+        }
+        if (att.stato !== 'attivo' && !b.extra.includes(att.id)) b.extra.push(att.id);
+        delete b.voci[t.id];
+        b.temp = b.temp.filter((x) => x.id !== t.id);
+        delete T.aperte[t.id];
+        salvaBozza();
+        avviso(`«${t.nome}» → ${att.nome}`);
+    }
     async function salvaSeduta(p, b, dati) {
         const quando = b.data === oggi() ? new Date().toISOString() : b.data + 'T12:00:00';
         const operatore = String(dati.operatore || '').trim();
