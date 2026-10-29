@@ -459,7 +459,10 @@
         }
         return [await chiama('paziente.leggi', { id: ids[0] })];
     }
+    const etiFirme = {};   // etichetta cifrata già letta, per non decifrarla a ogni giro
+    let ultimoTira = 0;
     async function tira() {
+        ultimoTira = Date.now();
         const elenco = await chiama('pazienti.elenco');
         const visti = new Set();
         const recs = await tuttiRec();
@@ -470,7 +473,10 @@
         for (const v of elenco) {
             visti.add(v.id);
             if (v.riservato) info[v.id] = { riservato: true, creatoDa: v.creatoDa, condivisi: v.condivisi || [] };
-            try { S.etichette[v.id] = await C.decifra(chiavePer(v.etichetta), v.etichetta, aadE(v.id)); } catch (e) { S.etichette[v.id] = { nome: '(in attesa della chiave)' }; }
+            const firma = JSON.stringify(v.etichetta);
+            if (etiFirme[v.id] !== firma || !S.etichette[v.id]) {
+                try { S.etichette[v.id] = await C.decifra(chiavePer(v.etichetta), v.etichetta, aadE(v.id)); etiFirme[v.id] = firma; } catch (e) { S.etichette[v.id] = { nome: '(in attesa della chiave)' }; delete etiFirme[v.id]; }
+            }
             const r = perId[v.id];
             if (v.eliminato) {
                 if (r || S.condivisi.has(v.id)) { await togliLocale(v.id); await togliRec(v.id); S.condivisi.delete(v.id); cambiato('pazienti'); }
@@ -695,6 +701,14 @@
             controllando = true;
             preparaCentro().catch(gestisciErrore).finally(() => { controllando = false; });
         }, 15000);
+        // Mentre si prende una seduta o si guarda un programma, le modifiche dei colleghi
+        // (attività nuove, target cambiati) arrivano entro una ventina di secondi
+        setInterval(() => {
+            if (!pronto() || incorso || document.visibilityState !== 'visible' || navigator.onLine === false) return;
+            const v = window.TiceHome && TiceHome.attuale ? TiceHome.attuale().vista : '';
+            if (!['seduta', 'programma'].includes(v) || Date.now() - ultimoTira < 18000) return;
+            sincronizza();
+        }, 5000);
         window.addEventListener('online', () => sincronizza());
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sincronizza({ soloCoda: false }); });
     }

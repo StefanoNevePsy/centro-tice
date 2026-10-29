@@ -160,6 +160,17 @@
         const t = bozza(p.id).temp.find((x) => x.id === id);
         return t ? Object.assign({ temporanea: true, target: [], criterio: { soglia: 90, sedute: 2 } }, t) : null;
     }
+    // Le voci della seduta ancora senza risposte seguono il target in corso del programma:
+    // se lo cambia un collega, o si passa al prossimo target, la presa dati si aggiorna subito
+    function allineaVoci(p) {
+        const b = bozza(p.id);
+        Object.keys(b.voci).forEach((k) => {
+            const v = b.voci[k], att = attivitaDi(p, k);
+            if (!att || att.temporanea || haDati(v) || (v.esiti && Object.keys(v.esiti).length)) return;
+            const c = P.targetCorrente(att), tid = c ? c.target.id : null;
+            if (v.targetId !== tid) { v.targetId = tid; v.mantenimento = !!(c && c.mantenimento); delete v.passo; delete v.giri; }
+        });
+    }
     function voce(p, att, k) {
         const b = bozza(p.id);
         k = k || att.id;
@@ -728,6 +739,7 @@
         if (!p) { T.vista = 'bambini'; return vistaBambini(); }
         if (eGruppo(p)) allineaMembri(p);
         const b = bozza(p.id);
+        allineaVoci(p);
         const lista = attivitaSeduta(p);
         const unica = lista.length === 1 && lista[0];
         const unicaGioco = unica && !unica.temporanea && schermoGrande() && ((P.targetCorrente(unica) || {}).target || {}).setId;
@@ -1724,6 +1736,22 @@
             const t = att && att.target.find((x) => x.id === b.dataset.t);
             if (!t) return;
             await proponiProssimo(p, att, t, P.criterioDi(p, att, t));
+            // le risposte di oggi già segnate sul target appena chiuso: restano lì o passano al nuovo?
+            const c = P.targetCorrente(att), bz = bozza(p.id);
+            const giaOggi = Object.keys(bz.voci).filter((k) => baseId(k) === att.id && bz.voci[k].targetId === t.id && haDati(bz.voci[k]));
+            if (c && !c.mantenimento && c.target.id !== t.id && giaOggi.length) {
+                const n = giaOggi.reduce((x, k) => x + bz.voci[k].v + bz.voci[k].p + bz.voci[k].x, 0);
+                const r = await foglio(h`<div><h2>Le risposte di oggi</h2>
+                    <p>Oggi hai già segnato ${n} ${n === 1 ? 'risposta' : 'risposte'} su <b>${t.testo}</b>. Dove vanno?</p>
+                    <div class="opzioni"><button type="button" class="opzione" data-foglio="nuovo">${icona('arrow-right')}<span class="corpo">Su «${c.target.testo}»<small>Il nuovo target: si continua da qui</small></span></button>
+                    <button type="button" class="opzione" data-foglio="resta">${icona('flag-checkered')}<span class="corpo">Restano su «${t.testo}»<small>Come mantenimento, per tutta questa seduta: il nuovo target parte dalla prossima</small></span></button></div></div>`);
+                if (r === 'nuovo') giaOggi.forEach((k) => { bz.voci[k].targetId = c.target.id; bz.voci[k].mantenimento = false; });
+                else if (r === 'resta') {
+                    giaOggi.forEach((k) => { bz.voci[k].mantenimento = true; });
+                }
+                salvaBozza();
+            }
+            T.mantieniScroll = true;
             disegna();
         },
 
