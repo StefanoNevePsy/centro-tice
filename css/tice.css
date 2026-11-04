@@ -879,3 +879,45 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
     }
 }
 .tice .tasto.premuto { transform: scale(0.96); filter: brightness(1.15); }
+
+/* ---------- Comportamenti problema ---------- */
+.tice .comp-striscia { display: grid; gap: 8px; margin: 4px 0 14px; padding: 8px; border: 1px dashed var(--glass-border); border-radius: 14px; background: rgba(var(--shade-rgb), 0.12); }
+.tice .comp { display: flex; gap: 6px; align-items: stretch; }
+.tice .comp-tasto {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 14px; cursor: pointer;
+    border: 1.5px solid var(--danger-color, #b3261e); border-radius: 12px; background: var(--card-bg, transparent); color: var(--text-primary);
+    font: inherit; font-weight: 700; text-align: left;
+}
+.tice .comp-tasto:active { transform: scale(0.98); }
+.tice .comp-nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tice .comp-n { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.tice .comp-n small { font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; }
+.tice .comp.in-corso .comp-tasto { background: var(--danger-color, #b3261e); color: #fff; }
+.tice .comp.in-corso .comp-n small { color: inherit; }
+.tice .comp.non-oss .comp-tasto { opacity: 0.55; border-style: dashed; }
+.tice .comp-altro { align-self: center; }
+.tice .comp-ultimo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 2px 0; }
+.tice .comp-chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.tice .comp-chips b { font-size: 0.75rem; color: var(--text-secondary); margin-right: 2px; }
+.tice .comp-chip { border: 1px solid var(--glass-border); background: transparent; color: var(--text-primary); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 0.8rem; cursor: pointer; }
+.tice .comp-chip.on { background: var(--accent-color); border-color: var(--accent-color); color: #fff; }
+.tice .comp-scheda { margin-bottom: 8px; }
+.tice .comp-scheda.spento { opacity: 0.6; }
+.tice .comp-testa { display: flex; align-items: center; gap: 6px; }
+.tice .comp-testa .ib { margin-left: auto; }
+.tice-foglio .comp-def { padding: 8px 10px; border-left: 3px solid var(--danger-color, #b3261e); background: rgba(var(--shade-rgb), 0.15); border-radius: 0 8px 8px 0; }
+.tice-foglio .comp-episodi { display: grid; gap: 6px; max-height: 44vh; overflow-y: auto; margin-bottom: 8px; }
+.tice-foglio .comp-ep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px dashed var(--glass-border); }
+.tice-foglio .comp-ep select, .tice-foglio .comp-ep input[type=text], .tice-foglio .comp-ep input:not([type]) { flex: 1 1 110px; min-width: 0; }
+.tice-foglio .comp-grafico-box { margin: 8px 0; }
+.comp-grafico { width: 100%; height: auto; display: block; }
+.comp-grafico .cg-griglia { stroke: var(--glass-border); stroke-width: 1; }
+.comp-grafico .cg-testo { fill: var(--text-secondary); font-size: 11px; }
+.comp-grafico .cg-obiettivo { stroke: var(--success-color, #2e7d32); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.comp-grafico .cg-ob { fill: var(--success-color, #2e7d32); }
+.comp-grafico .cg-linea { fill: none; stroke: var(--danger-color, #b3261e); stroke-width: 2; }
+.comp-grafico .cg-punto { fill: var(--danger-color, #b3261e); }
+.tice-foglio .comp-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.tice-foglio .comp-lista li { display: flex; gap: 6px; align-items: baseline; }
+.tice-foglio .comp-lista li span { flex: 1; }
+.tice-foglio .comp-fasce { display: flex; flex-wrap: wrap; gap: 4px 12px; }

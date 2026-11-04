@@ -962,7 +962,8 @@ function renderVizTab(patient, box) {
     const canvas = content.querySelector('#viz-canvas');
     const view = VIZ_VIEWS.find(v => v.id === cur) || VIZ_VIEWS[0];
     const fp = vizFilteredPatient(patient);
-    if (!(fp.history || []).length) { canvas.innerHTML = '<p style="color:var(--text-secondary); text-align:center; padding:24px;">Nessuna seduta nel periodo selezionato.</p>'; return; }
+    // i comportamenti problema stanno fuori dalle statistiche: la loro vista legge il paziente intero
+    if (!(fp.history || []).length && view.id !== 'comportamenti') { canvas.innerHTML = '<p style="color:var(--text-secondary); text-align:center; padding:24px;">Nessuna seduta nel periodo selezionato.</p>'; return; }
     try { view.fn(canvas, fp); }
     catch (e) { canvas.innerHTML = `<p style="color:var(--danger-color); text-align:center; padding:20px;">Errore nel disegno: ${_esc(e.message)}</p>`; console.error('viz error', e); }
 }
