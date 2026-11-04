@@ -42,7 +42,8 @@
     // ---------- caricamento ----------
     // Da dove vengono i dati in memoria: all'avvio la vista può caricarsi prima che
     // il collegamento con il centro sia pronto (dati locali); appena lo è si rilegge
-    const fonte = () => (remoto() ? 'centro' : 'locale');
+    // con le aule, ogni aula ha i suoi turni: cambiando aula si rilegge tutto
+    const fonte = () => (remoto() ? 'centro' + (Y.conAule && Y.conAule() ? ':' + Y.aulaAttiva() : '') : 'locale');
     function rileggiSeCambiata() {
         if (S.fonte && S.fonte !== fonte() && !S.caricando) { S.personeCaricate = false; S.chiave = null; S.modello = null; carica(true); return true; }
         return false;
@@ -130,9 +131,13 @@
     function personeDalCentro(a) {
         const out = [];
         const prop = String(a.proprietario || '').toLowerCase();
+        const aula = Y.conAule && Y.conAule() ? Y.aulaAttiva() : null;
         Object.entries(a.utenti || {}).forEach(([email, u]) => {
             if (u.attivo === false || (u.scadenza && u.scadenza < oggi())) return;
-            out.push({ email: email.toLowerCase(), nome: nomeLeggibile(u.nome, email), ruolo: u.ruolo === 'tirocinante' ? 'tirocinante' : 'terapeuta' });
+            // nei turni di un'aula: solo le persone di quell'aula, con il loro ruolo lì
+            const r = aula && u.aule ? u.aule[aula] : u.ruolo;
+            if (!r) return;
+            out.push({ email: email.toLowerCase(), nome: nomeLeggibile(u.nome, email), ruolo: r === 'tirocinante' ? 'tirocinante' : 'terapeuta' });
         });
         if (prop && !out.some((x) => x.email === prop)) {
             const io = Y.S && Y.S.io && Y.S.io.email === prop ? Y.S.io.nome : '';
@@ -373,7 +378,7 @@
         const TAGLI = [30, 40, 45, 50, 55, 60, 90];
         const gia = (x && x.persone) || [];
         const riga = (p) => h`<label class="spunta-riga tt-scelta"><input type="checkbox" name="p" value="${p.id}" ${idsDi(p).some((id) => gia.includes(id)) ? grezzo('checked') : ''}><span>${p.nome}</span></label>`;
-        const tutti = X.pazienti().slice().sort((u, v) => String(u.name).localeCompare(String(v.name), 'it'));
+        const tutti = X.pazientiAula().slice().sort((u, v) => String(u.name).localeCompare(String(v.name), 'it'));
         return foglio(h`<form><h2>${pid ? nomeBambino(pid) : 'Aggiungi un bambino'}</h2>
             ${pid ? '' : h`<label class="campo"><span>Bambino</span><select name="pid" class="campo-in" required><option value="">Scegli…</option>${tutti.map((p) => h`<option value="${p.id}">${p.name}</option>`)}</select></label>`}
             <div class="campo"><span>Giorni</span><div class="tt-dow">${[1, 2, 3, 4, 5, 6, 7].map((d) => h`<label><input type="checkbox" name="dow" value="${d}" ${dowScelti.includes(d) ? grezzo('checked') : ''}><span>${TT.GIORNI_BREVI[d - 1]}</span></label>`)}</div></div>
@@ -490,7 +495,7 @@
         'tt-giorno': (b) => { S.giorno = TT.piu(S.giorno, +b.dataset.d); TiceHome.ridisegna(); },
         // apre il foglio di presa dati di un bambino qualsiasi (anche fuori calendario)
         'tt-apri': async () => {
-            const tutti = X.pazienti().slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
+            const tutti = X.pazientiAula().slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
             if (!tutti.length) { TiceHome.vai('bambini'); return; }
             const gi = TT.giornata(S.sett, S.giorno, S.modello);
             const oggiCal = tutti.filter((p) => gi.bambini.includes(p.id)), altri = tutti.filter((p) => !gi.bambini.includes(p.id));
@@ -544,7 +549,7 @@
         },
         'tt-bambini': async () => {
             const gi = TT.giornata(S.sett, S.giorno, S.modello);
-            const tutti = X.pazienti().slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
+            const tutti = X.pazientiAula().slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
             const r = await foglio(h`<form><h2>Bambini del giorno</h2><p class="sotto">${lunga(S.giorno)}: le colonne del foglio, nell'ordine in cui li scegli.</p>
                 <div class="campo scelte-stampa">${tutti.map((p) => h`<label class="spunta-riga"><input type="checkbox" name="b" value="${p.id}" ${gi.bambini.includes(p.id) ? grezzo('checked') : ''}><span>${p.name}</span></label>`)}</div>
                 <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
@@ -686,6 +691,7 @@
     document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('tt-riepilogo')) S.riepilogoAperto = e.target.open; }, true);
     if (Y && Y.alCambio) Y.alCambio((cosa) => {
         if (cosa === 'turni' && TiceHome.attuale().vista === 'turni') TiceHome.ridisegna();
+        if (cosa === 'turni' && ['turni', 'turni-modello'].includes(TiceHome.attuale().vista)) rileggiSeCambiata();
         // il centro è diventato pronto (o non lo è più): i turni si rileggono da lì
         if (cosa === 'stato' && S.fonte && S.fonte !== fonte() && ['turni', 'turni-modello'].includes(TiceHome.attuale().vista)) rileggiSeCambiata();
         // dopo ogni sincronizzazione riuscita si rileggono anche i turni in vista

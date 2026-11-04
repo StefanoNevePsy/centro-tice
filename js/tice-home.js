@@ -62,6 +62,8 @@
     const radice = () => document.getElementById('tice');
 
     function pazienti() { return (typeof state !== 'undefined' && state.patients) || []; }
+    // quelli dell'aula su cui si lavora (con le aule del centro); senza aule, tutti
+    function pazientiAula() { return pazienti().filter((p) => !EST.nellAula || EST.nellAula(p)); }
     function paz(pid) { return pazienti().find((x) => x.id === pid) || null; }
     async function caricaPazienti() {
         if (!pazienti().length) state.patients = await DB.getAllPatients();
@@ -366,7 +368,7 @@
 
 
     // ---------- grafici: tutti i bambini, uno dopo l'altro, con lo stesso tipo di grafico ----------
-    const conGrafici = () => pazienti().filter((p) => !eGruppo(p)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
+    const conGrafici = () => pazientiAula().filter((p) => !eGruppo(p)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
     function bambinoGrafici() {
         const tutti = conGrafici();
         return tutti.find((p) => p.id === T.pid) || tutti.find((p) => (p.history || []).length) || tutti[0] || null;
@@ -426,7 +428,7 @@
     }
     function vistaBambini() {
         const q = T.cerca.trim().toLowerCase();
-        const elenco = pazienti()
+        const elenco = pazientiAula()
             .filter((p) => !q || String(p.name || '').toLowerCase().includes(q) || String(p.category || '').toLowerCase().includes(q))
             .map((p) => ({ p, b: leggiBozza(p.id), u: ultimaSeduta(p) }))
             .sort((a, b) => (!!b.b - !!a.b) || String(b.u || '').localeCompare(String(a.u || '')) || String(a.p.name).localeCompare(String(b.p.name), 'it'));
@@ -446,7 +448,7 @@
                 <button class="ib" data-a="giochi" aria-label="Giochi e attività dell'app" title="Giochi e attività">${icona('gamepad')}</button>
                 <button class="ib" data-a="menu" aria-label="Altro">${icona('ellipsis-vertical')}</button>` })}
             <main class="tice-main">
-                ${testata('Centro TICE · ' + pazienti().length + (pazienti().length === 1 ? ' bambino' : ' bambini'), 'Tutti i bambini')}
+                ${testata('Centro TICE · ' + pazientiAula().length + (pazientiAula().length === 1 ? ' bambino' : ' bambini'), 'Tutti i bambini')}
                 ${EST.banner ? EST.banner() : ''}
                 ${pazienti().length > 6 ? h`<input class="cerca" type="search" placeholder="Cerca un bambino" value="${T.cerca}" data-cambio="cerca" aria-label="Cerca">` : ''}
                 ${righe.length ? h`<div class="scheda">${righe}</div>`
@@ -3499,7 +3501,7 @@
         },
         attuale: () => ({ vista: T.vista, pid: T.pid }),
         ridisegna: () => { if (!radice().hidden) { T.mantieniScroll = true; disegna(); } },
-        strumenti: { h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, salvaPaziente, formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
+        strumenti: { h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
     };
     if (document.readyState === 'complete') avvia();
     else window.addEventListener('load', avvia);

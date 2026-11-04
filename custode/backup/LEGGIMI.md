@@ -8,5 +8,8 @@ Per tornare indietro:
 3. Distribuisci › Gestisci distribuzioni › modifica › **Nuova versione** (l'indirizzo resta lo stesso).
 
 I dati non cambiano formato in modo irreversibile: i bambini e gli accessi salvati con le aule
-restano leggibili dal custode vecchio, che ignora i campi `aula` e `aule`
-(tutti tornano a vedere tutto secondo i ruoli di prima).
+restano leggibili dal custode vecchio, che ignora i campi `aula` e `aule`.
+
+**Attenzione:** tornando indietro le aule spariscono. Ogni persona riprende il suo ruolo «più alto»
+su tutto il centro: un amministratore di una sola aula torna amministratore di tutti i bambini.
+Se torni indietro, controlla subito Persone e accessi.

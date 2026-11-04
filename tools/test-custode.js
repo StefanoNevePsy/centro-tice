@@ -232,6 +232,7 @@ prova('le email degli accessi sono normalizzate in minuscolo', () => {
 prova('un admin non puo\' togliersi da solo il ruolo', () => {
   const a = ok(chiama(ADM2, 'accessi.leggi'));
   a.utenti[ADM2].ruolo = 'professionista';
+  a.utenti[ADM2].aule = { principale: 'professionista' };
   ko(chiama(ADM2, 'accessi.salva', { accessi: a, versioneBase: a.version }), 'richiesta-non-valida');
 });
 prova('la professionista che crea un paziente se lo ritrova assegnato', () => {
@@ -560,6 +561,112 @@ prova('le persone del centro le vede chiunque, senza ruoli', () => {
   const l = ok(chiama(TIR, 'persone.elenco'));
   assert.ok(l.some((x) => x.email === PROF2) && l.every((x) => !x.ruolo));
 });
+
+
+console.log('\nAule');
+{
+  const ADM_A = 'admin.a@centrotice.it', ADM_B = 'admin.b@centrotice.it', PROF_B = 'prof.b@centrotice.it', TIR_AB = 'tiro.ab@centrotice.it';
+  const PZA = id('pza'), PZB = id('pzb');
+  let acc;
+  prova('il proprietario crea due aule e assegna le persone', () => {
+    acc = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    acc.aule = Object.assign({}, acc.aule, { 'aula-a': { nome: 'Aula A' }, 'aula-b': { nome: 'Aula B' } });
+    acc.utenti[ADM_A] = { nome: 'Admin A', aule: { 'aula-a': 'admin' }, pazienti: [] };
+    acc.utenti[ADM_B] = { nome: 'Admin B', aule: { 'aula-b': 'admin' }, pazienti: [] };
+    acc.utenti[PROF_B] = { nome: 'Prof B', aule: { 'aula-b': 'professionista' }, pazienti: [] };
+    acc.utenti[TIR_AB] = { nome: 'Tiro', aule: { 'aula-a': 'tirocinante', 'aula-b': 'tirocinante' }, pazienti: [] };
+    acc = ok(chiama(PROPRIETARIO, 'accessi.salva', { accessi: acc, versioneBase: acc.version }));
+    assert.strictEqual(acc.utenti[ADM_A].ruolo, 'admin');
+  });
+  prova('un admin crea bambini solo nelle sue aule', () => {
+    ok(chiama(ADM_A, 'paziente.crea', { id: PZA, aula: 'aula-a', busta: bk({ n: 'a' }), etichetta: bk({}) }));
+    ko(chiama(ADM_A, 'paziente.crea', { id: id('x'), aula: 'aula-b', busta: bk({}), etichetta: bk({}) }), 'vietato');
+    ok(chiama(ADM_B, 'paziente.crea', { id: PZB, aula: 'aula-b', busta: bk({ n: 'b' }), etichetta: bk({}) }));
+  });
+  prova('gli admin non vedono né leggono i bambini delle altre aule', () => {
+    const ea = ok(chiama(ADM_A, 'pazienti.elenco')).map((x) => x.id), eb = ok(chiama(ADM_B, 'pazienti.elenco')).map((x) => x.id);
+    assert.ok(ea.includes(PZA) && !ea.includes(PZB) && eb.includes(PZB) && !eb.includes(PZA));
+    ko(chiama(ADM_A, 'paziente.leggi', { id: PZB }), 'vietato');
+    assert.strictEqual(ok(chiama(ADM_A, 'pazienti.leggi', { ids: [PZA, PZB] })).length, 1);
+    ko(chiama(ADM_A, 'paziente.salva', { id: PZB, busta: bk({}), versioneBase: 1 }), 'vietato');
+    ko(chiama(ADM_A, 'paziente.archivia', { id: PZB }), 'vietato');
+    ko(chiama(ADM_A, 'paziente.versioni', { id: PZB }), 'vietato');
+  });
+  prova('i bambini di prima restano nell\'aula di partenza: gli admin delle aule nuove non li vedono', () => {
+    const ea = ok(chiama(ADM_A, 'pazienti.elenco'));
+    assert.ok(ea.every((x) => x.aula === 'aula-a'));
+    assert.ok(ok(chiama(PROPRIETARIO, 'pazienti.elenco')).some((x) => x.aula === 'principale'));
+  });
+  prova('chi è in due aule vede i bambini di entrambe, con il ruolo di ciascuna', () => {
+    const io = ok(chiama(TIR_AB, 'io'));
+    assert.deepStrictEqual(Object.keys(io.aule).sort(), ['aula-a', 'aula-b']);
+    ko(chiama(TIR_AB, 'paziente.crea', { id: id('x'), aula: 'aula-a', busta: bk({}), etichetta: bk({}) }), 'vietato');
+  });
+  prova('gli accessi: un admin vede solo le persone delle sue aule e solo quelle aule', () => {
+    const a = ok(chiama(ADM_A, 'accessi.leggi'));
+    assert.deepStrictEqual(Object.keys(a.aule), ['aula-a']);
+    assert.ok(a.utenti[ADM_A] && a.utenti[TIR_AB] && !a.utenti[ADM_B] && !a.utenti[PROF_B] && !a.utenti[PROPRIETARIO]);
+    assert.deepStrictEqual(a.utenti[TIR_AB].aule, { 'aula-a': 'tirocinante' });
+    assert.ok(a.utenti[TIR_AB].altreAule);
+  });
+  prova('un admin cambia solo le sue aule: il resto resta com\'era', () => {
+    const a = ok(chiama(ADM_A, 'accessi.leggi'));
+    a.utenti[TIR_AB].aule = { 'aula-a': 'professionista' };
+    a.utenti[TIR_AB].attivo = false;   // la persona è anche nell'aula B: non la può disattivare
+    a.utenti['nuova.a@centrotice.it'] = { nome: 'Nuova', aule: { 'aula-a': 'tirocinante' }, pazienti: [PZA, PZB] };
+    ok(chiama(ADM_A, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    const t = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    assert.deepStrictEqual(t.utenti[TIR_AB].aule, { 'aula-a': 'professionista', 'aula-b': 'tirocinante' });
+    assert.strictEqual(t.utenti[TIR_AB].attivo, true);
+    assert.deepStrictEqual(t.utenti['nuova.a@centrotice.it'].pazienti, [PZA], 'i bambini delle altre aule non si assegnano');
+    assert.ok(t.utenti[ADM_B] && t.utenti[PROF_B], 'le persone delle altre aule restano');
+    assert.ok(t.aule['aula-b'], 'le aule le cambia solo il proprietario');
+  });
+  prova('un admin non può prendersi persone di altre aule né metterle nella propria', () => {
+    const a = ok(chiama(ADM_A, 'accessi.leggi'));
+    a.utenti[PROF_B] = { nome: 'Prof B', aule: { 'aula-a': 'admin' }, pazienti: [] };
+    ok(chiama(ADM_A, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    const t = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    assert.deepStrictEqual(t.utenti[PROF_B].aule, { 'aula-b': 'professionista' });
+  });
+  prova('un admin non può dare a qualcuno un\'aula che non amministra', () => {
+    const a = ok(chiama(ADM_A, 'accessi.leggi'));
+    a.aule['aula-b'] = { nome: 'Aula B' };
+    a.utenti['altra@centrotice.it'] = { nome: 'Altra', aule: { 'aula-b': 'admin' }, pazienti: [] };
+    ko(chiama(ADM_A, 'accessi.salva', { accessi: a, versioneBase: a.version }), 'vietato');
+  });
+  prova('dispositivi: un admin vede e abilita solo quelli delle persone delle sue aule', () => {
+    ok(chiama(PROF_B, 'dispositivo.registra', { id: 'disppropb01', pubblica: 'QUJD', nome: 'Tablet B' }));
+    assert.ok(!ok(chiama(ADM_A, 'dispositivi.elenco')).some((x) => x.id === 'disppropb01'));
+    assert.ok(ok(chiama(ADM_B, 'dispositivi.elenco')).some((x) => x.id === 'disppropb01'));
+    ko(chiama(ADM_A, 'dispositivi.abilita', { id: 'disppropb01', kid: ok(chiama(PROPRIETARIO, 'io')).kid, chiave: 'QUJD', pubblica: 'QUJD' }), 'non-trovato');
+    ko(chiama(ADM_A, 'dispositivo.togli', { id: 'disppropb01' }), 'vietato');
+  });
+  prova('persone e turni: solo della propria aula', () => {
+    const pa = ok(chiama(ADM_A, 'persone.elenco')).map((x) => x.email);
+    assert.ok(!pa.includes(ADM_B) && !pa.includes(PROF_B));
+    ok(chiama(ADM_B, 'turni.salva', { aula: 'aula-b', chiave: 'modello', busta: bk({}), versioneBase: 0 }));
+    ko(chiama(ADM_A, 'turni.leggi', { aula: 'aula-b', chiave: 'modello' }), 'vietato');
+    assert.strictEqual(ok(chiama(ADM_A, 'turni.leggi', { aula: 'aula-a', chiave: 'modello' })).version, 0);
+  });
+  prova('condividere un riservato solo con persone della stessa aula', () => {
+    ko(chiama(ADM_A, 'paziente.condivisione', { id: PZA, riservato: true, condivisi: [PROF_B] }), 'vietato');
+  });
+  prova('spostare un bambino di aula: solo chi le amministra entrambe', () => {
+    ko(chiama(ADM_A, 'paziente.aula', { id: PZA, aula: 'aula-b' }), 'vietato');
+    const v = ok(chiama(PROPRIETARIO, 'paziente.aula', { id: PZA, aula: 'aula-b' }));
+    assert.strictEqual(v.aula, 'aula-b');
+    assert.ok(!ok(chiama(ADM_A, 'pazienti.elenco')).some((x) => x.id === PZA));
+    assert.ok(ok(chiama(ADM_B, 'pazienti.elenco')).some((x) => x.id === PZA));
+  });
+  prova('un\'aula con bambini non si toglie; le aule le crea solo il proprietario', () => {
+    const t = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    delete t.aule['aula-b'];
+    Object.keys(t.utenti).forEach((e) => { if (t.utenti[e].aule) delete t.utenti[e].aule['aula-b']; if (t.utenti[e].aule && !Object.keys(t.utenti[e].aule).length) delete t.utenti[e]; });
+    ko(chiama(PROPRIETARIO, 'accessi.salva', { accessi: t, versioneBase: t.version }), 'richiesta-non-valida');
+    ko(chiama(ADM_A, 'manutenzione.ricostruisci'), 'vietato');
+  });
+}
 
 console.log(`\n${passati} test passati, ${fallimenti.length} falliti`);
 fs.rmSync(dir, { recursive: true, force: true });

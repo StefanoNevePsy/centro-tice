@@ -921,3 +921,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice-foglio .comp-lista li { display: flex; gap: 6px; align-items: baseline; }
 .tice-foglio .comp-lista li span { flex: 1; }
 .tice-foglio .comp-fasce { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+
+/* scelta dell'aula su cui si lavora */
+.tice .aula-scelta { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 12px; border: 1px solid var(--glass-border); border-radius: 999px; background: transparent; color: var(--text-primary); font: inherit; font-size: 0.9rem; cursor: pointer; }
+.tice .aula-scelta:hover { border-color: var(--accent-color); }

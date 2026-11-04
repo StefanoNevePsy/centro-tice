@@ -35,8 +35,29 @@
             <i class="pallino"></i>${testo ? h`<span>${testo}</span>` : icona('cloud')}</button>`;
     }
 
+    // Con più aule: su quale si lavora (elenco dei bambini, nuovi bambini, turni)
+    function sceltaAula() {
+        if (!Y.conAule || !Y.conAule()) return '';
+        const aule = Y.aule(), ids = Object.keys(aule);
+        if (ids.length < 2) return '';
+        const a = Y.aulaAttiva();
+        return h`<button type="button" class="aula-scelta" data-a="scegli-aula">${icona('school')}<span>Aula: <b>${(aule[a] || {}).nome || a}</b></span>${icona('chevron-down')}</button>`;
+    }
+    async function scegliAula() {
+        const aule = Y.aule(), a = Y.aulaAttiva();
+        const r = await foglio(h`<h2>Su quale aula lavori?</h2><p class="sotto">Bambini, nuovi bambini e turni sono quelli dell'aula scelta. Vale per questo dispositivo.</p>
+            <div class="opzioni">${Object.keys(aule).sort((x, y) => aule[x].nome.localeCompare(aule[y].nome, 'it')).map((k) => h`<button class="opzione ${k === a ? 'scelta' : ''}" data-foglio="${'a:' + k}">${icona('school')}<span class="corpo">${aule[k].nome}<small>${RUOLI[aule[k].ruolo] || aule[k].ruolo}</small></span>${k === a ? icona('check') : ''}</button>`)}</div>
+            <div class="bottoni"><button class="bt" data-foglio="chiudi">Chiudi</button></div>`);
+        if (!r || r.indexOf('a:') !== 0) return;
+        Y.impostaAula(r.slice(2));
+        aggiornaRuolo();
+        TiceHome.ridisegna();
+    }
     function banner() {
         if (!Y.attivo()) return '';
+        return h`${sceltaAula()}${bannerStato()}`;
+    }
+    function bannerStato() {
         if (S.fase === 'fuori') {
             return h`<div class="scheda imbottita" style="margin-bottom:12px">
                 <b>${icona('cloud')} Collega l'app al Drive del centro</b>
@@ -134,10 +155,23 @@
         return h`${puoCond ? h`<button class="opzione" data-foglio="est:visibilita">${icona(inf && inf.riservato ? 'lock' : 'users')}<span class="corpo">Chi lo vede<small>${inf && inf.riservato ? 'Non dell\'aula' + (inf.condivisi.length ? ' · condiviso con ' + inf.condivisi.length : ' · solo ' + (inf.creatoDa === io ? 'tu' : inf.creatoDa)) : 'Dell\'aula · puoi renderlo solo tuo'}</small></span></button>` : ''}
             ${!cond && Y.puo('creaPazienti') ? h`<button class="opzione" data-foglio="est:condividi">${icona('cloud-arrow-up')}<span class="corpo">Condividi con il centro<small>Lo vedranno le persone a cui verrà assegnato</small></span></button>` : ''}
             ${cond ? h`<button class="opzione" data-foglio="est:versioni">${icona('clock-rotate-left')}<span class="corpo">Versioni precedenti<small>Per recuperare dati cancellati o modificati per errore</small></span></button>` : ''}
-            ${cond && Y.puo('eliminaPazienti') ? h`<button class="opzione" data-foglio="est:archivia">${icona('box-archive')}<span class="corpo">Elimina per tutti (archivia)<small>Sparisce dai dispositivi di tutti; resta sul Drive con le sue versioni e si può recuperare</small></span></button>` : ''}`;
+            ${cond && Y.conAule && Y.conAule() && Y.puoIn(p.id, 'gestisciAccessi') && Object.keys(Y.aule()).filter((k) => (Y.aule()[k].permessi || {}).gestisciAccessi).length > 1 ? h`<button class="opzione" data-foglio="est:aula">${icona('school')}<span class="corpo">Sposta in un'altra aula<small>Ora in ${(Y.aule()[Y.aulaDi(p.id)] || {}).nome || 'quest\'aula'}: lo vedranno solo le persone della nuova aula</small></span></button>` : ''}
+            ${cond && Y.puoIn(p.id, 'eliminaPazienti') ? h`<button class="opzione" data-foglio="est:archivia">${icona('box-archive')}<span class="corpo">Elimina per tutti (archivia)<small>Sparisce dai dispositivi di tutti; resta sul Drive con le sue versioni e si può recuperare</small></span></button>` : ''}`;
     }
     async function sceltaBambino(k, p) {
         if (k === 'visibilita') return condivisioneBambino(p);
+        if (k === 'aula') {
+            const aule = Y.aule(), ora = Y.aulaDi(p.id);
+            const altre = Object.keys(aule).filter((x) => x !== ora && (aule[x].permessi || {}).gestisciAccessi);
+            const r = await foglio(h`<h2>Sposta ${p.name}</h2><p class="sotto">Le persone che non fanno parte della nuova aula non lo vedranno più dalla prossima sincronizzazione; le sedute e il programma restano com'erano.</p>
+                <div class="opzioni">${altre.map((x) => h`<button class="opzione" data-foglio="${'a:' + x}">${icona('school')}<span class="corpo">${aule[x].nome}</span>${icona('arrow-right')}</button>`)}</div>
+                <div class="bottoni"><button class="bt" data-foglio="chiudi">Annulla</button></div>`);
+            if (!r || r.indexOf('a:') !== 0) return;
+            try { await Y.spostaAula(p.id, r.slice(2)); avviso(`${p.name} ora è in ${aule[r.slice(2)].nome}`); }
+            catch (e) { avviso(e.message, 'errore'); }
+            vai('bambini');
+            return;
+        }
         if (k === 'condividi') {
             try { await Y.condividi(p.id); avviso(`${p.name} ora è sul Drive del centro`); }
             catch (e) { avviso(e.message, 'errore'); }
@@ -172,7 +206,9 @@
         if (!Y.pronto() || !Y.puo('creaPazienti')) return;
         try { await Y.condividi(p.id, opz); } catch (e) { avviso('Salvato sul dispositivo; invio al centro non riuscito: ' + e.message, 'errore'); }
     }
-    const puoProgrammi = (p) => !Y.attivo() || !Y.condiviso(p.id) || Y.puo('programmi');
+    const puoProgrammi = (p) => !Y.attivo() || !Y.condiviso(p.id) || Y.puoIn(p.id, 'programmi');
+    // un bambino del centro è dell'aula su cui si lavora; quelli solo su questo dispositivo si vedono sempre
+    const nellAula = (p) => !Y.conAule || !Y.conAule() || !Y.condiviso(p.id) || !Y.aulaDi(p.id) || Y.aulaDi(p.id) === Y.aulaAttiva();
 
     // =====================================================================
     // Versione semplice per le tirocinanti: presa dati, giochi, storico in
@@ -372,6 +408,14 @@
         const l = paz(pid);
         return (e && e.nome) || (l && l.name) || pid;
     }
+    // le aule degli accessi (custode senza aule: nessuna) e il ruolo di una persona in ciascuna
+    const auleAcc = (a) => (a && a.aule) || null;
+    const ruoliDi = (u) => (u.aule ? u.aule : { principale: u.ruolo });
+    function descriviRuoli(a, u) {
+        const aule = auleAcc(a), r = ruoliDi(u);
+        if (!aule || Object.keys(aule).length < 2) return RUOLI[u.ruolo] || u.ruolo;
+        return Object.keys(r).filter((k) => aule[k]).map((k) => `${aule[k].nome}: ${(RUOLI[r[k]] || r[k]).toLowerCase()}`).join(' · ') + (u.altreAule ? ' · anche in altre aule' : '');
+    }
     function vistaPersone() {
         const a = T.accessi;
         if (!a) {
@@ -380,49 +424,113 @@
         }
         const oggi = new Date().toISOString().slice(0, 10);
         const persone = Object.keys(a.utenti).sort((x, y) => (a.utenti[x].nome || x).localeCompare(a.utenti[y].nome || y, 'it'));
+        const aule = auleAcc(a), proprietario = !!io().proprietario;
+        const nAule = aule ? Object.keys(aule).length : 0;
         return h`${barra({ indietro: 'vai-account', titolo: 'Persone e accessi' })}
             <main class="tice-main">
-                <p class="sotto">Chi è in elenco entra con il suo account Google (anche Gmail personale) e vede solo i bambini assegnati. Togliere l'accesso ha effetto alla richiesta successiva, e i dati del centro spariscono dal suo dispositivo alla prossima sincronizzazione.</p>
+                <p class="sotto">Chi è in elenco entra con il suo account Google (anche Gmail personale) e vede solo i bambini delle sue aule che gli sono assegnati. Togliere l'accesso ha effetto alla richiesta successiva, e i dati del centro spariscono dal suo dispositivo alla prossima sincronizzazione.</p>
+                ${aule ? h`<div class="scheda imbottita" style="margin-bottom:12px">
+                    <b>${icona('school')} ${proprietario ? 'Aule del centro' : nAule === 1 ? 'La tua aula' : 'Le tue aule'}</b>
+                    <p class="sotto">${Object.keys(aule).map((k) => aule[k].nome).join(' · ')}</p>
+                    <p class="sotto piccolo">${proprietario ? 'Ogni aula ha i suoi bambini, le sue persone e i suoi turni. Gli amministratori di un\'aula non vedono né modificano niente delle altre; solo tu le vedi tutte.' : 'Gestisci le persone e i bambini di queste aule; le altre aule del centro non sono visibili da qui.'}</p>
+                    ${proprietario ? h`<button class="bt piccolo" data-a="gestisci-aule">${icona('pen')} Aule: crea, rinomina, togli</button>` : ''}
+                </div>` : ''}
                 <button class="bt primario largo" data-a="persona" data-email="">${icona('user-plus')} Aggiungi una persona</button>
                 <div class="scheda" style="margin-top:12px">
-                    <div class="riga" style="cursor:default"><span class="corpo"><span class="t1">${a.proprietario}</span><span class="t2">Amministratore · proprietario del custode, sempre abilitato</span></span></div>
+                    ${proprietario || !aule ? h`<div class="riga" style="cursor:default"><span class="corpo"><span class="t1">${a.proprietario}</span><span class="t2">Amministratore di tutte le aule · proprietario del custode, sempre abilitato</span></span></div>` : ''}
                     ${persone.map((em) => {
                         const u = a.utenti[em];
                         const scaduto = u.scadenza && u.scadenza < oggi;
                         const n = u.pazienti === '*' ? 'tutti i bambini' : `${(u.pazienti || []).length} bambini`;
                         return h`<button class="riga" data-a="persona" data-email="${em}">
                             <span class="corpo"><span class="t1">${u.nome || em}${!u.attivo ? h` <span class="pill grigia">disattivato</span>` : ''}${scaduto ? h` <span class="pill arancio">scaduto</span>` : ''}</span>
-                            <span class="t2">${em} · ${RUOLI[u.ruolo]} · ${n}${u.scadenza ? ' · fino al ' + formatoData(u.scadenza) : ''}</span></span>${icona('pen')}</button>`;
+                            <span class="t2">${em} · ${descriviRuoli(a, u)} · ${n}${u.scadenza ? ' · fino al ' + formatoData(u.scadenza) : ''}</span></span>${icona('pen')}</button>`;
                     })}
                 </div>
             </main>`;
     }
+    async function salvaAccessi(nuovi, a) {
+        try {
+            const corpo = { utenti: nuovi.utenti };
+            if (nuovi.aule) corpo.aule = nuovi.aule;
+            T.accessi = await Y.chiama('accessi.salva', { accessi: corpo, versioneBase: a.version || 0 });
+            T.accessi.proprietario = a.proprietario;
+            if (io().proprietario && nuovi.aule) T.accessi.aule = T.accessi.aule || nuovi.aule;
+            avviso('Accessi salvati');
+            // le aule e i ruoli di chi usa l'app possono essere cambiati
+            Y.sincronizza().catch(() => {});
+            return true;
+        } catch (e) {
+            avviso(e.message, 'errore');
+            if (e.codice === 'conflitto') T.accessi = null;
+            return false;
+        } finally { TiceHome.ridisegna(); }
+    }
+    async function gestisciAule() {
+        const a = T.accessi;
+        if (!a || !io().proprietario) return;
+        const aule = JSON.parse(JSON.stringify(a.aule || { principale: { nome: 'Centro' } }));
+        const ids = Object.keys(aule);
+        const quanti = (k) => Object.keys(Y.S.aulaDi || {}).filter((pid) => Y.S.aulaDi[pid] === k).length;
+        const r = await foglio(h`<form><h2>Aule del centro</h2>
+            <p class="sotto">Ogni aula ha i suoi bambini, le sue persone (con un ruolo per aula) e i suoi turni. I materiali e le modalità restano comuni a tutto il centro.</p>
+            ${ids.map((k) => h`<div class="riga-campi" style="align-items:end"><label class="campo"><span>${k === 'principale' ? 'Aula di partenza (i bambini di prima)' : 'Aula'} <small class="sotto">· ${quanti(k)} bambini</small></span><input name="${'n_' + k}" required maxlength="60" value="${aule[k].nome}"></label>
+                ${k !== 'principale' ? h`<label class="spunta-riga" style="flex:0 0 auto"><input type="checkbox" name="${'x_' + k}" ${quanti(k) ? grezzo('disabled') : ''}> <span class="sotto piccolo">${quanti(k) ? 'ha bambini' : 'togli'}</span></label>` : ''}</div>`)}
+            <label class="campo"><span>Nuova aula</span><input name="nuova" maxlength="60" placeholder="es. Aula Verde, Sede di Monza"></label>
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`);
+        if (!r) return;
+        ids.forEach((k) => { if (r['x_' + k]) delete aule[k]; else aule[k].nome = String(r['n_' + k] || aule[k].nome).trim(); });
+        const nome = String(r.nuova || '').trim();
+        if (nome) {
+            let id = nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'aula';
+            while (aule[id]) id += '-2';
+            aule[id] = { nome };
+        }
+        const nuovi = JSON.parse(JSON.stringify(a));
+        nuovi.aule = aule;
+        // chi era solo in un'aula tolta resta senza aule: gli si toglie quell'aula (e, se non ne ha altre, l'accesso)
+        Object.keys(nuovi.utenti).forEach((em) => {
+            const u = nuovi.utenti[em], r0 = Object.assign({}, ruoliDi(u));
+            Object.keys(r0).forEach((k) => { if (!aule[k]) delete r0[k]; });
+            if (!Object.keys(r0).length) delete nuovi.utenti[em]; else u.aule = r0;
+        });
+        await salvaAccessi(nuovi, a);
+    }
     async function persona(email) {
         const a = T.accessi;
-        const u = email ? a.utenti[email] : { nome: '', ruolo: 'tirocinante', pazienti: [], attivo: true, scadenza: null };
-        const bambini = Object.keys(S.etichette).sort((x, y) => nomeBambino(x).localeCompare(nomeBambino(y), 'it'));
+        const aule = auleAcc(a);
+        const u = email ? a.utenti[email] : { nome: '', ruolo: 'tirocinante', aule: aule ? { [Object.keys(aule)[0]]: 'tirocinante' } : null, pazienti: [], attivo: true, scadenza: null };
+        const ruoli = ruoliDi(u);
+        // i bambini che si possono assegnare: quelli delle aule visibili qui
+        const bambini = Object.keys(S.etichette).filter((pid) => !aule || !Y.S.aulaDi[pid] || aule[Y.S.aulaDi[pid]]).sort((x, y) => nomeBambino(x).localeCompare(nomeBambino(y), 'it'));
         const tutti = u.pazienti === '*';
+        const piuAule = aule && Object.keys(aule).length > 1;
+        const scegliRuolo = (nome, valore, conNessuno) => h`<select class="campo-in" name="${nome}">${conNessuno ? h`<option value="">— non ne fa parte</option>` : ''}${Object.keys(RUOLI).map((k) => h`<option value="${k}" ${valore === k ? grezzo('selected') : ''}>${RUOLI[k]}</option>`)}</select>`;
         const r = await foglio(h`<form><h2>${email ? u.nome || email : 'Nuova persona'}</h2>
             <label class="campo"><span>Email Google</span><input name="email" type="email" required value="${email || ''}" ${email ? grezzo('readonly') : grezzo('autofocus')}></label>
-            <label class="campo"><span>Nome</span><input name="nome" maxlength="60" value="${u.nome || ''}"></label>
-            <div class="campo"><span>Ruolo</span><div class="scelta">
-                ${Object.keys(RUOLI).map((k) => h`<label><input type="radio" name="ruolo" value="${k}" ${u.ruolo === k ? grezzo('checked') : ''}><span>${RUOLI[k]}</span></label>`)}
-            </div><span class="sotto piccolo">Tirocinante: registra le sedute e vede lo storico. Professionista: anche programmi e nuovi bambini. Amministratore: tutto, persone comprese.</span></div>
+            <label class="campo"><span>Nome</span><input name="nome" maxlength="60" value="${u.nome || ''}" ${u.altreAule ? grezzo('readonly') : ''}></label>
+            ${piuAule ? h`<div class="campo"><span>Ruolo in ogni aula</span>
+                ${Object.keys(aule).map((k) => h`<label class="riga-campi" style="align-items:center"><span style="flex:1">${aule[k].nome}</span>${scegliRuolo('aula_' + k, ruoli[k] || '', true)}</label>`)}
+                ${u.altreAule ? h`<span class="sotto piccolo">Fa parte anche di altre aule, che non vedi da qui: lì il suo ruolo resta com'è.</span>` : ''}
+            </div>` : h`<div class="campo"><span>Ruolo</span><div class="scelta">
+                ${Object.keys(RUOLI).map((k) => h`<label><input type="radio" name="ruolo" value="${k}" ${(aule ? ruoli[Object.keys(aule)[0]] : u.ruolo) === k ? grezzo('checked') : ''}><span>${RUOLI[k]}</span></label>`)}
+            </div></div>`}
+            <span class="sotto piccolo">Tirocinante: registra le sedute e vede lo storico. Professionista: anche programmi e nuovi bambini. Amministratore: tutto, persone comprese${aule ? ', ma solo nelle sue aule' : ''}.</span>
             <div class="campo"><span>Durata dell'accesso</span><div class="scelta">
                 <label><input type="radio" name="durata" value="sempre" ${!u.scadenza ? grezzo('checked') : ''}><span>Senza scadenza</span></label>
                 <label><input type="radio" name="durata" value="fino" ${u.scadenza ? grezzo('checked') : ''}><span>Con scadenza</span></label></div>
                 <label class="campo" data-solo="fino" style="margin-top:8px" ${u.scadenza ? '' : grezzo('hidden')}><span>Fino al (compreso)</span><input name="scadenza" type="date" value="${u.scadenza || ''}"></label>
                 <span class="sotto piccolo" data-solo="fino" ${u.scadenza ? '' : grezzo('hidden')}>Il giorno dopo l'accesso si chiude da solo: il custode revoca la chiave ai suoi dispositivi e i dati del centro spariscono da lì, anche senza rete. Prolungando la data, la chiave gli torna in automatico.</span></div>
             <div class="campo"><span>Bambini</span><div class="scelta">
-                <label><input type="radio" name="quali" value="tutti" ${tutti ? grezzo('checked') : ''}><span>Tutti</span></label>
+                <label><input type="radio" name="quali" value="tutti" ${tutti ? grezzo('checked') : ''}><span>Tutti${aule ? ' quelli delle sue aule' : ''}</span></label>
                 <label><input type="radio" name="quali" value="alcuni" ${!tutti ? grezzo('checked') : ''}><span>Solo alcuni</span></label></div>
                 <span class="sotto piccolo" data-solo="tutti" ${tutti ? '' : grezzo('hidden')}>Anche i bambini aggiunti in futuro.</span>
                 <div class="opzioni" data-solo="alcuni" style="max-height:30vh;overflow-y:auto;margin-top:8px" ${tutti ? grezzo('hidden') : ''}>
-                    ${bambini.length ? bambini.map((pid) => h`<label class="opzione"><input type="checkbox" name="p" value="${pid}" ${!tutti && (u.pazienti || []).includes(pid) ? grezzo('checked') : ''}><span class="corpo">${nomeBambino(pid)}</span></label>`)
+                    ${bambini.length ? bambini.map((pid) => h`<label class="opzione"><input type="checkbox" name="p" value="${pid}" ${!tutti && (u.pazienti || []).includes(pid) ? grezzo('checked') : ''}><span class="corpo">${nomeBambino(pid)}${piuAule && Y.S.aulaDi[pid] && aule[Y.S.aulaDi[pid]] ? h`<small>${aule[Y.S.aulaDi[pid]].nome}</small>` : ''}</span></label>`)
                         : h`<p class="sotto">Nessun bambino sul Drive del centro.</p>`}
                 </div></div>
-            ${email ? h`<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" name="attivo" ${u.attivo !== false ? grezzo('checked') : ''}> Accesso attivo</label>` : ''}
-            ${email ? h`<button type="button" class="bt pericolo" data-foglio="togli" style="width:100%;margin-top:6px">Togli dall'elenco</button>` : ''}
+            ${email && !u.altreAule ? h`<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" name="attivo" ${u.attivo !== false ? grezzo('checked') : ''}> Accesso attivo</label>` : ''}
+            ${email ? h`<button type="button" class="bt pericolo" data-foglio="togli" style="width:100%;margin-top:6px">${u.altreAule ? 'Togli dalle mie aule' : 'Togli dall\'elenco'}</button>` : ''}
             <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
         {
             dopo: (el) => {
@@ -436,28 +544,26 @@
             },
             invia: (f) => {
                 const d = new FormData(f);
-                return { email: d.get('email'), nome: d.get('nome'), ruolo: d.get('ruolo'), scadenza: d.get('durata') === 'fino' ? d.get('scadenza') : '',
-                    tutti: d.get('quali') === 'tutti', p: d.getAll('p'), attivo: email ? !!d.get('attivo') : true };
+                const ra = {};
+                if (piuAule) Object.keys(aule).forEach((k) => { const v = d.get('aula_' + k); if (v) ra[k] = v; });
+                else if (aule) ra[Object.keys(aule)[0]] = d.get('ruolo');
+                if (aule && !Object.keys(ra).length) { avviso('Scegli almeno un\'aula con un ruolo.', 'errore'); return undefined; }
+                return { email: d.get('email'), nome: d.get('nome'), ruolo: d.get('ruolo') || Object.values(ra)[0], aule: ra, scadenza: d.get('durata') === 'fino' ? d.get('scadenza') : '',
+                    tutti: d.get('quali') === 'tutti', p: d.getAll('p'), attivo: email && !u.altreAule ? !!d.get('attivo') : u.attivo !== false };
             }
         });
         if (!r) return;
         const nuovi = JSON.parse(JSON.stringify(a));
         const em = String(email || r.email).trim().toLowerCase();
         if (r === 'togli') {
-            if (!await conferma(`Togliere ${em}?`, 'Non potrà più entrare; i dati del centro spariranno dal suo dispositivo.', { ok: 'Togli', pericolo: true })) return;
+            if (!await conferma(`Togliere ${em}?`, u.altreAule ? 'Esce dalle tue aule; nelle altre aule del centro resta com\'è.' : 'Non potrà più entrare; i dati del centro spariranno dal suo dispositivo.', { ok: 'Togli', pericolo: true })) return;
             delete nuovi.utenti[em];
         } else {
             nuovi.utenti[em] = { nome: r.nome.trim(), ruolo: r.ruolo, pazienti: r.tutti ? '*' : r.p, scadenza: r.scadenza || null, attivo: r.attivo };
+            if (aule) nuovi.utenti[em].aule = r.aule;
         }
-        try {
-            T.accessi = await Y.chiama('accessi.salva', { accessi: { utenti: nuovi.utenti }, versioneBase: a.version || 0 });
-            T.accessi.proprietario = a.proprietario;
-            avviso('Accessi salvati');
-        } catch (e) {
-            avviso(e.message, 'errore');
-            if (e.codice === 'conflitto') T.accessi = null;
-        }
-        TiceHome.ridisegna();
+        if (!io().proprietario) delete nuovi.aule;
+        await salvaAccessi(nuovi, a);
     }
 
     // =====================================================================
@@ -853,6 +959,8 @@
         azioni: {
             'vai-account': () => vai('account'),
             'vai-persone': () => { T.accessi = null; vai('persone'); },
+            'scegli-aula': () => scegliAula(),
+            'gestisci-aule': () => gestisciAule(),
             'vai-materiali': () => { T.indiceMateriali = null; T.erroreMateriali = null; vai('materiali'); },
             'crea-chiave': creaChiave,
             'inserisci-chiave': inserisciChiave,
@@ -884,7 +992,7 @@
             'scarica-tutti': scaricaTutti,
             'pubblica-set': pubblicaSet
         },
-        aggancio: { chip, banner, pillola, sceltaRiservato, opzioniBambino, sceltaBambino, condiviso: (pid) => !!(Y.pronto() && Y.condiviso(pid)), opzioniMenu, sceltaMenu, nuovoBambino, puoProgrammi, dopo, limitato: tirocinante,
+        aggancio: { chip, banner, pillola, nellAula, sceltaRiservato, opzioniBambino, sceltaBambino, condiviso: (pid) => !!(Y.pronto() && Y.condiviso(pid)), opzioniMenu, sceltaMenu, nuovoBambino, puoProgrammi, dopo, limitato: tirocinante,
             // modalità e sinonimi: quelli del centro, uguali per tutti
             dizionario: () => (Y.attivo() && S.io ? S.modalita || {} : null),
             salvaDizionario: (aggiunte) => Y.aggiornaModalita(aggiunte) }

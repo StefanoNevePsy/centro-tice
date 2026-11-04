@@ -44,6 +44,13 @@ var QT = (function () {
     },
   };
   var RUOLI = Object.keys(PERMESSI);
+  var GRADO = { tirocinante: 1, professionista: 2, admin: 3 };
+
+  // Aule: gruppi separati dentro lo stesso centro. Ogni bambino sta in un'aula, ogni
+  // persona ha un ruolo in una o più aule e vede (e gestisce, se admin) solo quelle.
+  // Solo il proprietario le vede tutte e le crea. Senza aule configurate c'è la sola
+  // aula di partenza, che è il centro di prima: niente cambia per chi non le usa.
+  var AULA_BASE = 'principale';
 
   // Versioni precedenti di ogni paziente: le ultime RECENTI, piu' l'ultima di
   // ciascun giorno per GIORNI giorni. Un errore si recupera anche settimane dopo.
@@ -62,7 +69,7 @@ var QT = (function () {
     versione: function (pid, v) { return 'Pazienti/' + pid + '/versioni/v' + ('00000000' + v).slice(-8) + '.json'; },
     indiceMateriali: 'Materiali/indice.json',
     modalita: '_config/modalita.json',
-    turni: function (k) { return 'Turni/' + k + '.json'; },
+    turni: function (k, aula) { return aula && aula !== AULA_BASE ? 'Turni/' + aula + '/' + k + '.json' : 'Turni/' + k + '.json'; },
     cartellaImmagini: 'Materiali/immagini',
     set: function (id) { return 'Materiali/set/' + id + '.json'; },
     immagine: function (hash, ext) { return 'Materiali/immagini/' + hash + '.' + ext; },
@@ -75,6 +82,7 @@ var QT = (function () {
     data: /^\d{4}-\d{2}-\d{2}$/,
     email: /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/,
     kid: /^[a-z0-9-]{1,40}$/,
+    aula: /^[a-z0-9][a-z0-9-]{0,39}$/,
     dispositivo: /^[a-z0-9]{8,40}$/,
     b64: /^[A-Za-z0-9+/]*={0,2}$/,
     versione: /^v(\d{8})\.json$/,
@@ -169,7 +177,7 @@ var QT = (function () {
     'cifratura.imposta': true, 'dispositivo.registra': true, 'dispositivi.abilita': true, 'dispositivo.togli': true,
     'paziente.crea': true, 'paziente.salva': true, 'paziente.archivia': true, 'paziente.condivisione': true,
     'materiali.caricaImmagini': true, 'materiali.pubblica': true, 'materiali.elimina': true, 'accessi.salva': true,
-    'modalita.aggiorna': true, 'turni.salva': true,
+    'modalita.aggiorna': true, 'turni.salva': true, 'paziente.aula': true,
   };
   var RE_RICHIESTA = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -190,6 +198,15 @@ var QT = (function () {
 
   function validaAccessi(a) {
     oggettoV(a, 'accessi');
+    var auleIn = a.aule ? oggettoV(a.aule, 'accessi.aule') : {};
+    var aule = {};
+    Object.keys(auleIn).forEach(function (id) {
+      idV(id, RE.aula, 'aula');
+      var x = oggettoV(auleIn[id], 'aula ' + id);
+      aule[id] = { nome: testoV(x.nome, 60, true, 'nome dell\'aula') };
+    });
+    if (Object.keys(aule).length > 50) throw err('richiesta-non-valida', 'Al massimo 50 aule.');
+    if (!aule[AULA_BASE]) aule[AULA_BASE] = { nome: (auleIn[AULA_BASE] && auleIn[AULA_BASE].nome) || 'Centro' };
     var utenti = oggettoV(a.utenti || {}, 'accessi.utenti');
     var out = {};
     Object.keys(utenti).forEach(function (email) {
@@ -197,15 +214,41 @@ var QT = (function () {
       if (!RE.email.test(e)) throw err('richiesta-non-valida', 'Email non valida: ' + email);
       var u = oggettoV(utenti[email], 'utente ' + email);
       var pazienti = u.pazienti === '*' ? '*' : listaV(u.pazienti, 1000, 'pazienti').map(function (p) { return idV(p, RE.pz, 'pazienti'); });
+      // il ruolo in ogni aula; chi non ne ha (accessi di prima) sta nell'aula di partenza
+      var ua = {};
+      if (u.aule) {
+        var x = oggettoV(u.aule, 'aule di ' + e);
+        Object.keys(x).forEach(function (id) {
+          idV(id, RE.aula, 'aula');
+          if (!aule[id]) throw err('richiesta-non-valida', 'Aula sconosciuta: ' + id);
+          ua[id] = unoTra(x[id], RUOLI, 'ruolo in ' + id);
+        });
+      } else ua[AULA_BASE] = unoTra(u.ruolo, RUOLI, 'ruolo');
+      if (!Object.keys(ua).length) throw err('richiesta-non-valida', e + ': serve almeno un\'aula.');
       out[e] = {
         nome: testoV(u.nome, 60, false, 'nome') || e.split('@')[0],
-        ruolo: unoTra(u.ruolo, RUOLI, 'ruolo'),
+        // il ruolo «più alto», per le app e i custodi di prima che non conoscono le aule
+        ruolo: ruoloPiuAlto(ua),
+        aule: ua,
         pazienti: pazienti,
         attivo: u.attivo !== false,
         scadenza: dataV(u.scadenza, 'scadenza', true),
       };
     });
-    return { schema: SCHEMA, utenti: out };
+    return { schema: SCHEMA, aule: aule, utenti: out };
+  }
+  function ruoloPiuAlto(ua) {
+    return Object.keys(ua).reduce(function (m, k) { return !m || GRADO[ua[k]] > GRADO[m] ? ua[k] : m; }, null) || 'tirocinante';
+  }
+  // Le aule di una persona negli accessi salvati (quelli di prima: l'aula di partenza col ruolo unico)
+  function auleDiVoce(v) {
+    if (v && v.aule && typeof v.aule === 'object') return v.aule;
+    var o = {}; o[AULA_BASE] = (v && v.ruolo) || 'tirocinante'; return o;
+  }
+  function auleDelCentro(accessi) {
+    var a = (accessi && accessi.aule) || {};
+    if (!a[AULA_BASE]) { a = JSON.parse(JSON.stringify(a)); a[AULA_BASE] = { nome: 'Centro' }; }
+    return a;
   }
 
   function validaSet(s) {
@@ -298,12 +341,17 @@ var QT = (function () {
       if (email && email === proprietario) {
         // Chi ospita il custode e' sempre admin: il primo accesso non richiede
         // configurazioni a mano e nessuno puo' chiuderlo fuori per errore.
-        return { email: email, nome: (voce && voce.nome) || identita.nome || email, ruolo: 'admin', pazienti: '*', proprietario: true, scadenza: null };
+        var tutte = {};
+        Object.keys(auleDelCentro(accessi)).forEach(function (id) { tutte[id] = 'admin'; });
+        return { email: email, nome: (voce && voce.nome) || identita.nome || email, ruolo: 'admin', aule: tutte, pazienti: '*', proprietario: true, scadenza: null };
       }
       if (!voce) throw err('non-autorizzato', 'L\'account ' + email + ' non è abilitato. Chiedi a un amministratore di aggiungerti.');
       if (voce.attivo === false) { revocaSeServe(email); throw err('disattivato', 'L\'account ' + email + ' è stato disattivato.'); }
       if (voce.scadenza && oggi() > voce.scadenza) { revocaSeServe(email); throw err('scaduto', 'L\'accesso di ' + email + ' è scaduto il ' + voce.scadenza + '.'); }
-      return { email: email, nome: voce.nome || identita.nome || email, ruolo: voce.ruolo, pazienti: voce.pazienti, proprietario: false, scadenza: voce.scadenza || null };
+      var esistenti = auleDelCentro(accessi), mie = {};
+      var va = auleDiVoce(voce);
+      Object.keys(va).forEach(function (id) { if (esistenti[id] && PERMESSI[va[id]]) mie[id] = va[id]; });
+      return { email: email, nome: voce.nome || identita.nome || email, ruolo: ruoloPiuAlto(mie), aule: mie, pazienti: voce.pazienti, proprietario: false, scadenza: voce.scadenza || null };
     }
 
     // Revoca della chiave: chi non è più abilitato (scaduto, disattivato) perde
@@ -327,24 +375,50 @@ var QT = (function () {
       try { conLock(revocaChiavi); } catch (e) { /* al prossimo tentativo, o al risveglio */ }
     }
 
-    function permessi(u) { return PERMESSI[u.ruolo] || PERMESSI.tirocinante; }
+    // Il ruolo conta aula per aula: si è admin di un'aula, non del centro (tranne il proprietario).
+    function ruoloIn(u, aula) { return u.proprietario ? 'admin' : ((u.aule || {})[aula] || null); }
+    function permessiIn(u, aula) { var r = ruoloIn(u, aula); return r ? PERMESSI[r] : null; }
+    function puoIn(u, aula, cosa) {
+      var x = permessiIn(u, aula);
+      if (!x) throw err('vietato', 'Non fai parte di quest\'aula.');
+      if (!x[cosa]) throw err('vietato', 'Il tuo ruolo in quest\'aula (' + ruoloIn(u, aula) + ') non consente questa operazione.');
+    }
+    // Le aule in cui la persona può fare una cosa
+    function auleCon(u, cosa) { return Object.keys(u.aule || {}).filter(function (a) { var x = permessiIn(u, a); return x && x[cosa]; }); }
+    // Per le cose comuni a tutto il centro (materiali, modalità): basta poterlo fare in un'aula
+    function permessi(u) {
+      var out = {};
+      Object.keys(PERMESSI.admin).forEach(function (k) { out[k] = auleCon(u, k).length > 0; });
+      return out;
+    }
     function puo(u, cosa) {
       if (!permessi(u)[cosa]) throw err('vietato', 'Il tuo ruolo (' + u.ruolo + ') non consente questa operazione.');
     }
+    function soloProprietario(u) { if (!u.proprietario) throw err('vietato', 'Solo il proprietario del custode può farlo.'); }
+    // Chi condivide un'aula (amministrata da u, se `admin`) con la persona di quell'email
+    function inMieAule(u, voce, admin) {
+      if (u.proprietario) return true;
+      var va = auleDiVoce(voce);
+      return Object.keys(va).some(function (a) { return admin ? auleCon(u, 'gestisciAccessi').indexOf(a) >= 0 : !!ruoloIn(u, a); });
+    }
     // Un bambino «non dell'aula» (riservato) lo vedono solo chi l'ha creato e le persone
     // con cui è condiviso: nemmeno gli amministratori o chi vede tutti gli altri.
+    // In ogni caso solo chi fa parte dell'aula del bambino.
     var elencoRichiesta = null;   // l'elenco letto una volta per richiesta
     function voceDi(pid) {
       if (!elencoRichiesta) elencoRichiesta = leggiElenco();
       return elencoRichiesta.pazienti[pid] || null;
     }
+    function aulaDi(pid) { var v = voceDi(pid); return (v && v.aula) || AULA_BASE; }
     function vedeRiservato(u, v) {
       return v.creatoDa === u.email || (Array.isArray(v.condivisi) && v.condivisi.indexOf(u.email) >= 0);
     }
     function vede(u, pid) {
       var v = voceDi(pid);
+      var x = permessiIn(u, (v && v.aula) || AULA_BASE);
+      if (!x) return false;
       if (v && v.riservato) return vedeRiservato(u, v);
-      return permessi(u).vediTutti || u.pazienti === '*' || (Array.isArray(u.pazienti) && u.pazienti.indexOf(pid) >= 0);
+      return x.vediTutti || u.pazienti === '*' || (Array.isArray(u.pazienti) && u.pazienti.indexOf(pid) >= 0);
     }
     function richiediVisibile(u, pid) {
       if (!vede(u, pid)) throw err('vietato', 'Non sei assegnato a questo paziente.');
@@ -364,6 +438,7 @@ var QT = (function () {
         aggiornato: r.aggiornato, aggiornatoDa: r.aggiornatoDa, eliminato: !!r.eliminato,
       };
       if (r.riservato) { v.riservato = true; v.creatoDa = r.creatoDa; v.condivisi = r.condivisi || []; }
+      v.aula = r.aula || AULA_BASE;
       return v;
     }
     function leggiElenco() {
@@ -443,13 +518,15 @@ var QT = (function () {
       var inAttesa;
       if (permessi(u).gestisciAccessi && c) {
         inAttesa = 0;
-        var dd = leggiDispositivi().dispositivi;
-        Object.keys(dd).forEach(function (id) { var x = dd[id]; if (!(x.chiavi && x.chiavi[c.kid]) && abilitato(x.email)) inAttesa++; });
+        var dd = leggiDispositivi().dispositivi, acc = leggiAccessi();
+        Object.keys(dd).forEach(function (id) { var x = dd[id]; if (!(x.chiavi && x.chiavi[c.kid]) && abilitato(x.email) && dispositivoMio(u, x, acc)) inAttesa++; });
       }
+      var nomi = auleDelCentro(leggiAccessi()), aule = {};
+      Object.keys(u.aule || {}).forEach(function (a) { aule[a] = { nome: (nomi[a] || {}).nome || a, ruolo: u.aule[a], permessi: PERMESSI[u.aule[a]] }; });
       return {
         email: u.email, nome: u.nome, ruolo: u.ruolo, pazienti: u.pazienti,
         proprietario: u.proprietario, scadenza: u.scadenza, permessi: permessi(u),
-        cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati'],
+        aule: aule, cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati', 'aule'],
       };
     };
 
@@ -468,6 +545,7 @@ var QT = (function () {
           // Cambio della chiave: solo dichiarando quale si sostituisce. La
           // precedente resta descritta (non la chiave: sale e verifica) per
           // aprire le versioni vecchie con la frase di allora.
+          if (!u.proprietario && Object.keys(auleDelCentro(leggiAccessi())).length > 1) soloProprietario(u);
           if (!d.sostituisci || d.kidAttuale !== attuale.kid) {
             throw err('conflitto', 'La chiave del centro esiste già.', { attuale: attuale });
           }
@@ -513,6 +591,12 @@ var QT = (function () {
       if (email === String(amb.proprietario() || '').toLowerCase()) return true;
       var v = leggiAccessi().utenti[email];
       return !!v && v.attivo !== false && !(v.scadenza && oggi() > v.scadenza);
+    }
+    // Il dispositivo è di una persona di un'aula che u amministra (o di u stesso)
+    function dispositivoMio(u, r, accessi) {
+      if (u.proprietario || r.email === u.email) return true;
+      var voce = (accessi || leggiAccessi()).utenti[r.email];
+      return !!voce && inMieAule(u, voce, true);
     }
     function mioDispositivo(u, id) {
       var disp = leggiDispositivi();
@@ -560,8 +644,8 @@ var QT = (function () {
 
     azioni['dispositivi.elenco'] = function (u) {
       puo(u, 'gestisciAccessi');
-      var disp = leggiDispositivi(), cfg = A.leggiJSON(P.cifratura);
-      return Object.keys(disp.dispositivi).map(function (id) {
+      var disp = leggiDispositivi(), cfg = A.leggiJSON(P.cifratura), acc = leggiAccessi();
+      return Object.keys(disp.dispositivi).filter(function (id) { return dispositivoMio(u, disp.dispositivi[id], acc); }).map(function (id) {
         var r = disp.dispositivi[id];
         return {
           id: id, email: r.email, nome: r.nome, pubblica: r.pubblica, creato: r.creato, ultimoAccesso: r.ultimoAccesso,
@@ -581,7 +665,7 @@ var QT = (function () {
         if (kid !== cfg.kid) throw err('chiave-cambiata', 'La chiave del centro è cambiata nel frattempo.');
         var disp = leggiDispositivi();
         var r = disp.dispositivi[id];
-        if (!r) throw err('non-trovato', 'Dispositivo non registrato.');
+        if (!r || !dispositivoMio(u, r)) throw err('non-trovato', 'Dispositivo non registrato.');
         if (!abilitato(r.email)) throw err('vietato', 'La persona di questo dispositivo non è abilitata.');
         if (d.pubblica !== r.pubblica) throw err('conflitto', 'Il dispositivo ha cambiato chiavi: riprova.');
         r.chiavi = {};
@@ -599,7 +683,7 @@ var QT = (function () {
         var disp = leggiDispositivi();
         var r = disp.dispositivi[id];
         if (!r) return true;
-        if (r.email !== u.email) puo(u, 'gestisciAccessi');
+        if (r.email !== u.email) { puo(u, 'gestisciAccessi'); if (!dispositivoMio(u, r)) throw err('vietato', 'Questo dispositivo non è di una persona delle tue aule.'); }
         delete disp.dispositivi[id];
         A.scriviJSON(P.dispositivi, disp);
         return true;
@@ -637,7 +721,9 @@ var QT = (function () {
     };
 
     azioni['paziente.crea'] = function (u, d) {
-      puo(u, 'creaPazienti');
+      var aula = d.aula ? idV(d.aula, RE.aula, 'aula') : (auleCon(u, 'creaPazienti').indexOf(AULA_BASE) >= 0 ? AULA_BASE : auleCon(u, 'creaPazienti')[0]);
+      if (!aula) throw err('vietato', 'Il tuo ruolo non consente di creare bambini.');
+      puoIn(u, aula, 'creaPazienti');
       var cfg = richiediCifratura();
       var pid = idV(d.id, RE.pz, 'id');
       var busta = bustaV(d.busta, MAX_PAZIENTE, 'busta');
@@ -653,6 +739,7 @@ var QT = (function () {
         var ora = amb.ora();
         var r = { schema: SCHEMA, id: pid, version: 1, busta: busta, etichetta: etichetta,
           creato: ora, creatoDa: u.email, aggiornato: ora, aggiornatoDa: u.email };
+        if (aula !== AULA_BASE) r.aula = aula;
         if (d.riservato === true) { r.riservato = true; r.condivisi = []; }
         A.scriviJSON(P.paziente(pid), r);
         aggiornaElenco(r);
@@ -679,10 +766,10 @@ var QT = (function () {
     // dispositivo ha salvato, risponde "conflitto" con la versione attuale e
     // l'app unisce le due (lei puo' leggerle, il custode no) e riprova.
     azioni['paziente.salva'] = function (u, d) {
-      puo(u, 'registraSedute');
       var cfg = richiediCifratura();
       var pid = idV(d.id, RE.pz, 'id');
       richiediVisibile(u, pid);
+      puoIn(u, aulaDi(pid), 'registraSedute');
       var busta = bustaV(d.busta, MAX_PAZIENTE, 'busta');
       var etichetta = d.etichetta ? bustaV(d.etichetta, MAX_ETICHETTA, 'etichetta') : null;
       richiediChiaveAttuale(cfg, busta, etichetta);
@@ -692,13 +779,14 @@ var QT = (function () {
         if (attuale.version !== base) {
           throw err('conflitto', 'Nel frattempo qualcun altro ha modificato questo paziente.', { attuale: attuale });
         }
-        if (attuale.eliminato && !permessi(u).eliminaPazienti) throw err('vietato', 'Questo paziente è stato archiviato.');
+        if (attuale.eliminato && !(permessiIn(u, attuale.aula || AULA_BASE) || {}).eliminaPazienti) throw err('vietato', 'Questo paziente è stato archiviato.');
         archiviaVersione(attuale);
         var ora = amb.ora();
         var r = { schema: SCHEMA, id: pid, version: attuale.version + 1, busta: busta, etichetta: etichetta || attuale.etichetta,
           creato: attuale.creato, creatoDa: attuale.creatoDa, aggiornato: ora, aggiornatoDa: u.email };
         if (attuale.eliminato) r.eliminato = true;   // resta archiviato anche se ricifrato
         if (attuale.riservato) { r.riservato = true; r.condivisi = attuale.condivisi || []; }
+        if (attuale.aula) r.aula = attuale.aula;
         A.scriviJSON(P.paziente(pid), r);
         aggiornaElenco(r);
         return { id: r.id, version: r.version, aggiornato: r.aggiornato, aggiornatoDa: r.aggiornatoDa };
@@ -724,9 +812,9 @@ var QT = (function () {
     // Archivia (non cancella): il file resta, con tutte le versioni, e un admin
     // puo' riattivarlo. Sparisce dai dispositivi alla sincronizzazione successiva.
     azioni['paziente.archivia'] = function (u, d) {
-      puo(u, 'eliminaPazienti');
       var pid = idV(d.id, RE.pz, 'id');
       richiediVisibile(u, pid);
+      puoIn(u, aulaDi(pid), 'eliminaPazienti');
       var archiviato = d.archiviato !== false;
       return conLock(function () {
         var r = leggiRecord(pid);
@@ -760,12 +848,42 @@ var QT = (function () {
         var r = leggiRecord(pid);
         var creatore = r.creatoDa === u.email;
         if (r.riservato && !creatore) throw err('vietato', 'Solo chi ha creato il bambino ne cambia la condivisione.');
-        if (!r.riservato && !creatore && !permessi(u).vediTutti) throw err('vietato', 'Solo chi l\'ha creato o un amministratore può renderlo riservato.');
+        if (!r.riservato && !creatore && !(permessiIn(u, r.aula || AULA_BASE) || {}).vediTutti) throw err('vietato', 'Solo chi l\'ha creato o un amministratore può renderlo riservato.');
+        // si condivide solo con persone della stessa aula
+        var acc = leggiAccessi(), aulaR = r.aula || AULA_BASE, prop = String(amb.proprietario() || '').toLowerCase();
+        condivisi.forEach(function (e) {
+          if (e !== prop && !(acc.utenti[e] && auleDiVoce(acc.utenti[e])[aulaR])) throw err('vietato', e + ' non fa parte dell\'aula di questo bambino.');
+        });
         if (riservato) {
           if (!creatore && condivisi.indexOf(u.email) < 0) condivisi.push(u.email);
           r.riservato = true;
           r.condivisi = condivisi.filter(function (e, i) { return e !== r.creatoDa && condivisi.indexOf(e) === i; });
         } else { delete r.riservato; delete r.condivisi; }
+        A.scriviJSON(P.paziente(pid), r);
+        aggiornaElenco(r);
+        return voceElenco(r);
+      });
+    };
+
+    // Un bambino passa a un'altra aula: lo fa chi amministra entrambe (o il proprietario).
+    // Chi non fa parte della nuova aula lo perde alla sincronizzazione successiva.
+    azioni['paziente.aula'] = function (u, d) {
+      var pid = idV(d.id, RE.pz, 'id');
+      var nuova = idV(d.aula, RE.aula, 'aula');
+      richiediVisibile(u, pid);
+      if (!auleDelCentro(leggiAccessi())[nuova]) throw err('non-trovato', 'Aula inesistente.');
+      puoIn(u, aulaDi(pid), 'gestisciAccessi');
+      puoIn(u, nuova, 'gestisciAccessi');
+      return conLock(function () {
+        var r = leggiRecord(pid);
+        if ((r.aula || AULA_BASE) === nuova) return voceElenco(r);
+        // un riservato resta condiviso solo con chi fa parte della nuova aula
+        if (r.riservato) {
+          var acc = leggiAccessi();
+          r.condivisi = (r.condivisi || []).filter(function (e) { return acc.utenti[e] && auleDiVoce(acc.utenti[e])[nuova]; });
+        }
+        if (nuova === AULA_BASE) delete r.aula; else r.aula = nuova;
+        r.aggiornato = amb.ora(); r.aggiornatoDa = u.email;
         A.scriviJSON(P.paziente(pid), r);
         aggiornaElenco(r);
         return voceElenco(r);
@@ -970,25 +1088,31 @@ var QT = (function () {
     // turni e una per la settimana tipo. Li leggono tutti, li cambia chi gestisce i programmi.
     var RE_TURNI = /^(persone|modello|\d{4}-\d{2}-\d{2})$/;
     var MAX_TURNI = 2 * 1024 * 1024;
+    function aulaTurni(u, d) {
+      var aula = d.aula ? idV(d.aula, RE.aula, 'aula') : AULA_BASE;
+      if (!ruoloIn(u, aula)) throw err('vietato', 'Non fai parte di quest\'aula.');
+      return aula;
+    }
     azioni['turni.leggi'] = function (u, d) {
       var k = idV(d.chiave, RE_TURNI, 'chiave');
-      var x = A.leggiJSON(P.turni(k));
+      var x = A.leggiJSON(P.turni(k, aulaTurni(u, d)));
       return x ? { chiave: k, version: x.version, busta: x.busta, aggiornato: x.aggiornato, aggiornatoDa: x.aggiornatoDa } : { chiave: k, version: 0, busta: null };
     };
     azioni['turni.salva'] = function (u, d) {
-      puo(u, 'programmi');
+      var aula = aulaTurni(u, d);
+      puoIn(u, aula, 'programmi');
       var cfg = richiediCifratura();
       var k = idV(d.chiave, RE_TURNI, 'chiave');
       var b = bustaV(d.busta, MAX_TURNI, 'busta');
       richiediChiaveAttuale(cfg, b);
       var base = interoV(d.versioneBase, 0, 1e9, 'versioneBase');
       return conLock(function () {
-        var x = A.leggiJSON(P.turni(k));
+        var x = A.leggiJSON(P.turni(k, aula));
         if (((x && x.version) || 0) !== base) {
           throw err('conflitto', 'I turni sono stati cambiati da ' + ((x && x.aggiornatoDa) || 'un\'altra persona') + ' nel frattempo.', { attuale: x });
         }
         var n = { chiave: k, version: base + 1, busta: b, aggiornato: amb.ora(), aggiornatoDa: u.email };
-        A.scriviJSON(P.turni(k), n);
+        A.scriviJSON(P.turni(k, aula), n);
         return { chiave: k, version: n.version, aggiornato: n.aggiornato };
       });
     };
@@ -996,38 +1120,115 @@ var QT = (function () {
     // --- Accessi ----------------------------------------------------------------
     // Le persone del centro (nome ed email, niente ruoli né bambini): per scegliere con chi
     // condividere un bambino riservato. Le vede chiunque sia abilitato.
-    azioni['persone.elenco'] = function () {
+    azioni['persone.elenco'] = function (u, d) {
       var a = leggiAccessi(), out = [], prop = String(amb.proprietario() || '').toLowerCase();
+      var sola = d && d.aula ? idV(d.aula, RE.aula, 'aula') : null;
+      if (sola && !ruoloIn(u, sola)) throw err('vietato', 'Non fai parte di quest\'aula.');
       Object.keys(a.utenti).forEach(function (e) {
         var x = a.utenti[e];
         if (x.attivo === false || (x.scadenza && oggi() > x.scadenza)) return;
-        out.push({ email: e, nome: x.nome || e });
+        var va = auleDiVoce(x);
+        var comuni = Object.keys(va).filter(function (k) { return (sola ? k === sola : true) && !!ruoloIn(u, k); });
+        if (!comuni.length) return;
+        out.push({ email: e, nome: x.nome || e, aule: comuni });
       });
-      if (prop && !a.utenti[prop]) out.push({ email: prop, nome: prop });
+      if (prop && !a.utenti[prop]) out.push({ email: prop, nome: prop, aule: Object.keys(u.aule || {}) });
       return out;
     };
 
+    // Quello che un admin vede degli accessi: le sue aule, le persone che ne fanno parte
+    // (con il solo ruolo in quelle aule) e i bambini assegnati di quelle aule.
+    function accessiVisti(u, a) {
+      if (u.proprietario) return a;
+      var mie = auleCon(u, 'gestisciAccessi'), tutte = auleDelCentro(a), aule = {}, utenti = {};
+      mie.forEach(function (k) { if (tutte[k]) aule[k] = tutte[k]; });
+      var pidMiei = {}, el = leggiElenco().pazienti;
+      Object.keys(el).forEach(function (pid) { if (mie.indexOf(el[pid].aula || AULA_BASE) >= 0) pidMiei[pid] = true; });
+      Object.keys(a.utenti).forEach(function (e) {
+        var x = a.utenti[e], va = auleDiVoce(x), qui = {};
+        Object.keys(va).forEach(function (k) { if (mie.indexOf(k) >= 0) qui[k] = va[k]; });
+        if (!Object.keys(qui).length) return;
+        utenti[e] = { nome: x.nome, ruolo: ruoloPiuAlto(qui), aule: qui, attivo: x.attivo !== false, scadenza: x.scadenza || null,
+          pazienti: x.pazienti === '*' ? '*' : (x.pazienti || []).filter(function (pid) { return pidMiei[pid]; }) };
+        if (Object.keys(va).length > Object.keys(qui).length) utenti[e].altreAule = true;
+      });
+      return { schema: SCHEMA, version: a.version || 0, aule: aule, utenti: utenti, aggiornato: a.aggiornato, aggiornatoDa: a.aggiornatoDa };
+    }
     azioni['accessi.leggi'] = function (u) {
       puo(u, 'gestisciAccessi');
-      var a = leggiAccessi();
+      var a = accessiVisti(u, leggiAccessi());
       a.proprietario = String(amb.proprietario() || '').toLowerCase();
+      if (u.proprietario) a.aule = auleDelCentro(a);
       return a;
     };
 
+    // Il proprietario salva tutto (aule comprese). Un admin cambia solo le sue aule:
+    // quello che riguarda le altre aule resta com'era, anche se non lo vede.
+    function unisciAccessiAdmin(u, attuale, nuovo) {
+      var mie = auleCon(u, 'gestisciAccessi');
+      var esistenti = auleDelCentro(attuale);
+      var out = { schema: SCHEMA, aule: esistenti, utenti: {} };
+      var el = leggiElenco().pazienti;
+      var mioPid = function (pid) { return mie.indexOf((el[pid] && el[pid].aula) || AULA_BASE) >= 0; };
+      // le persone che l'admin non vede restano come sono
+      Object.keys(attuale.utenti || {}).forEach(function (e) {
+        var x = attuale.utenti[e], va = auleDiVoce(x);
+        var mia = Object.keys(va).some(function (k) { return mie.indexOf(k) >= 0; });
+        if (!mia) { out.utenti[e] = x; return; }
+        var n = nuovo.utenti[e];
+        var altre = {};
+        Object.keys(va).forEach(function (k) { if (mie.indexOf(k) < 0) altre[k] = va[k]; });
+        var qui = {};
+        if (n) Object.keys(n.aule).forEach(function (k) { if (mie.indexOf(k) >= 0) qui[k] = n.aule[k]; });
+        var aule = Object.assign({}, altre, qui);
+        if (!Object.keys(aule).length) return;   // tolta da tutte le aule: esce
+        var soloMie = !Object.keys(altre).length;
+        var pz = x.pazienti === '*' || (n && n.pazienti === '*') ? (n ? n.pazienti : x.pazienti)
+          : (x.pazienti || []).filter(function (pid) { return !mioPid(pid); }).concat(((n && n.pazienti) || []).filter(mioPid));
+        out.utenti[e] = {
+          // nome, attivo e scadenza valgono in tutte le aule: li cambia chi ha la persona solo nelle sue
+          nome: soloMie && n ? n.nome : x.nome, attivo: soloMie && n ? n.attivo : x.attivo !== false,
+          scadenza: soloMie && n ? n.scadenza : (x.scadenza || null),
+          aule: aule, ruolo: ruoloPiuAlto(aule), pazienti: pz,
+        };
+      });
+      // persone nuove: solo nelle aule dell'admin; chi esiste già in altre aule non si può prendere da qui
+      Object.keys(nuovo.utenti).forEach(function (e) {
+        if (attuale.utenti && attuale.utenti[e]) return;
+        var n = nuovo.utenti[e], qui = {};
+        Object.keys(n.aule).forEach(function (k) { if (mie.indexOf(k) >= 0) qui[k] = n.aule[k]; });
+        if (!Object.keys(qui).length) throw err('vietato', e + ': puoi aggiungere persone solo alle tue aule.');
+        out.utenti[e] = { nome: n.nome, attivo: n.attivo, scadenza: n.scadenza, aule: qui, ruolo: ruoloPiuAlto(qui),
+          pazienti: n.pazienti === '*' ? '*' : (n.pazienti || []).filter(mioPid) };
+      });
+      return out;
+    }
+
     azioni['accessi.salva'] = function (u, d) {
       puo(u, 'gestisciAccessi');
-      var nuovo = validaAccessi(d.accessi);
+      var arrivati = validaAccessi(d.accessi);
       var base = interoV(d.versioneBase, 0, 1e9, 'versioneBase');
       return conLock(function () {
         var attuale = leggiAccessi();
         if ((attuale.version || 0) !== base) {
-          throw err('conflitto', 'Gli accessi sono stati modificati da ' + (attuale.aggiornatoDa || 'un altro admin') + ' nel frattempo.', { attuale: attuale });
+          throw err('conflitto', 'Gli accessi sono stati modificati da ' + (attuale.aggiornatoDa || 'un altro admin') + ' nel frattempo.', { attuale: accessiVisti(u, attuale) });
+        }
+        var nuovo = u.proprietario ? arrivati : unisciAccessiAdmin(u, attuale, arrivati);
+        if (u.proprietario) {
+          // un'aula si toglie solo se non ha più bambini
+          var el = leggiElenco().pazienti;
+          Object.keys(auleDelCentro(attuale)).forEach(function (k) {
+            if (nuovo.aule[k]) return;
+            if (k === AULA_BASE) throw err('richiesta-non-valida', 'L\'aula di partenza non si può togliere.');
+            if (Object.keys(el).some(function (pid) { return (el[pid].aula || AULA_BASE) === k && !el[pid].eliminato; })) throw err('richiesta-non-valida', 'L\'aula «' + auleDelCentro(attuale)[k].nome + '» ha ancora dei bambini: spostali prima di toglierla.');
+          });
         }
         // Un admin non puo' togliersi da solo il ruolo: eviterebbe di restare
         // senza nessuno che gestisca gli accessi (il proprietario resta comunque admin).
         if (!u.proprietario) {
           var io = nuovo.utenti[u.email];
-          if (!io || io.ruolo !== 'admin' || !io.attivo) {
+          var prima = auleCon(u, 'gestisciAccessi');
+          if (!io || !io.attivo || prima.some(function (k) { return auleDiVoce(io)[k] !== 'admin'; })) {
             throw err('richiesta-non-valida', 'Non puoi togliere a te stesso il ruolo di admin.');
           }
         }
@@ -1043,12 +1244,12 @@ var QT = (function () {
         });
         if (cambiati) A.scriviJSON(P.dispositivi, disp);
         revocaChiavi();
-        return nuovo;
+        return accessiVisti(u, nuovo);
       });
     };
 
     azioni['manutenzione.ricostruisci'] = function (u) {
-      puo(u, 'gestisciAccessi');
+      soloProprietario(u);
       return conLock(function () { return { ricostruiti: Object.keys(ricostruisciElenco().pazienti).length }; });
     };
 
@@ -1107,7 +1308,7 @@ var QT = (function () {
   }
 
   return {
-    SCHEMA: SCHEMA, PERMESSI: PERMESSI, RUOLI: RUOLI, PERCORSI: P, RE: RE, VERSIONI: VERSIONI,
+    SCHEMA: SCHEMA, PERMESSI: PERMESSI, RUOLI: RUOLI, AULA_BASE: AULA_BASE, PERCORSI: P, RE: RE, VERSIONI: VERSIONI,
     creaCustode: creaCustode, stabile: stabile, hashRiferiti: hashRiferiti, bustaV: bustaV,
   };
 })();

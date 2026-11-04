@@ -305,12 +305,15 @@
     // =====================================================================
     // Stato
     // =====================================================================
+    const AULA_BASE = 'principale';
     const S = {
         fase: 'spento',     // spento | fuori | chiave (admin: frase) | attesa (chiave in arrivo) | pronto
         io: null, cfg: null, chiave: null, chiavi: {}, dispositivi: null,
         condivisi: new Set(), coda: new Set(),
         // bambini «non dell'aula»: chi li ha creati e con chi sono condivisi (dall'elenco del custode)
         info: {}, nuoviRiservati: new Set(),
+        // aula di ogni bambino del centro (dall'elenco del custode); quelle nuove sono nell'aula scelta
+        aulaDi: {},
         lavoro: false, errore: null, ultimo: null, etichette: {}
     };
     const ascolta = [];
@@ -408,7 +411,9 @@
             try {
                 let nuovaVersione;
                 if (!r || !r.version) {
-                    nuovaVersione = (await chiama('paziente.crea', Object.assign({ id: pid }, b, S.nuoviRiservati.has(pid) ? { riservato: true } : {}))).version;
+                    const aulaN = S.aulaDi[pid] || aulaAttiva();
+                    nuovaVersione = (await chiama('paziente.crea', Object.assign({ id: pid }, b, S.nuoviRiservati.has(pid) ? { riservato: true } : {}, conAule() ? { aula: aulaN } : {}))).version;
+                    S.aulaDi[pid] = aulaN;
                     if (S.nuoviRiservati.delete(pid)) { S.info[pid] = { riservato: true, creatoDa: S.io && S.io.email, condivisi: [] }; await scriviMeta('nuoviRiservati', [...S.nuoviRiservati]); await scriviMeta('info', S.info); }
                 } else {
                     nuovaVersione = (await chiama('paziente.salva', Object.assign({ id: pid, versioneBase: r.version }, b))).version;
@@ -473,6 +478,7 @@
         for (const v of elenco) {
             visti.add(v.id);
             if (v.riservato) info[v.id] = { riservato: true, creatoDa: v.creatoDa, condivisi: v.condivisi || [] };
+            S.aulaDi[v.id] = v.aula || AULA_BASE;
             const firma = JSON.stringify(v.etichetta);
             if (etiFirme[v.id] !== firma || !S.etichette[v.id]) {
                 try { S.etichette[v.id] = await C.decifra(chiavePer(v.etichetta), v.etichetta, aadE(v.id)); etiFirme[v.id] = firma; } catch (e) { S.etichette[v.id] = { nome: '(in attesa della chiave)' }; delete etiFirme[v.id]; }
@@ -513,6 +519,7 @@
         }
         await scriviMeta('coda', [...S.coda]);
         S.info = info; await scriviMeta('info', info);
+        await scriviMeta('aulaDi', S.aulaDi);
     }
 
     // ---------- ciclo ----------
@@ -718,6 +725,7 @@
         avviaCicli();
         S.coda = new Set((await meta('coda')) || []);
         S.info = (await meta('info')) || {};
+        S.aulaDi = (await meta('aulaDi')) || {};
         S.nuoviRiservati = new Set((await meta('nuoviRiservati')) || []);
         (await tuttiRec()).forEach((r) => S.condivisi.add(r.id));
         const u = Auth.inizia();
@@ -828,24 +836,27 @@
     // Turni: una busta per settimana (chiave = lunedì) e una per le persone.
     // Si legge l'ultima versione, si applica la modifica, si salva; se nel
     // frattempo qualcuno ha salvato si rilegge e si riapplica.
-    const aadT = (k) => 'tice:turni:' + k;
+    // ogni aula ha i suoi turni: la busta è legata all'aula (le altre non la potrebbero scambiare)
+    const aadT = (k) => 'tice:turni:' + (aulaAttiva() === AULA_BASE ? '' : aulaAttiva() + ':') + k;
+    const cacheT = (k) => 'turni:' + (aulaAttiva() === AULA_BASE ? '' : aulaAttiva() + ':') + k;
+    const conAulaT = (d) => Object.assign(d, conAule() && aulaAttiva() !== AULA_BASE ? { aula: aulaAttiva() } : {});
     async function leggiTurni(k) {
         try {
-            const r = await chiama('turni.leggi', { chiave: k }, { tentativi: 2 });
+            const r = await chiama('turni.leggi', conAulaT({ chiave: k }), { tentativi: 2 });
             if (r.busta && !S.chiavi[r.busta.kid]) {
                 throw new Error(S.chiave ? 'Questi turni sono cifrati con una chiave del centro precedente, che questo dispositivo non ha.'
                     : 'La chiave del centro non è ancora arrivata su questo dispositivo: la consegna un amministratore aprendo l\'app.');
             }
             const dati = r.busta ? await C.decifra(chiavePer(r.busta), r.busta, aadT(k)) : null;
             const x = { version: r.version || 0, dati, aggiornatoDa: r.aggiornatoDa || null };
-            await scriviMeta('turni:' + k, x);
+            await scriviMeta(cacheT(k), x);
             return x;
         } catch (e) {
             if (e && e.custode && e.codice === 'richiesta-non-valida' && /sconosciuta/i.test(e.message)) {
                 throw new ErroreCustode('da-aggiornare', 'Il custode del centro va aggiornato per usare i turni.');
             }
             // senza rete: l'ultima copia vista su questo dispositivo
-            const vecchia = await meta('turni:' + k);
+            const vecchia = await meta(cacheT(k));
             if (vecchia && (e.rete || (typeof navigator !== 'undefined' && navigator.onLine === false))) return Object.assign({ offline: true }, vecchia);
             throw e;
         }
@@ -858,8 +869,8 @@
             const nuovo = fn(cur.dati ? JSON.parse(JSON.stringify(cur.dati)) : null);
             const busta = await C.cifra(S.chiave, S.cfg.kid, nuovo, aadT(k));
             try {
-                const r = await chiama('turni.salva', { chiave: k, busta, versioneBase: cur.version });
-                await scriviMeta('turni:' + k, { version: r.version, dati: nuovo });
+                const r = await chiama('turni.salva', conAulaT({ chiave: k, busta, versioneBase: cur.version }));
+                await scriviMeta(cacheT(k), { version: r.version, dati: nuovo });
                 cambiato('turni');
                 return nuovo;
             } catch (e) {
@@ -867,6 +878,38 @@
             }
         }
         throw new Error('Troppe modifiche contemporanee ai turni: riprova.');
+    }
+
+    // ---------- aule ----------
+    // Con un custode che conosce le aule, ogni persona ha un ruolo per aula e lavora su un'aula alla volta
+    // (scelta su questo dispositivo): elenco dei bambini, nuovi bambini e turni sono di quell'aula.
+    const conAule = () => !!(S.io && S.io.aule && (S.io.funzioni || []).indexOf('aule') >= 0);
+    const auleMie = () => (conAule() ? S.io.aule : {});
+    function aulaAttiva() {
+        const mie = Object.keys(auleMie());
+        if (!mie.length) return AULA_BASE;
+        let a = null;
+        try { a = localStorage.getItem('tice_aula'); } catch (e) { /* niente */ }
+        return a && mie.indexOf(a) >= 0 ? a : (mie.indexOf(AULA_BASE) >= 0 ? AULA_BASE : mie[0]);
+    }
+    function impostaAula(a) {
+        try { localStorage.setItem('tice_aula', a); } catch (e) { /* niente */ }
+        cambiato('pazienti'); cambiato('turni');
+    }
+    const aulaDi = (pid) => S.aulaDi[pid] || null;
+    // i permessi nell'aula del bambino (per quelli solo su questo dispositivo: nell'aula attiva)
+    function puoIn(pid, cosa) {
+        if (!S.io) return true;
+        if (!conAule()) return !S.io.permessi || !!S.io.permessi[cosa];
+        const x = auleMie()[aulaDi(pid) || aulaAttiva()];
+        return !!(x && x.permessi && x.permessi[cosa]);
+    }
+    async function spostaAula(pid, aula) {
+        const v = await chiama('paziente.aula', { id: pid, aula });
+        S.aulaDi[pid] = v.aula || AULA_BASE;
+        await scriviMeta('aulaDi', S.aulaDi);
+        await sincronizza();
+        return v;
     }
 
     async function dispositivi() { S.dispositivi = await chiama('dispositivi.elenco'); return S.dispositivi; }
@@ -914,10 +957,14 @@
         conRiservati: () => !!(S.io && (S.io.funzioni || []).indexOf('riservati') >= 0), creaChiave, inserisciChiave, cambiaChiave, mostraFrase, dispositivi, togliDispositivo,
         ripristina, versioni, anteprimaVersione, preparaCentro, eAdmin, leggiModalita, aggiornaModalita, leggiTurni, modificaTurni,
         // l'ultima copia dei turni vista su questo dispositivo, subito (senza rete)
-        turniRicordati: async (k) => { try { const x = await meta('turni:' + k); return x && x.dati !== undefined ? x : null; } catch (e) { return null; } }, ruolo: () => (S.io && S.io.ruolo) || null,
+        turniRicordati: async (k) => { try { const x = await meta(cacheT(k)); return x && x.dati !== undefined ? x : null; } catch (e) { return null; } }, 
+        // il ruolo nell'aula su cui si lavora (senza aule: quello unico)
+        ruolo: () => (conAule() ? (auleMie()[aulaAttiva()] || {}).ruolo || S.io.ruolo : (S.io && S.io.ruolo)) || null,
+        conAule, aule: auleMie, aulaAttiva, impostaAula, aulaDi, puoIn, spostaAula, AULA_BASE,
         attivo: () => !!cfgApp().custodeUrl,
         pronto, condiviso: (pid) => S.condivisi.has(pid), inAttesa: (pid) => S.coda.has(pid),
-        puo: (cosa) => !S.io || !S.io.permessi || !!S.io.permessi[cosa],
+        // nell'aula su cui si lavora
+        puo: (cosa) => { if (!S.io) return true; if (!conAule()) return !S.io.permessi || !!S.io.permessi[cosa]; const x = auleMie()[aulaAttiva()]; return !!(x && x.permessi && x.permessi[cosa]); },
         alCambio: (f) => ascolta.push(f)
     };
 })();
