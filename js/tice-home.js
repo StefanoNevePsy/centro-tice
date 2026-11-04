@@ -3257,11 +3257,17 @@
         r.querySelectorAll('.att.da-tastiera').forEach((x) => { if (x.dataset.att !== k) x.classList.remove('da-tastiera'); });
         if (k) { const x = r.querySelector(`.att[data-att="${CSS.escape(k)}"]`); if (x) x.classList.add('da-tastiera'); }
     }
+    // si sta scrivendo da qualche parte (anche negli editor della cartella clinica): i tasti sono lettere
+    function scrivendo(e) {
+        if (window.staScrivendo) return window.staScrivendo(e);
+        const el = document.activeElement, t = e.target;
+        return [t, el].some((x) => x && x.nodeType === 1 && (x.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(x.tagName)));
+    }
     function tastieraSeduta(e) {
         if (T.vista !== 'seduta' || e.altKey || e.ctrlKey || e.metaKey) return;
-        if (document.querySelector('.tice-foglio') || (e.target.closest && e.target.closest('input, select, textarea, [contenteditable]'))) return;
+        if (document.querySelector('.tice-foglio') || scrivendo(e)) return;
         const r = radice();
-        if (!r || !r.isConnected || r.hidden) return;
+        if (!r || !r.isConnected || r.hidden || !r.getClientRects().length || document.querySelector('.modal-overlay:not(.hidden), .modal:not(.hidden)')) return;
         const p = paz(T.pid);
         if (!p) return;
         const k = voceTastiera(p);
@@ -3478,7 +3484,7 @@
         // nei grafici le frecce della tastiera passano al bambino prima o dopo
         document.addEventListener('keydown', (e) => {
             if (T.vista !== 'grafici' || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
-            if (document.querySelector('.tice-foglio') || (e.target.closest && e.target.closest('input, select, textarea, [contenteditable]'))) return;
+            if (document.querySelector('.tice-foglio') || scrivendo(e)) return;
             if (!radice() || !radice().isConnected) return;
             e.preventDefault();
             passaGrafici(e.key === 'ArrowLeft' ? -1 : 1);

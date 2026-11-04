@@ -1764,7 +1764,15 @@ function getSelectedTDSeconds() {
 })();
 
 // --- KEYBOARD SHORTCUTS ---
+// Si sta scrivendo (campo di testo, editor delle note, qualsiasi elemento modificabile): niente scorciatoie
+function staScrivendo(e) {
+    const scrive = (el) => !!el && el.nodeType === 1 && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+    if (scrive(e.target) || scrive(document.activeElement)) return true;
+    return typeof e.composedPath === 'function' && e.composedPath().some(scrive);
+}
+window.staScrivendo = staScrivendo;
 function handleShortcuts(e) {
+    if (staScrivendo(e)) return;
     const mode = document.getElementById('mode-select').value;
     const engine = getModeEngine(mode);
     if (state.session.active && engine !== 'fluenza' && engine !== 'memory' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
