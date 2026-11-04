@@ -512,6 +512,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .tice-annulla .cosa b.V { background: var(--t-v); }
 .tice .tice-annulla .cosa b.P { background: var(--t-p); }
 .tice .tice-annulla .cosa b.X { background: var(--t-x); }
+.tice .tice-annulla .cosa b.C { background: var(--danger-color, #b3261e); font-size: 0.72rem; }
 .tice .tice-annulla:active { transform: scale(0.97); }
 .tice:has(.ta-linguetta) .tice-annulla { bottom: calc(env(safe-area-inset-bottom, 0px) + 146px); }
 .tice:has(.ta-strato) .tice-annulla { bottom: calc(env(safe-area-inset-bottom, 0px) + 236px); }

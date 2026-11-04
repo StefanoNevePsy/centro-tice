@@ -209,6 +209,12 @@
     function descriviUltima(p) {
         const b = bozza(p.id), u = ultimeDi(b);
         for (let k = u.length - 1; k >= 0; k--) {
+            // un comportamento: l'ultimo episodio segnato, o la durata in corso
+            if (String(u[k]).indexOf('comp:') === 0) {
+                const c = C.trova(p, u[k].slice(5)), r = c && b.comp && b.comp[c.id];
+                if (!c || !r || !(r.episodi.length || r.inCorso)) continue;
+                return { att: null, r: 'C', testo: c.nome + (r.inCorso ? ' · in corso' : ' · episodio ' + r.episodi.length) };
+            }
             const att = attivitaDi(p, u[k]), v = b.voci[u[k]];
             if (!att || !v || !v.sequenza) continue;
             const r = v.sequenza.slice(-1);
@@ -221,7 +227,7 @@
     }
     function tastoAnnulla(p) {
         const d = descriviUltima(p);
-        const SEGNO = { V: '✓', P: 'P', X: '✗' };
+        const SEGNO = { V: '✓', P: 'P', X: '✗', C: '+1' };
         return h`<button id="tice-annulla" class="tice-annulla ${d ? '' : 'nascosto'}" data-a="annulla-ultima" ${d ? '' : grezzo('hidden')}
             aria-label="${d ? 'Annulla l\'ultima: ' + SEGNO[d.r] + ' ' + d.testo : 'Annulla'}" title="${d ? 'Annulla: ' + d.testo : ''}">
             ${icona('rotate-left')}<span class="cosa"><b class="${d ? d.r : ''}">${d ? SEGNO[d.r] : ''}</b> ${d ? d.testo : ''}</span></button>`;
@@ -735,9 +741,10 @@
     // tutte le risposte della bozza, anche quelle in mantenimento
     const provaNonSalvate = (p) => { const b = leggiBozza(p.id) || (T.bozza && T.bozza.pid === p.id ? T.bozza : null); return b ? Object.values(b.voci).reduce((n, v) => n + (haDati(v) ? v.v + v.p + v.x : 0), 0) + episodiBozza(b) : 0; };
     function testoPiede(p) {
-        const r = riassunto(p);
-        if (!r.n) return 'Nessuna risposta ancora';
-        return `<b>${r.prove}</b> prove · <b>${r.corrette}</b> corrette · ${r.n} attività`;
+        const r = riassunto(p), ep = episodiBozza(bozza(p.id));
+        const epT = ep ? `<b>${ep}</b> ${ep === 1 ? 'episodio' : 'episodi'}` : '';
+        if (!r.n) return epT || 'Nessuna risposta ancora';
+        return `<b>${r.prove}</b> prove · <b>${r.corrette}</b> corrette · ${r.n} attività${epT ? ' · ' + epT : ''}`;
     }
     function vistaSeduta() {
         const p = paz(T.pid);
@@ -811,11 +818,25 @@
             </div>` : ''}
         </section>`;
     }
+    // Annulla per un comportamento: ferma senza contarla la durata in corso, o toglie l'ultimo episodio
+    function annullaComportamento(p, cid) {
+        const b = bozza(p.id), r = b.comp && b.comp[cid];
+        if (!r || !(r.episodi.length || r.inCorso)) return false;
+        if (r.inCorso) r.inCorso = null; else r.episodi.pop();
+        const u = ultimeDi(b), k = u.lastIndexOf('comp:' + cid);
+        if (k >= 0) u.splice(k, 1);
+        if (T.compUltimo && T.compUltimo.cid === cid && !r.episodi.some((e) => e.id === T.compUltimo.eid)) T.compUltimo = null;
+        if (navigator.vibrate) navigator.vibrate([6, 40, 6]);
+        salvaBozza(); aggiornaStriscia(p);
+        return true;
+    }
     function aggiornaStriscia(p) {
         const el = radice().querySelector('.comp-striscia');
         if (el) el.outerHTML = String(striscia(p)); else { T.mantieniScroll = true; disegna(); }
         const r = document.getElementById('tice-riassunto');
         if (r) r.innerHTML = testoPiede(p);
+        const a = document.getElementById('tice-annulla');
+        if (a) a.outerHTML = String(tastoAnnulla(p));
     }
     // i cronometri della durata avanzano mentre si guarda la seduta
     setInterval(() => {
@@ -1495,6 +1516,7 @@
             const p = paz(T.pid), c = C.trova(p, b.dataset.id);
             if (!c) return;
             const e = C.aggiungi(C.raccolta(bozza(p.id), c.id));
+            ultimeDi(bozza(p.id)).push('comp:' + c.id);
             T.compUltimo = { pid: p.id, cid: c.id, eid: e.id };
             if (navigator.vibrate) navigator.vibrate(12);
             salvaBozza(); aggiornaStriscia(p);
@@ -1503,6 +1525,7 @@
             const p = paz(T.pid), c = C.trova(p, b.dataset.id);
             if (!c) return;
             const e = C.alterna(C.raccolta(bozza(p.id), c.id));
+            if (!e) ultimeDi(bozza(p.id)).push('comp:' + c.id);   // all'avvio: l'annulla lo ferma senza contarlo
             if (e) T.compUltimo = { pid: p.id, cid: c.id, eid: e.id };
             if (navigator.vibrate) navigator.vibrate(e ? [8, 40, 8] : 12);
             salvaBozza(); aggiornaStriscia(p);
@@ -1567,6 +1590,7 @@
             // la più recente ancora annullabile (un'attività tolta non conta)
             while (u.length) {
                 const id = u[u.length - 1], v = bozza(p.id).voci[id];
+                if (String(id).indexOf('comp:') === 0) { if (annullaComportamento(p, id.slice(5))) return; u.pop(); continue; }
                 if (v && v.sequenza) { annullaUltima(p, id); return; }
                 u.pop();
             }
