@@ -59,9 +59,9 @@
             try {
                 const [cs, cp, cm] = await Promise.all([Y.turniRicordati(k), Y.turniRicordati('persone'), Y.turniRicordati('modello')]);
                 if (cs || cm) {
-                    S.sett = (cs && cs.dati) || TT.vuota(); S.chiave = k;
-                    if (cp && cp.dati) { S.persone = cp.dati.persone || []; }
-                    if (cm && cm.dati) S.modello = cm.dati;
+                    S.sett = vista(k, (cs && cs.dati) || TT.vuota()); S.chiave = k;
+                    if (cp && cp.dati) { S.persone = vista('persone', cp.dati).persone || []; }
+                    if (cm && cm.dati) S.modello = vista('modello', cm.dati);
                     TiceHome.ridisegna();
                 }
             } catch (e) { /* si aspetta il centro */ }
@@ -69,11 +69,11 @@
         try {
             const serve = forza || !S.personeCaricate;
             const [sett, pers, mod] = await Promise.all([leggi(k), serve ? leggi('persone') : null, serve ? leggi('modello') : null]);
-            S.sett = sett.dati || TT.vuota();
+            S.sett = vista(k, sett.dati || TT.vuota());
             S.offline = sett.offline;
             S.chiave = k;
-            if (pers) { S.persone = (pers.dati && pers.dati.persone) || []; S.personeCaricate = true; setTimeout(() => allineaAlCentro(), 0); }
-            if (mod) S.modello = mod.dati || TT.modelloVuoto();
+            if (pers) { S.persone = vista('persone', pers.dati || { persone: [] }).persone || []; S.personeCaricate = true; setTimeout(() => allineaAlCentro(), 0); }
+            if (mod) S.modello = vista('modello', mod.dati || TT.modelloVuoto());
             // una settimana tipo rimasta solo su questo dispositivo (salvata prima che il
             // collegamento fosse pronto) e nessuna sul centro: la si porta sul centro
             const qui = remoto() && mod && !(mod.dati && (mod.dati.voci || []).length) ? locale().modello : null;
@@ -87,36 +87,66 @@
         S.caricando = false;
         TiceHome.ridisegna();
     }
-    // Una modifica alla settimana: subito a schermo, poi salvata
-    async function cambiaSettimana(fn, giorno) {
-        const k = TT.lunedi(giorno || S.giorno);
-        if (k === S.chiave) { S.sett = fn(JSON.parse(JSON.stringify(S.sett || TT.vuota()))); TiceHome.ridisegna(); }
-        try {
-            const nuova = await modifica(k, (d) => fn(d || TT.vuota()));
-            if (k === S.chiave) { S.sett = nuova; TiceHome.ridisegna(); }
-        } catch (e) {
-            avviso('Turni non salvati: ' + (e.message || e), 'errore');
-            S.chiave = null; carica(true);
+    // ---------- modifiche in coda ----------
+    // Ogni tocco si vede subito e si salva sul centro uno alla volta, nell'ordine.
+    // A schermo c'è sempre l'ultima versione salvata più i tocchi non ancora confermati:
+    // la risposta di un salvataggio non cancella più quelli fatti nel frattempo.
+    const coda = [];
+    let svuotando = false;
+    const copia = (x) => JSON.parse(JSON.stringify(x));
+    const vista = (k, base) => coda.filter((x) => x.k === k).reduce((d, x) => x.fn(copia(d)), base);
+    function mostra(k, base) {
+        if (k === 'modello') S.modello = vista('modello', base || TT.modelloVuoto());
+        else if (k === 'persone') S.persone = vista('persone', base || { persone: [] }).persone || [];
+        else if (k === S.chiave) S.sett = vista(k, base || TT.vuota());
+    }
+    function attuale(k) {
+        if (k === 'modello') return S.modello || TT.modelloVuoto();
+        if (k === 'persone') return { persone: (S.persone || []).slice() };
+        return k === S.chiave ? (S.sett || TT.vuota()) : null;
+    }
+    function accoda(k, fn) {
+        // subito a schermo
+        const ora = attuale(k);
+        if (ora) {
+            const n = fn(copia(ora));
+            if (k === 'modello') S.modello = n; else if (k === 'persone') S.persone = n.persone || []; else S.sett = n;
+            TiceHome.ridisegna();
         }
+        coda.push({ k, fn });
+        svuota();
+    }
+    async function svuota() {
+        if (svuotando) return;
+        svuotando = true;
+        while (coda.length) {
+            const x = coda[0];
+            try {
+                const salvata = await modifica(x.k, (d) => x.fn(d));
+                coda.shift();
+                mostra(x.k, salvata);
+            } catch (e) {
+                coda.shift();
+                avviso((x.k === 'modello' ? 'Settimana tipo' : x.k === 'persone' ? 'Persone' : 'Turni') + ' non salvati: ' + (e.message || e), 'errore');
+                // si riparte da quello che c'è sul centro, con le modifiche ancora in coda sopra
+                if (x.k === 'persone' || x.k === 'modello') S.personeCaricate = false; else S.chiave = null;
+                svuotando = false;
+                carica(true);
+                return;
+            }
+            TiceHome.ridisegna();
+        }
+        svuotando = false;
+    }
+    const inViaggio = () => coda.length > 0 || svuotando;
+    // Una modifica alla settimana: subito a schermo, poi salvata
+    function cambiaSettimana(fn, giorno) {
+        accoda(TT.lunedi(giorno || S.giorno), (d) => fn(d || TT.vuota()));
     }
     // Una modifica a una giornata: se seguiva la settimana tipo, prima diventa propria
     const cambiaGiorno = (g, fn) => cambiaSettimana((d) => fn(TT.materializza(d, g, S.modello)), g);
-    async function cambiaModello(fn) {
-        S.modello = fn(JSON.parse(JSON.stringify(S.modello || TT.modelloVuoto())));
-        TiceHome.ridisegna();
-        try { S.modello = await modifica('modello', (x) => fn(x || TT.modelloVuoto())); }
-        catch (e) { avviso('Settimana tipo non salvata: ' + (e.message || e), 'errore'); S.personeCaricate = false; carica(true); }
-        TiceHome.ridisegna();
-    }
-    async function cambiaPersone(fn) {
-        S.persone = fn(S.persone.slice());
-        TiceHome.ridisegna();
-        try {
-            const d = await modifica('persone', (x) => ({ persone: fn(((x && x.persone) || []).slice()) }));
-            S.persone = d.persone;
-        } catch (e) { avviso('Persone non salvate: ' + (e.message || e), 'errore'); S.personeCaricate = false; carica(true); }
-        TiceHome.ridisegna();
-    }
+    function cambiaModello(fn) { accoda('modello', (x) => fn(x || TT.modelloVuoto())); }
+    function cambiaPersone(fn) { accoda('persone', (x) => ({ persone: fn(((x && x.persone) || []).slice()) })); }
 
     // ---------- persone del centro: la lista si allinea a «Persone e accessi» ----------
     // Chi ha accesso entra da solo con il nome assegnato là (mai la mail); se il
@@ -698,7 +728,7 @@
         // (le modifiche fatte da un altro dispositivo compaiono senza riaprire l'app)
         if (cosa === 'stato' && Y.S && Y.S.ultimo && Y.S.ultimo !== S.ultimaSync && !Y.S.lavoro) {
             const prima = S.ultimaSync; S.ultimaSync = Y.S.ultimo;
-            if (prima && remoto() && !S.caricando && Date.now() - (S.caricatoIl || 0) > 60000 && ['turni', 'turni-modello'].includes(TiceHome.attuale().vista)) { S.personeCaricate = false; carica(true); }
+            if (prima && remoto() && !S.caricando && !inViaggio() && Date.now() - (S.caricatoIl || 0) > 60000 && ['turni', 'turni-modello'].includes(TiceHome.attuale().vista)) { S.personeCaricate = false; carica(true); }
         }
     });
 
