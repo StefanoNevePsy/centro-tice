@@ -926,3 +926,62 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 /* scelta dell'aula su cui si lavora */
 .tice .aula-scelta { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 12px; border: 1px solid var(--glass-border); border-radius: 999px; background: transparent; color: var(--text-primary); font: inherit; font-size: 0.9rem; cursor: pointer; }
 .tice .aula-scelta:hover { border-color: var(--accent-color); }
+
+/* ---------- Modulo dell'attività: riquadri, anteprima, scelte visive ---------- */
+.tice-foglio .ma .ma-card { background: rgba(var(--shade-rgb), 0.10); border: 1px solid var(--glass-border); border-radius: 16px; padding: 12px 14px; margin: 0 0 10px; }
+.tice-foglio .ma .ma-testa { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.tice-foglio .ma .ma-testa h3 { margin: 0; }
+.tice-foglio .ma .ma-ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--text-primary); color: var(--bg-color, #fff); font-size: 13px; flex: none; }
+.tice-foglio .ma .ma-sotto { margin-left: auto; font-size: 0.78rem; color: var(--text-secondary); }
+.tice-foglio .ma .ma-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tice-foglio .ma .ma-tiles.ma-due { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tice-foglio .ma .ma-tile { position: relative; display: grid; justify-items: center; gap: 3px; text-align: center; padding: 10px 6px 8px; border: 1.5px solid var(--glass-border); border-radius: 14px; cursor: pointer; }
+.tice-foglio .ma .ma-tile input { position: absolute; opacity: 0; pointer-events: none; }
+.tice-foglio .ma .ma-tile b { font-size: 0.86rem; }
+.tice-foglio .ma .ma-tile small { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.2; }
+.tice-foglio .ma .ma-tile.on, .tice-foglio .ma .ma-tile:has(input:checked) { border-color: var(--accent-color); box-shadow: inset 0 0 0 1.5px var(--accent-color); background: rgba(var(--shade-rgb), 0.05); }
+.tice-foglio .ma .ma-tile:has(input:focus-visible) { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.tice-foglio .ma .ma-mini { display: flex; gap: 3px; }
+.tice-foglio .ma .ma-mini i, .tice-foglio .ma .ma-prev-tasti i { display: grid; place-items: center; min-width: 26px; height: 20px; padding: 0 4px; border-radius: 5px; color: #fff; font: 700 0.7rem/1 inherit; font-style: normal; }
+.tice-foglio .ma .mv { background: var(--t-v, #3b7a4a); } .tice-foglio .ma .mp { background: var(--t-p, #a86b10); } .tice-foglio .ma .mx { background: var(--t-x, #a3212e); } .tice-foglio .ma .me { background: #5d4aa8; }
+.tice-foglio .ma .ma-grande { font-size: 1.35rem; color: var(--accent-color); }
+.tice-foglio .ma .ma-modi, .tice-foglio .ma .ma-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.tice-foglio .ma .ma-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--glass-border); border-radius: 999px; background: transparent; color: var(--text-primary); font: inherit; font-size: 0.84rem; cursor: pointer; }
+.tice-foglio .ma .ma-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.tice-foglio .ma .ma-chip.on { background: var(--text-primary); color: var(--bg-color, #fff); border-color: var(--text-primary); }
+.tice-foglio .ma .ma-num, .tice-foglio .ma .ma-lu, .tice-foglio .ma .ma-frase { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0; }
+.tice-foglio .ma .ma-n { width: 64px; text-align: center; font-weight: 700; }
+.tice-foglio .ma .ma-nome { width: 150px; }
+.tice-foglio .ma .ma-num-anteprima { flex-basis: 100%; }
+.tice-foglio .ma .ma-rapidi { display: inline-flex; gap: 4px; }
+.tice-foglio .ma .ma-frase { font-size: 0.95rem; }
+.tice-foglio .ma .ma-opz { border-top: 1px dashed var(--glass-border); padding-top: 8px; margin-top: 8px; }
+.tice-foglio .ma .ma-target-elenco { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
+.tice-foglio .ma .ma-t { font-size: 0.78rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--glass-border); }
+.tice-foglio .ma .ma-t.attivo { border-color: var(--accent-color); font-weight: 700; }
+.tice-foglio .ma .ma-t.criterio, .tice-foglio .ma .ma-t.repertorio { opacity: 0.6; text-decoration: line-through; }
+.tice-foglio .ma .bottoni-piccoli { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+/* anteprima: com'è la scheda in seduta */
+.tice-foglio .ma .ma-anteprima { position: sticky; top: -2px; z-index: 2; margin: 0 0 12px; padding-top: 2px; background: var(--bg-color, inherit); }
+.tice-foglio .ma .ma-prev { border: 1px solid var(--glass-border); border-left: 5px solid var(--col); border-radius: 14px; padding: 10px 12px; background: var(--card-bg, rgba(255,255,255,0.5)); box-shadow: 0 6px 18px -12px rgba(0,0,0,0.35); }
+.tice-foglio .ma .ma-prev-testa { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.tice-foglio .ma .ma-prev-nome { font-family: 'Gloock', Georgia, serif; font-size: 1.25rem; }
+.tice-foglio .ma .ma-prev-dato { margin-left: auto; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); }
+.tice-foglio .ma .ma-prev-target { font-weight: 700; font-size: 0.9rem; margin-top: 2px; }
+.tice-foglio .ma .ma-prev-target.vuoto { font-weight: 400; font-style: italic; color: var(--text-secondary); }
+.tice-foglio .ma .ma-prev-tasti { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+.tice-foglio .ma .ma-prev-tasti.n3 { grid-template-columns: repeat(3, 1fr); }
+.tice-foglio .ma .ma-prev-tasti i { height: 30px; font-size: 0.74rem; }
+.tice-foglio .ma .ma-prev-sotto { font-size: 0.72rem; color: var(--text-secondary); margin-top: 6px; }
+@media (max-width: 420px) { .tice-foglio .ma .ma-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .tice-foglio .ma .ma-tile small { display: none; } }
+/* modulo dell'attività: le parti nascoste restano nascoste anche se sono griglie o righe flessibili */
+.tice-foglio .ma [hidden] { display: none !important; }
+.tice-foglio .ma input.ma-n:not([type=checkbox]):not([type=radio]) { width: 64px; flex: 0 0 64px; text-align: center; font-weight: 700; padding-left: 4px; padding-right: 4px; }
+.tice-foglio .ma input.ma-nome:not([type=checkbox]):not([type=radio]) { width: 140px; flex: 0 1 140px; }
+.tice-foglio .ma .ma-num > span, .tice-foglio .ma .ma-lu > span, .tice-foglio .ma .ma-frase { white-space: nowrap; }
+.tice-foglio .ma .ma-frase { flex-wrap: wrap; white-space: normal; }
+.tice-foglio .ma .ma-num-anteprima { white-space: normal !important; }
+.tice-foglio .ma .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: rgba(var(--accent-rgb), 0.14); color: var(--accent-color); }
+.tice-foglio .ma .pill.field { background: rgba(var(--shade-rgb), 0.25); color: var(--text-primary); }
+.tice-foglio .ma .pill.arancio { background: rgba(217, 119, 6, 0.16); color: #b45309; }
+.tice-foglio .ma .ma-tile .ma-mini i { min-width: 22px; }
