@@ -1005,7 +1005,7 @@
             if (cosa === 'pazienti' && typeof populateGlobalPatientSelect === 'function') populateGlobalPatientSelect();
             // non si ridisegna sotto le dita di chi sta segnando: solo il chip e gli elenchi
             const v = TiceHome.attuale().vista;
-            if (v === 'seduta' && (cosa === 'stato' || cosa === 'coda')) {
+            if (['seduta', 'turni', 'turni-modello'].includes(v) && (cosa === 'stato' || cosa === 'coda')) {
                 const c = document.querySelector('#tice .tice-stato');
                 if (c) c.outerHTML = String(chip());
                 return;

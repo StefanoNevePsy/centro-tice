@@ -1289,8 +1289,17 @@
         const r = radice();
         if (!r) return;
         const alto = r.scrollTop;
+        // le tabelle e le righe che scorrono di lato (orario del giorno, settimana tipo…) restano dove le si era portate
+        const scorrevoli = () => [...r.querySelectorAll('.tt-griglia-box, .tt-settimana, .grafici-bambini, .scc-carta, [data-scorri]')];
+        const chiave = (el, i, tutti) => el.className.split(' ')[0] + ':' + tutti.filter((x) => x.className.split(' ')[0] === el.className.split(' ')[0]).indexOf(el);
+        const prima = T.vista === T.vistaDisegnata ? scorrevoli().map((el, i, tutti) => [chiave(el, i, tutti), el.scrollLeft, el.scrollTop]).filter((x) => x[1] || x[2]) : [];
         const f = VISTE[T.vista] || vistaBambini;
         r.innerHTML = String(f());
+        T.vistaDisegnata = T.vista;
+        if (prima.length) {
+            const dopo = scorrevoli();
+            prima.forEach(([k, sx, sy]) => { const el = dopo.find((x, i, tutti) => chiave(x, i, tutti) === k); if (el) { el.scrollLeft = sx; el.scrollTop = sy; } });
+        }
         if (T.vista === 'grafici') { T.pidGrafici = T.pid; montaGrafici(r); }
         if (EST.dopo) EST.dopo(T.vista, r);
         if (T.mantieniScroll) r.scrollTop = alto;
@@ -3659,6 +3668,18 @@
     async function avvia() {
         const r = radice();
         if (!r) return;
+        // dito sullo schermo: i ridisegni chiesti dalla sincronizzazione aspettano la fine del gesto (e dello scorrimento)
+        let fineTocco = null;
+        document.addEventListener('touchstart', () => { T.tocco = true; clearTimeout(fineTocco); }, { passive: true, capture: true });
+        const rilascia = () => {
+            clearTimeout(fineTocco);
+            fineTocco = setTimeout(() => {
+                T.tocco = false;
+                if (T.ridisegnaDopo) { T.ridisegnaDopo = false; window.TiceHome.ridisegna(); }
+            }, 700);   // lo scorrimento per inerzia continua un attimo dopo il dito
+        };
+        document.addEventListener('touchend', rilascia, { passive: true, capture: true });
+        document.addEventListener('touchcancel', rilascia, { passive: true, capture: true });
         r.addEventListener('click', suClick);
         r.addEventListener('input', suCambio);
         r.addEventListener('change', suCambio);
@@ -3688,7 +3709,12 @@
             Object.assign(EST, e.aggancio || {});
         },
         attuale: () => ({ vista: T.vista, pid: T.pid }),
-        ridisegna: () => { if (!radice().hidden) { T.mantieniScroll = true; disegna(); } },
+        ridisegna: () => {
+            if (radice().hidden) return;
+            // mentre si tocca o si scorre lo schermo si aspetta: un ridisegno a metà gesto lo interrompe
+            if (T.tocco) { T.ridisegnaDopo = true; return; }
+            T.mantieniScroll = true; disegna();
+        },
         strumenti: { h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
     };
     if (document.readyState === 'complete') avvia();
