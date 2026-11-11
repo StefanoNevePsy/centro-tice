@@ -37,7 +37,19 @@
     const unici = (l) => { const v = {}, o = []; l.forEach((n) => { if (!v[chiave(n)]) { v[chiave(n)] = 1; o.push(n); } }); return o; };
     const stessi = (a, b) => a.map(chiave).sort().join('|') === b.map(chiave).sort().join('|');
     const attDi = (p, s) => (s.attivitaId && P.attivita(p, s.attivitaId)) || null;
-    const sogliaDi = (p, s) => { const a = attDi(p, s); return (a && a.criterio && +a.criterio.soglia) || SOGLIA; };
+    // la soglia: quella dell'attività; per le sedute non collegate a un'attività, quelle del bambino (stesso ordine di getCriterionThreshold), altrimenti 90
+    function sogliaDi(p, s) {
+        const a = attDi(p, s);
+        if (a) return (a.criterio && +a.criterio.soglia) || SOGLIA;
+        const ov = p.criterionOverrides || {}, ok = (v) => v !== undefined && v !== null && !isNaN(+v);
+        if (s.setName && s.mode && ok(ov[s.setName + '::' + s.mode])) return +ov[s.setName + '::' + s.mode];
+        if (s.mode && ok(ov['mode:' + s.mode])) return +ov['mode:' + s.mode];
+        if (s.setName && ok(ov['set:' + s.setName])) return +ov['set:' + s.setName];
+        return +p.criterionThreshold || SOGLIA;
+    }
+    const pctDi = (s) => (s.percentage != null ? Math.round(s.percentage) : (s.total ? Math.round(100 * (s.correct || 0) / s.total) : null));
+    const oraDi = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); };
+    const dataOra = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('it-IT', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
     const classe = (pct, soglia) => (pct >= soglia ? 'pct-ok' : pct >= soglia - 20 ? 'pct-medio' : 'pct-basso');
     const maiuscola = (t) => String(t).replace(/^./, (c) => c.toUpperCase());
     const pulita = (t) => String(t || '').replace(/\*\*/g, '');
@@ -92,13 +104,14 @@
     function rigaSeduta(p, s, o) {
         o = o || {};
         const att = attDi(p, s), col = att ? P.coloreDi(p, att) : null;
-        const pct = s.percentage != null ? Math.round(s.percentage) : (s.total ? Math.round(100 * (s.correct || 0) / s.total) : null);
+        const pct = pctDi(s);
         const so = sogliaDi(p, s);
         const mio = nomi(s), giorno = o.nomiGiorno || [];
         const chi = o.conChi ? mio : (mio.length && !stessi(mio, giorno) ? mio : []);
         const td = s.sessionType === 'timedelay';
         const nota = pulita(s.note);
-        return h`<div class="cr-sed ${s.fuoriStatistiche ? 'fuori' : ''}" ${col ? grezzo(`style="--col:${X.esc(col)}"`) : ''}>
+        const ix = (p.history || []).indexOf(s);
+        return h`<div class="cr-sed ${s.fuoriStatistiche ? 'fuori' : ''}" role="button" tabindex="0" data-a="cartella-seduta" data-i="${ix}" aria-label="Dettagli della seduta ${s.setName || ''} del ${formatoData(giornoDi(s))}" ${col ? grezzo(`style="--col:${X.esc(col)}"`) : ''}>
             <div class="cr-sed-1">
                 <span class="cr-nome">${o.conData ? h`<span class="cr-data">${formatoData(giornoDi(s))}</span> ` : ''}${s.setName || 'Seduta'}</span>
                 <span class="cr-esito">${s.total > 0 ? h`<span class="cr-conto">${s.correct || 0}/${s.total}</span>` : ''}${pct != null ? h`<b class="${classe(pct, so)}">${pct}%</b>` : ''}</span>
@@ -132,16 +145,83 @@
 
     // ---------- GIORNATE ----------
     const PERIODI = [['mese', 'Ultimo mese', 30], ['3mesi', '3 mesi', 90], ['tutto', 'Tutto', 0]];
+    // le sedute del periodo scelto (lp) e, in più, il filtro «Chi»: i giorni da mostrare
+    function filtrate(p, sed, s) {
+        const per = PERIODI.find((x) => x[0] === s.periodo) || PERIODI[2];
+        const dal = per[2] ? (() => { const d = new Date(); d.setDate(d.getDate() - per[2]); return P.giorno(d.toISOString()); })() : '';
+        const lp = sed.filter((x) => !dal || giornoDi(x) >= dal);
+        const l = s.chi ? lp.filter((x) => nomi(x).some((n) => chiave(n) === chiave(s.chi))) : lp;
+        return { lp, l, giorni: perGiorno(p, l), per };
+    }
+    // per ogni persona: giornate e sedute nel periodo, ultima data
+    function riepilogo(lp) {
+        const m = {};
+        lp.forEach((x) => nomi(x).forEach((n) => {
+            const r = m[chiave(n)] = m[chiave(n)] || { nome: n, giorni: new Set(), sedute: 0, ultima: '' };
+            r.giorni.add(giornoDi(x)); r.sedute++;
+            if (giornoDi(x) > r.ultima) r.ultima = giornoDi(x);
+        }));
+        return Object.values(m).sort((a, b) => b.giorni.size - a.giorni.size || a.nome.localeCompare(b.nome, 'it'));
+    }
+    function boxRiepilogo(lp, s) {
+        const r = riepilogo(lp);
+        if (!r.length) return '';
+        const aperto = s.riep !== false;
+        return h`<section class="cr-riep scheda">
+            <button type="button" class="cr-riep-testa" data-a="cartella-riep" aria-expanded="${aperto ? 'true' : 'false'}" aria-label="Riepilogo per persona, ${aperto ? 'comprimi' : 'espandi'}"><b>Per persona</b><span class="sotto piccolo">${plurale(r.length, 'persona', 'persone')}</span>${icona(aperto ? 'chevron-up' : 'chevron-down')}</button>
+            ${aperto ? h`<div class="cr-riep-elenco">${r.map((x) => h`<button type="button" class="cr-riep-riga ${s.chi && chiave(s.chi) === chiave(x.nome) ? 'on' : ''}" data-a="cartella-chi-riep" data-chi="${x.nome}" aria-pressed="${s.chi && chiave(s.chi) === chiave(x.nome) ? 'true' : 'false'}" aria-label="${x.nome}: ${plurale(x.giorni.size, 'giornata', 'giornate')}, ${plurale(x.sedute, 'seduta', 'sedute')}; filtra per questa persona">
+                <span class="cr-riep-nome">${icona('user')} ${x.nome}</span>
+                <span class="cr-riep-dati"><b>${x.giorni.size}</b> ${x.giorni.size === 1 ? 'giornata' : 'giornate'} · <b>${x.sedute}</b> ${x.sedute === 1 ? 'seduta' : 'sedute'}</span>
+                <span class="cr-riep-ult">ultima ${formatoData(x.ultima)}</span></button>`)}</div>` : ''}
+        </section>`;
+    }
+    async function stampaGiornate(p) {
+        const s = stato(p.id), sed = sedutePaz(p), { giorni, per } = filtrate(p, sed, s);
+        if (!giorni.length) { X.avviso('Niente da stampare con questi filtri.'); return; }
+        const esc = X.esc;
+        const blocchi = giorni.map((gi) => {
+            const dn = unici(gi.sedute.reduce((a, x) => a.concat(nomi(x)), []));
+            const righe = gi.sedute.map((x) => {
+                const pc = pctDi(x), ch = nomi(x);
+                return `<tr><td style="padding:1.2mm 2mm 1.2mm 0;border-bottom:0.2mm solid #ccc">${esc(x.setName || 'Seduta')}${x.sessionType === 'timedelay' ? ' (T/D' + (x.timeDelaySeconds != null ? ' ' + esc(x.timeDelaySeconds) + ' s' : '') + ')' : ''}</td><td style="white-space:nowrap;padding:1.2mm 2mm;border-bottom:0.2mm solid #ccc">${x.total > 0 ? (x.correct || 0) + '/' + x.total : ''}</td><td style="white-space:nowrap;padding:1.2mm 2mm;border-bottom:0.2mm solid #ccc">${pc != null ? pc + '%' : ''}</td><td style="padding:1.2mm 2mm;border-bottom:0.2mm solid #ccc">${esc(ch.join(' + '))}</td><td style="padding:1.2mm 0;border-bottom:0.2mm solid #ccc">${esc(pulita(x.note))}</td></tr>`;
+            }).join('');
+            return `<div style="break-inside:avoid;margin:0 0 5mm"><div style="font-weight:700;font-size:11pt">${esc(dataLunga(gi.g))}</div><div style="font-size:9.5pt;margin:0.5mm 0 1.5mm">Svolta da: ${dn.length ? esc(dn.join(' + ')) : 'non indicato'}</div>
+                <table style="width:100%;border-collapse:collapse;font-size:9.5pt"><thead><tr style="text-align:left"><th style="padding:0 2mm 1mm 0">Attività</th><th style="padding:0 2mm 1mm">Corrette/totale</th><th style="padding:0 2mm 1mm">%</th><th style="padding:0 2mm 1mm">Chi</th><th style="padding:0 0 1mm">Nota</th></tr></thead><tbody>${righe}</tbody></table></div>`;
+        }).join('');
+        await X.stampa(`<div class="st-foglio"><div class="st-bambino">${esc(p.name)}</div><p>Giornate · ${esc(per[1])}${s.chi ? ' · ' + esc(s.chi) : ''} · ${plurale(giorni.length, 'giorno', 'giorni')}</p>${blocchi}</div>`);
+    }
+    function foglioSeduta(p, s) {
+        const att = attDi(p, s), t = att && s.targetId ? (att.target || []).find((x) => x.id === s.targetId) : null;
+        const tot = s.total || 0, v = s.rawV != null ? s.rawV : (s.correct || 0), pr = s.rawP != null ? s.rawP : (s.prompts || 0), x = s.rawX != null ? s.rawX : Math.max(0, tot - v - pr);
+        const pc = pctDi(s), td = s.sessionType === 'timedelay', mio = nomi(s), nota = pulita(s.note);
+        const dur = s.durataSecondi != null ? s.durataSecondi : s.durationSeconds != null ? s.durationSeconds : s.durata != null ? s.durata : s.duration;
+        const durT = dur != null && !isNaN(+dur) ? (+dur >= 60 ? Math.floor(+dur / 60) + ' min ' + (Math.round(+dur) % 60) + ' s' : Math.round(+dur) + ' s') : '';
+        const riga = (et, val) => (val ? h`<tr><th scope="row" style="text-align:left;font-weight:600;color:var(--text-secondary);padding-right:12px;vertical-align:top;white-space:nowrap">${et}</th><td style="overflow-wrap:anywhere">${val}</td></tr>` : '');
+        const corr = Array.isArray(s.correzioni) ? s.correzioni : [];
+        return X.foglio(h`<div class="cr-dettaglio"><h2>${s.setName || 'Seduta'}</h2>
+            <table class="tabella cr-det-tab"><tbody>
+                ${riga('Data e ora', dataOra(s.date))}
+                ${riga('Svolta da', mio.length ? mio.join(' + ') : 'non indicato')}
+                ${riga('Attività', att ? att.nome : 'non collegata al programma')}
+                ${riga('Target', t ? t.testo : '')}
+                ${riga('Tipo', (td ? 'Time delay' + (s.timeDelaySeconds != null ? ' · ' + s.timeDelaySeconds + ' s' : '') : s.scala === 'percentuale' ? 'Percentuale' : 'Indipendente') + (s.mantenimento ? ' · mantenimento' : '') + (s.mode === 'quaderno_task' ? ' · task analysis' : ''))}
+                ${riga('Esito', tot > 0 ? h`${v} corrette (V) · ${pr} con aiuto (P) · ${x} errori (X) — su ${tot}${pc != null ? ' · ' + pc + '%' : ''}` : (pc != null ? pc + '%' : ''))}
+                ${riga('Misura', s.misuraNome || '')}
+                ${riga('Durata', durT)}
+                ${s.fuoriStatistiche ? riga('Statistiche', 'Non conteggiata nelle statistiche') : ''}
+            </tbody></table>
+            ${s.sequenza ? h`<p class="sotto piccolo" style="margin:10px 0 4px">Sequenza delle risposte</p><div class="sequenza" role="img" aria-label="Sequenza: ${s.sequenza}">${String(s.sequenza).split('').map((r) => h`<i class="${r}"></i>`)}</div>` : ''}
+            ${nota ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Nota</p><p class="cr-nota" style="font-size:0.95rem;color:var(--text-primary)">${nota}</p>` : ''}
+            ${corr.length ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Correzioni</p><ul class="cr-correzioni">${corr.map((c) => h`<li>${dataOra(c.il) || '—'}${c.chi ? ' · ' + c.chi : ''}: prima era «${c.da}»</li>`)}</ul>` : ''}
+            <div class="bottoni"><button type="button" class="bt primario" data-foglio="chiudi">Chiudi</button></div></div>`);
+    }
     function vistaGiornate(p, sed, s) {
         const tuttiNomi = {};
         sed.forEach((x) => nomi(x).forEach((n) => { if (!tuttiNomi[chiave(n)]) tuttiNomi[chiave(n)] = n; }));
         const persone = Object.keys(tuttiNomi).sort().map((k) => tuttiNomi[k]);
         if (s.chi && !persone.some((n) => chiave(n) === chiave(s.chi))) s.chi = '';
-        const per = PERIODI.find((x) => x[0] === s.periodo) || PERIODI[2];
-        const dal = per[2] ? (() => { const d = new Date(); d.setDate(d.getDate() - per[2]); return P.giorno(d.toISOString()); })() : '';
-        let l = sed.filter((x) => !dal || giornoDi(x) >= dal);
-        if (s.chi) l = l.filter((x) => nomi(x).some((n) => chiave(n) === chiave(s.chi)));
-        const giorni = perGiorno(p, l), visibili = giorni.slice(0, s.giorni);
+        const { lp, giorni } = filtrate(p, sed, s);
+        const visibili = giorni.slice(0, s.giorni);
         const filtrato = !!s.chi;
         const chip = (az, dati, on, testo) => h`<button type="button" class="cr-chip ${on ? 'on' : ''}" data-a="${az}" ${grezzo(dati)} aria-pressed="${on ? 'true' : 'false'}">${testo}</button>`;
         const note = (g) => (N ? N.elenco(p).filter((n) => n.data === g) : []);
@@ -152,9 +232,11 @@
                 <div class="cr-filtro"><span class="cr-et">Periodo</span><div class="cr-chips" role="group" aria-label="Filtra per periodo">
                     ${PERIODI.map((x) => chip('cartella-periodo', `data-p="${x[0]}"`, s.periodo === x[0], x[1]))}</div></div>
             </div>` : ''}
+            ${sed.length ? boxRiepilogo(lp, s) : ''}
             ${!sed.length ? h`<div class="vuoto">Ancora nessuna seduta registrata.</div>`
             : !giorni.length ? h`<div class="vuoto">Nessuna seduta con questi filtri.</div>`
-            : h`<p class="sotto piccolo cr-quanti">${plurale(giorni.length, 'giorno', 'giorni')}${filtrato ? ' con ' + s.chi : ''}</p>
+            : h`<div class="cr-quanti"><span class="sotto piccolo">${plurale(giorni.length, 'giorno', 'giorni')}${filtrato ? ' con ' + s.chi : ''}</span>
+                    <button type="button" class="bt piccolo" data-a="cartella-stampa" aria-label="Stampa o salva in PDF le giornate con i filtri correnti">${icona('print')} Stampa / PDF</button></div>
                 <div class="cr-giorni">${visibili.map((gi) => {
                     const dn = unici(gi.sedute.reduce((a, x) => a.concat(nomi(x)), []));
                     const t = totaleGiorno(p, gi.g, gi.sedute, filtrato), pct = t.tot ? Math.round(100 * t.ok / t.tot) : null;
@@ -260,6 +342,37 @@
             })}</div>`;
     }
 
+    // ---------- passare da un bambino all'altro ----------
+    const bambini = () => (X.pazientiAula || X.pazienti)().filter((p) => !(X.eGruppo && X.eGruppo(p))).sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
+    function passa(pid) {
+        if (!pid || pid === T.pid) return;
+        T.pid = pid;
+        T.mantieniScroll = false;
+        X.disegna();
+        const r = X.radice(); if (r) r.scrollTop = 0;
+    }
+    function passaDi(d) {
+        const tutti = bambini(), i = tutti.findIndex((p) => p.id === T.pid);
+        if (i < 0 || tutti.length < 2) return;
+        passa(tutti[(i + d + tutti.length) % tutti.length].id);
+    }
+    const inCartella = () => T.vista === 'cartella' && X.radice() && X.radice().isConnected && X.radice().querySelector('.cartella-main');
+    // il gestore dei <select> del nucleo non conosce questo: lo si ascolta qui, filtrando sul nostro attributo
+    document.addEventListener('change', (e) => {
+        const el = e.target;
+        if (el && el.dataset && el.dataset.crBambino && inCartella()) passa(el.value);
+    });
+    document.addEventListener('keydown', (e) => {
+        if (!inCartella()) return;
+        // Invio o spazio su una riga di seduta la apre
+        const riga = e.target && e.target.closest && e.target.closest('[data-a="cartella-seduta"]');
+        if (riga && (e.key === 'Enter' || e.key === ' ') && riga === e.target) { e.preventDefault(); riga.click(); return; }
+        if (e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        if (document.querySelector('.tice-foglio') || (typeof window.staScrivendo === 'function' && window.staScrivendo(e))) return;
+        e.preventDefault();
+        passaDi(e.key === 'ArrowLeft' ? -1 : 1);
+    });
+
     // ---------- la pagina ----------
     function vistaCartella() {
         const p = paz(T.pid);
@@ -268,22 +381,29 @@
         const nComp = C ? C.elenco(p).length + (p.history || []).filter((x) => x.mode === 'comportamento').length : 0;
         if (s.tab === 'comportamenti' && !nComp) s.tab = 'giornate';
         const nGiorni = new Set(sed.map(giornoDi)).size, nAtt = P.programma(p).attivita.length;
-        const tab = (id, testo, n) => h`<button type="button" role="tab" class="cr-tab ${s.tab === id ? 'on' : ''}" data-a="cartella-tab" data-tab="${id}" aria-selected="${s.tab === id ? 'true' : 'false'}">${testo}${n != null ? h` <small>${n}</small>` : ''}</button>`;
+        const tab = (id, testo, n) => h`<button type="button" role="tab" id="cr-tab-${id}" aria-controls="cr-pannello" class="cr-tab ${s.tab === id ? 'on' : ''}" data-a="cartella-tab" data-tab="${id}" aria-selected="${s.tab === id ? 'true' : 'false'}">${testo}${n != null ? h` <small>${n}</small>` : ''}</button>`;
         const e = eta(p);
+        const tutti = bambini(), qui = tutti.indexOf(p), nav = qui >= 0 && tutti.length > 1;
         return h`${barra({ indietro: 'cartella-indietro', titolo: 'Cartella', sotto: { testo: p.name } })}
             <main class="tice-main cartella-main">
                 ${X.testata('Cartella' + (e ? ' · ' + e : '') + (p.category ? ' · ' + p.category : ''), p.name)}
+                ${nav ? h`<div class="cr-scelta">
+                    <button type="button" class="ib" data-a="cartella-passa" data-d="-1" aria-label="Bambino precedente" title="Precedente (←)">${icona('chevron-left')}</button>
+                    <select class="campo-in" data-cr-bambino="1" aria-label="Bambino">${tutti.map((x) => h`<option value="${x.id}" ${x === p ? grezzo('selected') : ''}>${x.name}</option>`)}</select>
+                    <span class="sotto piccolo cr-scelta-n">${qui + 1} di ${tutti.length}</span>
+                    <button type="button" class="ib" data-a="cartella-passa" data-d="1" aria-label="Bambino successivo" title="Successivo (→)">${icona('chevron-right')}</button>
+                </div>` : ''}
                 <div class="cr-nome-pag"><b>${p.name}</b><span class="sotto">${[e, p.category].filter(Boolean).join(' · ')}</span></div>
                 ${numeri(p, sed)}
                 <div class="cr-tabbar">
-                    <div class="cr-tabs" role="tablist">${tab('giornate', 'Giornate', nGiorni)}${tab('attivita', 'Attività', nAtt)}${nComp ? tab('comportamenti', 'Comportamenti', C.elenco(p).length || null) : ''}</div>
+                    <div class="cr-tabs" role="tablist" aria-label="Sezioni della cartella">${tab('giornate', 'Giornate', nGiorni)}${tab('attivita', 'Attività', nAtt)}${nComp ? tab('comportamenti', 'Comportamenti', C.elenco(p).length || null) : ''}</div>
                     <div class="cr-rapidi">
-                        <button class="bt piccolo" data-a="vai-diario">${icona('book-open')} Diario</button>
-                        <button class="bt piccolo" data-a="vai-grafici">${icona('chart-line')} Grafici</button>
-                        <button class="bt piccolo" data-a="vai-programma">${icona('list-check')} Programma</button>
+                        <button class="bt piccolo" data-a="vai-diario" aria-label="Apri il diario">${icona('book-open')} Diario</button>
+                        <button class="bt piccolo" data-a="vai-grafici" aria-label="Apri i grafici">${icona('chart-line')} Grafici</button>
+                        <button class="bt piccolo" data-a="vai-programma" aria-label="Apri il programma">${icona('list-check')} Programma</button>
                     </div>
                 </div>
-                <div class="cr-corpo" role="tabpanel">${s.tab === 'attivita' ? vistaAttivita(p, sed, s) : s.tab === 'comportamenti' ? vistaComportamenti(p) : vistaGiornate(p, sed, s)}</div>
+                <div class="cr-corpo" id="cr-pannello" role="tabpanel" aria-labelledby="cr-tab-${s.tab}">${s.tab === 'attivita' ? vistaAttivita(p, sed, s) : s.tab === 'comportamenti' ? vistaComportamenti(p) : vistaGiornate(p, sed, s)}</div>
                 <p class="cr-avanzati"><button class="link" data-a="cartella-vecchia">${icona('file-excel')} Report, Excel e strumenti avanzati</button></p>
             </main>`;
     }
@@ -317,7 +437,12 @@
         viste: { cartella: vistaCartella },
         azioni: {
             'apri-cartella': () => { if (T.pid) apriCartella(T.pid); },
-            'cartella-indietro': () => { const r = T.ritornoCartella || { vista: 'seduta', pid: T.pid }; vai(r.vista, r.pid); },
+            'cartella-indietro': () => { const r = T.ritornoCartella || { vista: 'seduta' }; vai(r.vista, T.pid); },
+            'cartella-passa': (b) => passaDi(Number(b.dataset.d) || 1),
+            'cartella-riep': () => { const s = stato(T.pid); s.riep = s.riep === false; ridisegna(); },
+            'cartella-chi-riep': (b) => { const s = stato(T.pid), n = b.dataset.chi || ''; s.chi = s.chi && chiave(s.chi) === chiave(n) ? '' : n; s.giorni = BLOCCO; ridisegna(); },
+            'cartella-stampa': () => stampaGiornate(paz(T.pid)),
+            'cartella-seduta': (b) => { const p = paz(T.pid), s = p && (p.history || [])[+b.dataset.i]; if (s) return foglioSeduta(p, s); },
             'cartella-tab': (b) => { stato(T.pid).tab = b.dataset.tab; ridisegna(); },
             'cartella-chi': (b) => { const s = stato(T.pid); s.chi = b.dataset.chi || ''; s.giorni = BLOCCO; ridisegna(); },
             'cartella-periodo': (b) => { const s = stato(T.pid); s.periodo = b.dataset.p; s.giorni = BLOCCO; ridisegna(); },

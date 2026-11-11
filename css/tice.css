@@ -1124,3 +1124,44 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
     .tice .cr-att-griglia { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .tice .cr-giorni > *, .tice .cr-att-griglia > *, .tice .cr-comp-griglia > * { margin-top: 0 !important; }
+
+/* --- Cartella: scelta del bambino, riepilogo per persona, dettaglio seduta, colonne --- */
+.tice .cr-scelta { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.tice .cr-scelta select { flex: 1; min-width: 0; min-height: 44px; font-weight: 700; }
+.tice .cr-scelta .ib { flex: none; min-width: 44px; min-height: 44px; }
+.tice .cr-scelta-n { white-space: nowrap; }
+.tice .cr-num small { opacity: 1; }
+.tice .cr-tab small { opacity: 1; color: var(--text-secondary); }
+.tice .cr-chip { min-height: 40px; }
+.tice .cr-quanti { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 2px 8px; }
+.tice .cr-quanti .bt { min-height: 40px; flex: none; }
+.tice .cr-sed[role="button"] { cursor: pointer; min-height: 40px; }
+.tice .cr-sed[role="button"]:hover { background: var(--t-sup-2); }
+.tice .cr-sed[role="button"]:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; }
+.tice .cr-riep { margin: 0 0 10px; padding: 0; }
+.tice .cr-riep-testa { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 14px; border: 0; background: none; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.tice .cr-riep-testa span { flex: 1; }
+.tice .cr-riep-testa i { color: var(--text-secondary); font-size: 0.8rem; }
+.tice .cr-riep-elenco { display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--t-bordo); }
+.tice .cr-riep-riga { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; align-items: baseline; min-height: 44px; padding: 8px 14px; border: 0; border-bottom: 1px solid var(--t-bordo); background: none; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.tice .cr-riep-riga:last-child { border-bottom: 0; }
+.tice .cr-riep-riga:hover { background: var(--t-sup-2); }
+.tice .cr-riep-riga.on { background: rgba(var(--accent-rgb), 0.12); box-shadow: inset 3px 0 0 var(--accent-color); }
+.tice .cr-riep-nome { font-weight: 700; overflow-wrap: anywhere; }
+.tice .cr-riep-nome i { color: var(--accent-color); font-size: 0.75rem; }
+.tice .cr-riep-dati { font-variant-numeric: tabular-nums; font-size: 0.88rem; text-align: right; }
+.tice .cr-riep-ult { grid-column: 1 / -1; font-size: 0.78rem; color: var(--text-secondary); }
+.tice-foglio .cr-det-tab { width: 100%; }
+.tice-foglio .cr-det-tab th, .tice-foglio .cr-det-tab td { padding: 5px 0; border-bottom: 1px solid var(--t-bordo, var(--glass-border)); font-size: 0.92rem; }
+.tice-foglio .cr-correzioni { margin: 2px 0 0; padding-left: 18px; font-size: 0.88rem; }
+@media (min-width: 700px) {
+    /* giornate in colonne: niente buchi fra riquadri di altezza diversa; si legge dall'alto della prima colonna, poi della seconda */
+    .tice .cr-giorni { display: block; column-count: 2; column-gap: 10px; }
+    .tice .cr-giorni > .scheda { break-inside: avoid; margin: 0 0 10px; }
+    .tice .cr-riep-elenco { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tice .cr-riep-riga:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
+    .tice .cr-scelta { max-width: 520px; }
+}
+@media (min-width: 1100px) {
+    .tice .cr-riep-elenco { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
