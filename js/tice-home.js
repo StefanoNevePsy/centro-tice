@@ -375,49 +375,6 @@
     }
 
 
-    // ---------- grafici: tutti i bambini, uno dopo l'altro, con lo stesso tipo di grafico ----------
-    const conGrafici = () => pazientiAula().filter((p) => !eGruppo(p)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
-    function bambinoGrafici() {
-        const tutti = conGrafici();
-        return tutti.find((p) => p.id === T.pid) || tutti.find((p) => (p.history || []).length) || tutti[0] || null;
-    }
-    function vistaGrafici() {
-        const tutti = conGrafici(), p = bambinoGrafici();
-        if (p) T.pid = p.id;
-        const i = p ? tutti.indexOf(p) : -1;
-        return h`${barra({ indietro: 'grafici-indietro', titolo: 'Grafici', sotto: { testo: p ? p.name : 'Nessun bambino' }, destra: p ? h`
-                <button class="ib" data-a="apri-cartella" aria-label="Cartella clinica di ${p.name}" title="Cartella clinica">${icona('folder-open')}</button>` : '' })}
-            <main class="tice-main grafici-main">
-                ${p ? h`<div class="grafici-scelta">
-                    <button class="ib" data-a="grafici-passa" data-d="-1" aria-label="Bambino precedente" title="Precedente (←)" ${tutti.length < 2 ? grezzo('disabled') : ''}>${icona('chevron-left')}</button>
-                    <select class="campo-in" data-cambio="grafici-bambino" aria-label="Bambino">${tutti.map((x) => h`<option value="${x.id}" ${x === p ? grezzo('selected') : ''}>${x.name}${(x.history || []).length ? '' : ' · nessun dato'}</option>`)}</select>
-                    <span class="sotto piccolo grafici-n">${i + 1} di ${tutti.length}</span>
-                    <button class="ib" data-a="grafici-passa" data-d="1" aria-label="Bambino successivo" title="Successivo (→)" ${tutti.length < 2 ? grezzo('disabled') : ''}>${icona('chevron-right')}</button>
-                </div>
-                <div class="grafici-bambini" role="list">${tutti.map((x) => h`<button role="listitem" class="grafici-bimbo ${x === p ? 'qui' : ''}" data-a="grafici-vai" data-pid="${x.id}" ${x === p ? grezzo('aria-current="true"') : ''}>
-                    <span class="avatar">${x.photo ? h`<img src="${x.photo}" alt="">` : iniziali(x.name)}</span><span>${x.name}</span></button>`)}</div>
-                ${(p.history || []).length ? h`<div class="grafici-tela" data-grafici></div>` : h`<div class="vuoto">${p.name}: ancora nessuna seduta registrata.</div>`}`
-                : h`<div class="vuoto">Ancora nessun bambino.</div>`}
-            </main>`;
-    }
-    function montaGrafici(r) {
-        const box = r.querySelector('[data-grafici]'), p = bambinoGrafici();
-        if (box && p && window.renderVizTab) window.renderVizTab(p, box);
-        const qui = r.querySelector('.grafici-bimbo.qui');
-        if (qui) qui.scrollIntoView({ block: 'nearest', inline: 'center' });
-    }
-    function passaGrafici(d) {
-        const tutti = conGrafici(), p = bambinoGrafici();
-        if (!p || tutti.length < 2) return;
-        T.pid = tutti[(tutti.indexOf(p) + d + tutti.length) % tutti.length].id;
-        T.mantieniScroll = true;
-        disegna();
-    }
-    function apriGrafici() {
-        T.ritornoGrafici = { vista: T.vista, pid: T.pid };
-        vai('grafici', T.vista === 'seduta' || T.vista === 'programma' ? T.pid : (T.pidGrafici || T.pid));
-    }
-
     // ---------- elenco bambini ----------
     function ultimaSeduta(p) {
         let u = null;
@@ -699,6 +656,7 @@
     // ---------- cronometro per le attività di fluency ----------
     const tempoDi = (v) => (v && v.tempo ? (v.tempo.ms || 0) + (v.tempo.da ? Date.now() - v.tempo.da : 0) : 0);
     const mmss = (ms) => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+    const secMmss = (sec) => mmss(Math.max(0, Math.round(sec)) * 1000);
     function alMinuto(v) {
         const min = tempoDi(v) / 60000;
         return min >= 0.25 && v ? (v.v / min).toFixed(1).replace('.', ',') : '—';
@@ -771,7 +729,7 @@
                 ${nonOggi ? h`<div class="banda">${icona('calendar-day')}<div>Stai registrando una seduta del <b>${formatoData(b.data, true)}</b>, non di oggi.</div></div>` : ''}
                 ${eGruppo(p) ? h`<div class="presenti"><span class="sotto piccolo">Presenti oggi</span>${membriDi(p).map((x) => h`<button class="pill-presenza ${presente(b, x.id) ? 'si' : ''}" data-a="presente" data-pid="${x.id}" aria-pressed="${presente(b, x.id) ? 'true' : 'false'}">${presente(b, x.id) ? icona('check') : icona('xmark')} ${x.name}</button>`)}</div>` : ''}
                 ${EST.noteSeduta ? EST.noteSeduta(p) : ''}
-                ${striscia(p)}
+                ${EST.striscia ? EST.striscia(p) : ''}
                 ${!P.programma(p).attivita.length && !C.attivi(p).length ? h`<div class="scheda imbottita">
                     <b>Nessun programma per ${p.name}.</b>
                     <p class="sotto">Crea le attività su cui lavorate, con i loro target, oppure importa il suo quaderno Numbers. Intanto puoi aggiungere attività solo per oggi.</p>
@@ -788,103 +746,6 @@
             </div></div>`;
     }
 
-    // ---------- comportamenti problema in seduta ----------
-    // Una striscia in cima alla presa dati: un tocco segna l'episodio (o avvia e ferma la durata),
-    // senza lasciare l'attività su cui si sta lavorando. I dettagli dell'ultimo episodio restano a un tocco.
-    const secMmss = (sec) => mmss(Math.max(0, Math.round(sec)) * 1000);
-    function striscia(p) {
-        if (eGruppo(p)) return '';
-        const cc = C.attivi(p);
-        if (!cc.length) return '';
-        const b = bozza(p.id);
-        const ult = T.compUltimo && T.compUltimo.pid === p.id ? T.compUltimo : null;
-        const cu = ult ? C.trova(p, ult.cid) : null, r0 = cu ? C.raccolta(b, cu.id) : null;
-        const eu = r0 ? r0.episodi.find((e) => e.id === ult.eid) : null;
-        const chip = (k, v, testo, su) => h`<button type="button" class="comp-chip ${su ? 'on' : ''}" data-a="comp-dettaglio" data-id="${cu.id}" data-k="${k}" data-v="${v}" aria-pressed="${su ? 'true' : 'false'}">${testo}</button>`;
-        return h`<section class="comp-striscia" aria-label="Comportamenti problema">
-            ${cc.map((c) => {
-                const r = (b.comp || {})[c.id], n = r ? r.episodi.length : 0, corre = !!(r && r.inCorso);
-                const no = !!(r && r.nonOsservato);
-                return h`<div class="comp ${corre ? 'in-corso' : ''} ${no ? 'non-oss' : ''}">
-                    ${c.misura === 'durata'
-                        ? h`<button class="comp-tasto" data-a="comp-durata" data-id="${c.id}" aria-label="${corre ? 'Ferma' : 'Avvia'} ${c.nome}">${icona(corre ? 'stop' : 'play')}<span class="comp-nome">${c.nome}</span>
-                            <span class="comp-n" data-comp-crono="${c.id}">${secMmss(r ? C.secondiTotali(r) : 0)}${n ? h` <small>· ${n}</small>` : ''}</span></button>`
-                        : h`<button class="comp-tasto" data-a="comp-piu" data-id="${c.id}" aria-label="Segna un episodio di ${c.nome}">${icona('plus')}<span class="comp-nome">${c.nome}</span><span class="comp-n">${no ? '—' : n}</span></button>`}
-                    <button class="ib comp-altro" data-a="comp-apri" data-id="${c.id}" aria-label="Episodi e definizione di ${c.nome}" title="Episodi di oggi e definizione">${icona('ellipsis')}</button>
-                </div>`;
-            })}
-            ${eu && (cu.intensita || (cu.antecedenti || []).length || (cu.conseguenze || []).length) ? h`<div class="comp-ultimo">
-                <span class="sotto piccolo">${cu.nome} · episodio ${r0.episodi.indexOf(eu) + 1}${eu.s ? ' · ' + secMmss(eu.s) : ''}</span>
-                ${cu.intensita ? h`<span class="comp-chips">${[1, 2, 3].map((i) => chip('i', i, C.INTENSITA[i], eu.i === i))}</span>` : ''}
-                ${(cu.antecedenti || []).length ? h`<span class="comp-chips"><b>A</b>${cu.antecedenti.map((x) => chip('a', x, x, eu.a === x))}</span>` : ''}
-                ${(cu.conseguenze || []).length ? h`<span class="comp-chips"><b>C</b>${cu.conseguenze.map((x) => chip('c', x, x, eu.c === x))}</span>` : ''}
-                <button class="ib" data-a="comp-chiudi-ultimo" aria-label="Chiudi">${icona('xmark')}</button>
-            </div>` : ''}
-        </section>`;
-    }
-    // Annulla per un comportamento: ferma senza contarla la durata in corso, o toglie l'ultimo episodio
-    function annullaComportamento(p, cid) {
-        const b = bozza(p.id), r = b.comp && b.comp[cid];
-        if (!r || !(r.episodi.length || r.inCorso)) return false;
-        if (r.inCorso) r.inCorso = null; else r.episodi.pop();
-        const u = ultimeDi(b), k = u.lastIndexOf('comp:' + cid);
-        if (k >= 0) u.splice(k, 1);
-        if (T.compUltimo && T.compUltimo.cid === cid && !r.episodi.some((e) => e.id === T.compUltimo.eid)) T.compUltimo = null;
-        if (navigator.vibrate) navigator.vibrate([6, 40, 6]);
-        salvaBozza(); aggiornaStriscia(p);
-        return true;
-    }
-    function aggiornaStriscia(p) {
-        const el = radice().querySelector('.comp-striscia');
-        if (el) el.outerHTML = String(striscia(p)); else { T.mantieniScroll = true; disegna(); }
-        const r = document.getElementById('tice-riassunto');
-        if (r) r.innerHTML = testoPiede(p);
-        const a = document.getElementById('tice-annulla');
-        if (a) a.outerHTML = String(tastoAnnulla(p));
-    }
-    // i cronometri della durata avanzano mentre si guarda la seduta
-    setInterval(() => {
-        if (T.vista !== 'seduta' || !T.bozza || !T.bozza.comp) return;
-        const r = radice();
-        if (!r || r.hidden) return;
-        r.querySelectorAll('[data-comp-crono]').forEach((el) => {
-            const x = T.bozza.comp[el.dataset.compCrono];
-            if (x && x.inCorso) el.firstChild.textContent = secMmss(C.secondiTotali(x));
-        });
-    }, 1000);
-    async function foglioComportamento(p, c) {
-        const b = bozza(p.id), r = C.raccolta(b, c.id);
-        const ora = (t) => new Date(t).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-        const sel = (nome, valori, scelto, vuoto) => h`<select class="campo-in" name="${nome}"><option value="">${vuoto}</option>${valori.map((x) => h`<option value="${x}" ${x === scelto ? grezzo('selected') : ''}>${x}</option>`)}</select>`;
-        const res = await foglio(h`<form class="modulo-att"><h2>${c.nome}</h2>
-            ${c.definizione ? h`<p class="comp-def">${c.definizione}</p>` : ''}
-            <p class="sotto piccolo">${c.misura === 'durata' ? 'Durata: avvia e ferma ogni episodio' : 'Frequenza: un tocco per ogni episodio'}${c.obiettivo ? ` · obiettivo: al massimo ${C.numero(c.obiettivo.max)} ${C.unita(c)}` : ''}</p>
-            <h3>Episodi di oggi (${r.episodi.length})</h3>
-            ${r.episodi.length ? h`<div class="comp-episodi">${r.episodi.map((e, i) => h`<div class="comp-ep">
-                <b>${i + 1}</b><span>${ora(e.t)}${e.s ? ' · ' + secMmss(e.s) : ''}</span>
-                ${c.intensita ? sel('i' + i, ['1', '2', '3'].map((x) => x), e.i ? String(e.i) : '', 'intensità') : ''}
-                ${(c.antecedenti || []).length ? sel('a' + i, c.antecedenti, e.a || '', 'antecedente') : ''}
-                ${(c.conseguenze || []).length ? sel('c' + i, c.conseguenze, e.c || '', 'conseguenza') : ''}
-                <input class="campo-in" name="${'n' + i}" maxlength="300" value="${e.nota || ''}" placeholder="nota">
-                <label class="spunta-riga"><input type="checkbox" name="${'x' + i}"> <span class="sotto piccolo">togli</span></label></div>`)}</div>`
-                : h`<p class="sotto">Nessun episodio${r.nonOsservato ? '' : ': a fine seduta conta come zero, che è un dato'}.</p>`}
-            <label class="spunta-riga"><input type="checkbox" name="nonOsservato" ${r.nonOsservato ? grezzo('checked') : ''}> <span><b>Non osservato oggi</b><br><span class="sotto piccolo">Non si salva nulla per questo comportamento (diverso da zero episodi).</span></span></label>
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
-        { dopo: (f) => f.querySelectorAll('select[name^=i] option').forEach((o) => { if (o.value) o.textContent = C.INTENSITA[o.value]; }) });
-        if (!res) return;
-        r.episodi = r.episodi.map((e, i) => {
-            if (res['x' + i]) return null;
-            const x = Object.assign({}, e);
-            if (c.intensita) { const v = +res['i' + i]; if (v) x.i = v; else delete x.i; }
-            ['a', 'c'].forEach((k) => { if (res[k + i] !== undefined) { if (res[k + i]) x[k] = res[k + i]; else delete x[k]; } });
-            const n = String(res['n' + i] || '').trim(); if (n) x.nota = n; else delete x.nota;
-            return x;
-        }).filter(Boolean);
-        r.nonOsservato = !!res.nonOsservato;
-        if (r.nonOsservato) { r.episodi = []; r.inCorso = null; }
-        salvaBozza();
-        aggiornaStriscia(p);
-    }
     function annullaUltima(p, id) {
         const b = bozza(p.id), v = b.voci[id];
         if (!v || !v.sequenza) return;
@@ -1129,8 +990,8 @@
                 ${gruppi.map((g) => h`<h3>${g.area}</h3>${g.att.map((a) => schedaProgramma(p, a))}`)}
                 ${!attive.length ? h`<div class="vuoto">Nessuna attività in corso.</div>` : ''}
                 ${altre.length ? h`<details style="margin-top:18px"><summary>Sospese e terminate (${altre.length})</summary>${altre.map((a) => schedaProgramma(p, a))}</details>` : ''}
-                ${eGruppo(p) ? '' : sezioneComportamenti(p, modifica)}
-                ${(() => { const fuori = modifica ? datiFuori(p) : []; return fuori.length ? h`<h3>Dati fuori dal programma</h3>
+                ${eGruppo(p) || !EST.sezioneComportamenti ? '' : EST.sezioneComportamenti(p, modifica)}
+                ${(() => { const fuori = modifica && EST.datiFuori ? EST.datiFuori(p) : []; return fuori.length ? h`<h3>Dati fuori dal programma</h3>
                     <p class="sotto piccolo">Sedute di attività aggiunte solo per un giorno o tolte dal programma: uniscile a un'attività, o creane una, così finiscono nei grafici e nel criterio.</p>
                     <div class="scheda">${fuori.map((g) => h`<button class="riga" data-a="sistema-fuori" data-nome="${g.nome}"><span class="corpo"><span class="t1">${g.nome}</span>
                         <span class="t2">${g.sedute.length} ${g.sedute.length === 1 ? 'seduta' : 'sedute'} · ${formatoData(P.giorno(g.sedute[0].date))}${g.sedute.length > 1 ? ' – ' + formatoData(P.giorno(g.sedute[g.sedute.length - 1].date)) : ''}</span></span>${icona('chevron-right')}</button>`)}</div>` : ''; })()}
@@ -1280,7 +1141,7 @@
     }
 
     // ---------- viste e punti di aggancio per le estensioni (tice-centro.js) ----------
-    const VISTE = { bambini: vistaBambini, seduta: vistaSeduta, programma: vistaProgramma, import: vistaImport, classifica: vistaClassifica, grafici: vistaGrafici };
+    const VISTE = { bambini: vistaBambini, seduta: vistaSeduta, programma: vistaProgramma, import: vistaImport, classifica: vistaClassifica };
     const EST = {};
     // Chi può cambiare il programma: sul dispositivo tutti; per i bambini del
     // centro lo decide il ruolo (le tirocinanti registrano, non modificano).
@@ -1304,7 +1165,7 @@
             const dopo = scorrevoli();
             prima.forEach(([k, sx, sy]) => { const el = dopo.find((x, i, tutti) => chiave(x, i, tutti) === k); if (el) { el.scrollLeft = sx; el.scrollTop = sy; } });
         }
-        if (T.vista === 'grafici') { T.pidGrafici = T.pid; montaGrafici(r); }
+        if (T.vista === 'grafici') { T.pidGrafici = T.pid; if (EST.montaGrafici) EST.montaGrafici(r); }
         if (EST.dopo) EST.dopo(T.vista, r);
         if (EST.dopoVista) EST.dopoVista(T.vista, r);
         if (T.mantieniScroll) r.scrollTop = alto;
@@ -1343,10 +1204,6 @@
         'vai-seduta': () => vai('seduta'),
         'vai-programma': () => vai('programma'),
         'apri-cartella': () => { if (T.pid) apriCartella(T.pid); },
-        'vai-grafici': () => apriGrafici(),
-        'grafici-passa': (b) => passaGrafici(Number(b.dataset.d) || 1),
-        'grafici-vai': (b) => { T.pid = b.dataset.pid; T.mantieniScroll = true; disegna(); },
-        'grafici-indietro': () => { const r = T.ritornoGrafici || { vista: VISTE.turni ? 'turni' : 'bambini' }; vai(VISTE[r.vista] ? r.vista : 'bambini', r.pid); },
         'vai-import': () => { if (!limitato()) vai('import'); },
         'apri-bambino': (b) => { T.aperte = {}; T.ritorno = T.vista === 'turni' ? 'turni' : 'bambini'; vai('seduta', b.dataset.pid); },
         // indietro dalla presa dati: dove si era (i turni del giorno o l'elenco dei bambini)
@@ -1375,10 +1232,10 @@
                 avviso(stile() === 'quaderno' ? 'Aspetto: quaderno' : 'Aspetto: classico');
                 return;
             }
-            if (r === 'modalita') { await gestisciModalita(); disegna(); return; }
+            if (r === 'modalita' && EST.gestisciModalita) { await EST.gestisciModalita(); disegna(); return; }
             if (r === 'giochi') chiudi();
             else if (r === 'cartelle') apriDaQui(openPatients);
-            else if (r === 'grafici') apriGrafici();
+            else if (r === 'grafici' && EST.apriGrafici) EST.apriGrafici();
             else if (r === 'import') vai('import');
             else if (r === 'archivio') apriDaQui(openLibrary);
             else if (r === 'opzioni') apriDaQui(openSettings);
@@ -1508,56 +1365,6 @@
             T.aperte[id] = !T.aperte[id];
             aggiornaScheda(paz(T.pid), id);
         },
-        'comp-nuovo': async () => {
-            const p = paz(T.pid);
-            if (!puoProgrammi(p)) return;
-            const r = await moduloComportamento(null);
-            if (!r) return;
-            C.crea(p, r);
-            await salvaPaziente(p);
-            T.mantieniScroll = true; disegna();
-        },
-        'comp-mod': async (b) => {
-            const p = paz(T.pid), c = C.trova(p, b.dataset.id);
-            if (!c || !puoProgrammi(p)) return;
-            const r = await moduloComportamento(c);
-            if (!r) return;
-            C.imposta(c, r);
-            // il nome cambia anche nelle sedute già salvate
-            (p.history || []).forEach((x) => { if (x.mode === 'comportamento' && x.comportamentoId === c.id) x.setName = c.nome; });
-            await salvaPaziente(p);
-            T.mantieniScroll = true; disegna();
-        },
-        'comp-andamento': async (b) => { const p = paz(T.pid), c = C.trova(p, b.dataset.id); if (c) await andamentoComportamento(p, c); },
-        'comp-piu': (b) => {
-            const p = paz(T.pid), c = C.trova(p, b.dataset.id);
-            if (!c) return;
-            const e = C.aggiungi(C.raccolta(bozza(p.id), c.id));
-            ultimeDi(bozza(p.id)).push('comp:' + c.id);
-            T.compUltimo = { pid: p.id, cid: c.id, eid: e.id };
-            if (navigator.vibrate) navigator.vibrate(12);
-            salvaBozza(); aggiornaStriscia(p);
-        },
-        'comp-durata': (b) => {
-            const p = paz(T.pid), c = C.trova(p, b.dataset.id);
-            if (!c) return;
-            const e = C.alterna(C.raccolta(bozza(p.id), c.id));
-            if (!e) ultimeDi(bozza(p.id)).push('comp:' + c.id);   // all'avvio: l'annulla lo ferma senza contarlo
-            if (e) T.compUltimo = { pid: p.id, cid: c.id, eid: e.id };
-            if (navigator.vibrate) navigator.vibrate(e ? [8, 40, 8] : 12);
-            salvaBozza(); aggiornaStriscia(p);
-        },
-        'comp-dettaglio': (b) => {
-            const p = paz(T.pid), u = T.compUltimo;
-            if (!u) return;
-            const r = C.raccolta(bozza(p.id), u.cid), e = r.episodi.find((x) => x.id === u.eid);
-            if (!e) return;
-            const k = b.dataset.k, v = k === 'i' ? +b.dataset.v : b.dataset.v;
-            if (e[k] === v) delete e[k]; else e[k] = v;
-            salvaBozza(); aggiornaStriscia(p);
-        },
-        'comp-chiudi-ultimo': () => { T.compUltimo = null; aggiornaStriscia(paz(T.pid)); },
-        'comp-apri': async (b) => { const p = paz(T.pid), c = C.trova(p, b.dataset.id); if (c) await foglioComportamento(p, c); },
         segna: (b) => {
             const p = paz(T.pid);
             const att = attivitaDi(p, b.dataset.id);
@@ -1607,7 +1414,7 @@
             // la più recente ancora annullabile (un'attività tolta non conta)
             while (u.length) {
                 const id = u[u.length - 1], v = bozza(p.id).voci[id];
-                if (String(id).indexOf('comp:') === 0) { if (annullaComportamento(p, id.slice(5))) return; u.pop(); continue; }
+                if (String(id).indexOf('comp:') === 0) { if (EST.annullaComportamento && EST.annullaComportamento(p, id.slice(5))) return; u.pop(); continue; }
                 if (v && v.sequenza) { annullaUltima(p, id); return; }
                 u.pop();
             }
@@ -2036,21 +1843,13 @@
             T.mantieniScroll = true;
             disegna();
         },
-        'sistema-fuori': async (b) => {
-            const p = paz(T.pid);
-            if (!puoProgrammi(p)) return;
-            const g = datiFuori(p).find((x) => x.nome === b.dataset.nome);
-            if (g) await correggiDati(p, g);
-            T.mantieniScroll = true;
-            disegna();
-        },
         'mod-att': async (b) => {
             const p = paz(T.pid);
             if (!puoProgrammi(p)) return;
             const att = P.attivita(p, b.dataset.id);
             const r = await moduloAttivita(p, att);
             if (!r) return;
-            if (r === 'sposta') { await correggiDati(p, { att, sedute: P.sedute(p, att), nome: att.nome }); T.mantieniScroll = true; disegna(); return; }
+            if (r === 'sposta') { if (EST.correggiDati) await EST.correggiDati(p, { att, sedute: P.sedute(p, att), nome: att.nome }); T.mantieniScroll = true; disegna(); return; }
             if (r === 'elimina') {
                 const n = P.sedute(p, att).length;
                 if (!await conferma(`Eliminare «${att.nome}»?`, n ? `Le sue ${n} sedute restano nella cartella clinica, ma non saranno più collegate a un'attività del programma.` : 'Non ha ancora sedute registrate.', { ok: 'Elimina', pericolo: true })) return;
@@ -2298,173 +2097,6 @@
 
 
 
-    // ---------- comportamenti problema nel programma ----------
-    function sezioneComportamenti(p, modifica) {
-        const cc = C.elenco(p);
-        if (!cc.length && !modifica) return '';
-        return h`<h3>Comportamenti problema</h3>
-            ${cc.map((c) => {
-                const pt = C.andamento(p, c), ult = pt.slice(-5), ok = C.aObiettivo(pt, c);
-                return h`<div class="scheda imbottita comp-scheda ${c.stato === 'sospeso' ? 'spento' : ''}">
-                    <div class="comp-testa"><b>${c.nome}</b> <span class="pill">${c.misura === 'durata' ? 'durata' : 'frequenza'}</span>
-                        ${c.stato === 'sospeso' ? h`<span class="pill grigia">sospeso</span>` : ''}${ok ? h`<span class="pill verde">${icona('flag-checkered')} obiettivo</span>` : ''}
-                        ${modifica ? h`<button class="ib" data-a="comp-mod" data-id="${c.id}" aria-label="Modifica ${c.nome}">${icona('pen')}</button>` : ''}</div>
-                    ${c.definizione ? h`<p class="sotto piccolo">${c.definizione}</p>` : ''}
-                    <p class="sotto piccolo">${ult.length ? 'Ultimi giorni: ' + ult.map((x) => C.numero(x.valore)).join(' · ') + ' ' + C.unita(c) : 'Ancora nessun giorno osservato'}${c.obiettivo ? ` · obiettivo ≤ ${C.numero(c.obiettivo.max)} per ${c.obiettivo.giorni} giorni` : ''}</p>
-                    ${pt.length ? h`<button class="bt piccolo fantasma" data-a="comp-andamento" data-id="${c.id}">${icona('chart-line')} Andamento</button>` : ''}
-                </div>`;
-            })}
-            ${modifica ? h`<button class="bt largo fantasma" data-a="comp-nuovo">${icona('plus')} Nuovo comportamento da monitorare</button>` : ''}`;
-    }
-    function moduloComportamento(c) {
-        const a = c || { nome: '', definizione: '', misura: 'frequenza', antecedenti: [], conseguenze: [], stato: 'attivo' };
-        const testa = (ic, titolo, sotto) => h`<div class="ma-testa"><span class="ma-ic">${icona(ic)}</span><h3>${titolo}</h3>${sotto ? h`<span class="ma-sotto">${sotto}</span>` : ''}</div>`;
-        const conAbc = (a.antecedenti || []).length || (a.conseguenze || []).length;
-        return foglio(h`<form class="modulo-att ma"><h2>${c ? 'Modifica comportamento' : 'Nuovo comportamento'}</h2>
-            <section class="ma-card">${testa('triangle-exclamation', 'Cosa')}
-                <label class="campo"><span>Nome</span><input name="nome" required maxlength="120" value="${a.nome}" ${c ? '' : grezzo('autofocus')} placeholder="es. Colpire, Urlare, Fuga dal tavolo"></label>
-                <label class="campo"><span>Definizione operativa <small class="sotto">· cosa conta come episodio e cosa no; si legge in seduta</small></span><textarea name="definizione" rows="3" maxlength="2000" placeholder="es. Colpisce l'adulto con la mano aperta o chiusa. Non conta il contatto accidentale.">${a.definizione || ''}</textarea></label>
-            </section>
-            <section class="ma-card">${testa('hand-pointer', 'In seduta', 'come si misura')}
-                <div class="ma-tiles ma-due">
-                    <label class="ma-tile"><input type="radio" name="misura" value="frequenza" ${a.misura !== 'durata' ? grezzo('checked') : ''}><span class="ma-grande">${icona('plus')}</span><b>Frequenza</b><small>un tocco per episodio: colpi, urla, lanci</small></label>
-                    <label class="ma-tile"><input type="radio" name="misura" value="durata" ${a.misura === 'durata' ? grezzo('checked') : ''}><span class="ma-grande">${icona('stopwatch')}</span><b>Durata</b><small>avvia e ferma: crisi, pianto, fuga</small></label>
-                </div>
-            </section>
-            <section class="ma-card">${testa('flag-checkered', 'Obiettivo', 'facoltativo')}
-                <p class="ma-frase">Al massimo <input name="max" type="number" min="0" max="999" step="0.1" inputmode="decimal" value="${a.obiettivo ? a.obiettivo.max : ''}" placeholder="—" class="ma-n"> all'ora per <input name="giorni" type="number" min="1" max="30" inputmode="numeric" value="${a.obiettivo ? a.obiettivo.giorni : 5}" class="ma-n"> giorni di fila</p>
-                <span class="sotto piccolo">Episodi all'ora (frequenza) o minuti all'ora (durata).</span>
-            </section>
-            <section class="ma-card">${testa('sliders', 'Opzioni', 'tocca per attivare')}
-                <div class="ma-chips">
-                    <label class="ma-chip ${a.intensita ? 'on' : ''}" title="Lieve, media, grave per ogni episodio"><input type="checkbox" name="intensita" ${a.intensita ? grezzo('checked') : ''}>${icona('gauge-high')} Intensità</label>
-                    <button type="button" class="ma-chip ${conAbc ? 'on' : ''}" data-ma-apri="abc" aria-pressed="${conAbc ? 'true' : 'false'}">${icona('diagram-next')} ABC: antecedenti e conseguenze</button>
-                </div>
-                <div class="ma-opz" data-ma-sez="abc" ${conAbc ? '' : grezzo('hidden')}>
-                    <div class="riga-campi">
-                        <label class="campo"><span>Antecedenti, uno per riga</span><textarea name="antecedenti" rows="4" placeholder="Richiesta&#10;Attesa&#10;Transizione&#10;Rumore">${(a.antecedenti || []).join('\n')}</textarea></label>
-                        <label class="campo"><span>Conseguenze, una per riga</span><textarea name="conseguenze" rows="4" placeholder="Pausa&#10;Attenzione&#10;Oggetto&#10;Ignorato">${(a.conseguenze || []).join('\n')}</textarea></label>
-                    </div>
-                    <span class="sotto piccolo">In seduta, dopo ogni episodio, si toccano antecedente e conseguenza (facoltativi).</span></div>
-            </section>
-            ${c ? h`<section class="ma-card">${testa('toggle-on', 'Stato')}<div class="scelta">
-                <label><input type="radio" name="stato" value="attivo" ${c.stato !== 'sospeso' ? grezzo('checked') : ''}><span>Si monitora</span></label>
-                <label><input type="radio" name="stato" value="sospeso" ${c.stato === 'sospeso' ? grezzo('checked') : ''}><span>Sospeso</span></label></div>
-                <span class="sotto piccolo">Sospeso: sparisce dalla seduta, i dati restano.</span></section>` : ''}
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, {
-            dopo: (el) => {
-                el.querySelectorAll('.ma-chip > input[type=checkbox]').forEach((x) => x.addEventListener('change', () => x.closest('.ma-chip').classList.toggle('on', x.checked)));
-                el.querySelectorAll('[data-ma-apri]').forEach((b) => b.addEventListener('click', () => {
-                    const z = el.querySelector(`[data-ma-sez="${b.dataset.maApri}"]`), apri = z.hidden;
-                    z.hidden = !apri; b.classList.toggle('on', apri); b.setAttribute('aria-pressed', apri ? 'true' : 'false');
-                }));
-            }
-        });
-    }
-    async function andamentoComportamento(p, c) {
-        const pt = C.andamento(p, c), R = C.riepilogo(pt);
-        const tot = pt.reduce((n, x) => n + x.episodi, 0), min = pt.reduce((n, x) => n + x.minuti, 0);
-        const lista = (l) => l.length ? h`<ul class="comp-lista">${l.slice(0, 6).map(([k, n]) => h`<li><span>${k}</span><b>${n}</b> <small class="sotto">${Math.round(100 * n / R.episodi)}%</small></li>`)}</ul>` : h`<p class="sotto piccolo">Non segnati.</p>`;
-        const fasce = Object.keys(R.ore).map(Number).sort((a, b) => a - b);
-        await foglio(h`<div><h2>${c.nome}</h2>
-            <p class="sotto">${pt.length} ${pt.length === 1 ? 'giorno osservato' : 'giorni osservati'} · ${tot} episodi in ${C.numero(min / 60)} ore${c.obiettivo ? ` · obiettivo ≤ ${C.numero(c.obiettivo.max)} ${C.unita(c)} per ${c.obiettivo.giorni} giorni${C.aObiettivo(pt, c) ? ' · raggiunto' : ''}` : ''}</p>
-            <div class="comp-grafico-box">${grezzo(C.grafico(pt, c))}</div>
-            <p class="sotto piccolo">${C.unita(c)} per giorno: i salvataggi dello stesso giorno si sommano, con i loro minuti di osservazione.</p>
-            ${R.episodi ? h`<div class="riga-campi comp-abc">
-                <div><h3>Antecedenti</h3>${lista(R.antecedenti)}</div>
-                <div><h3>Conseguenze</h3>${lista(R.conseguenze)}</div></div>
-                ${c.intensita ? h`<h3>Intensità</h3><p>${[1, 2, 3].map((i) => `${C.INTENSITA[i]} ${R.intensita[i] || 0}`).join(' · ')}</p>` : ''}
-                ${fasce.length ? h`<h3>Ore del giorno</h3><p class="comp-fasce">${fasce.map((o) => h`<span><b>${o}:00</b> ${R.ore[o]}</span>`)}</p>` : ''}` : ''}
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Chiudi</button></div></div>`);
-    }
-
-    // ---------- correzione a posteriori: sedute già salvate in un'altra attività ----------
-    // Le sedute del quaderno non collegate a un'attività del programma (aggiunte per un giorno, attività eliminate)
-    function datiFuori(p) {
-        const ids = new Set(P.programma(p).attivita.map((a) => a.id));
-        const gruppi = {};
-        (p.history || []).forEach((s) => {
-            if (s.attivitaId && ids.has(s.attivitaId)) return;
-            if (s.mode !== 'quaderno' && s.mode !== 'quaderno_task') return;
-            // le vecchie sedute del quaderno senza id sono già lette dalle attività con lo stesso nome
-            if (!s.attivitaId && P.programma(p).attivita.some((a) => P.sedute(p, a).includes(s))) return;
-            const n = String(s.setName || 'Senza nome');
-            (gruppi[n] = gruppi[n] || { nome: n, sedute: [] }).sedute.push(s);
-        });
-        return Object.values(gruppi).map((g) => Object.assign(g, { sedute: g.sedute.sort((a, b) => new Date(a.date) - new Date(b.date)) }))
-            .sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
-    }
-    // Le sedute passano all'attività (e al target) scelti: nome, set e categoria si aggiornano, i conteggi restano
-    function spostaSedute(p, sedute, att, t) {
-        const quando = new Date().toISOString();
-        sedute.forEach((s) => {
-            const prima = s.setName;
-            s.attivitaId = att.id;
-            s.targetId = t ? t.id : null;
-            s.setName = P.nomeSet(att, t);
-            s.setId = t && t.setId ? t.setId : 'tice_' + (t ? t.id : att.id);
-            if (s.mode !== 'quaderno_task') s.mode = (t && t.setId && P.modoTarget(att, t)) || 'quaderno';
-            s.setCat = (M.categoriaDi(att, dizionario()) || {}).nome || att.area || s.setCat || '';
-            ['misura', 'misuraNome', 'bambino', 'bambinoNome'].forEach((k) => delete s[k]);
-            if (prima !== s.setName) (s.correzioni = s.correzioni || []).push({ il: quando, da: prima, chi: chiOpera() });
-        });
-        if (t && !t.inizio && sedute.length) t.inizio = P.giorno(sedute[0].date);
-    }
-    async function correggiDati(p, g) {
-        // 1. quali giorni
-        const righe = g.sedute.map((s, i) => h`<label class="spunta-riga"><input type="checkbox" name="${'s' + i}" checked> <span><b>${formatoData(P.giorno(s.date))}</b> · ${s.setName}<br><span class="sotto piccolo">${s.correct}/${s.total}${s.total ? ' (' + Math.round(100 * s.correct / s.total) + '%)' : ''}${s.sessionType === 'timedelay' ? ' · T/D' : ''}${s.operatore ? ' · ' + s.operatore : ''}</span></span></label>`);
-        const r1 = await foglio(h`<form><h2>Correggi i dati · ${g.nome}</h2>
-            <p class="sotto">Quali sedute spostare? Poi scegli dove: un'attività del programma o una nuova. I conteggi non cambiano.</p>
-            <div class="sedute-da-spostare">${righe}</div>
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Avanti</button></div></form>`);
-        if (!r1) return;
-        const scelte = g.sedute.filter((s, i) => r1['s' + i]);
-        if (!scelte.length) return;
-        // 2. dove
-        const altre = P.programma(p).attivita.filter((a) => !g.att || a.id !== g.att.id);
-        const nt = M.normalizza(g.nome.split(' · ')[0]);
-        const simile = (a) => { const na = M.normalizza(a.nome); return na && nt && (na === nt || na.includes(nt) || nt.includes(na)) || (g.att && g.att.modalita && a.modalita === g.att.modalita); };
-        const vicine = altre.filter(simile), resto = altre.filter((a) => !simile(a));
-        const opz = (a) => h`<button type="button" class="opzione" data-foglio="${'u:' + a.id}"><span class="corpo">${a.nome}<small>${ETICHETTE_STATO[a.stato] || a.stato}${a.modalita && M.trovaModalita(a.modalita, dizionario()) ? ' · ' + M.trovaModalita(a.modalita, dizionario()).nome : ''}</small></span>${icona('arrow-right')}</button>`;
-        const r2 = await foglio(h`<div><h2>Dove vanno ${scelte.length === 1 ? 'questa seduta' : 'queste ' + scelte.length + ' sedute'}?</h2>
-            ${vicine.length ? h`<h3>Forse è</h3><div class="opzioni">${vicine.map(opz)}</div>` : ''}
-            <div class="opzioni" style="margin-top:10px"><button type="button" class="opzione" data-foglio="nuova">${icona('plus')}<span class="corpo">Una nuova attività del programma<small>Con modalità, target e criterio</small></span></button></div>
-            ${resto.length ? h`<details class="sez apribile" ${vicine.length ? '' : grezzo('open')}><summary><span class="sez-titolo">Tutte le attività del programma</span> <span class="sotto piccolo">${resto.length}</span></summary><div class="opzioni">${resto.map(opz)}</div></details>` : ''}
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button></div></div>`);
-        if (!r2) return;
-        let dest = null;
-        if (r2 === 'nuova') {
-            const base = { nome: g.nome.split(' · ')[0], sessionType: scelte[0].sessionType === 'timedelay' ? 'timedelay' : 'independent' };
-            if (g.att && g.att.modalita) base.modalita = g.att.modalita;
-            const m = await moduloAttivita(p, null, base);
-            if (!m) return;
-            dest = await creaAttivitaDaModulo(p, m);
-        } else if (typeof r2 === 'string' && r2.startsWith('u:')) dest = P.attivita(p, r2.slice(2));
-        if (!dest) return;
-        // 3. su quale target
-        let t = null;
-        const tt = dest.target || [];
-        if (tt.length === 1) t = tt[0];
-        else if (tt.length > 1) {
-            const c = P.targetCorrente(dest);
-            const r3 = await foglio(h`<form><h2>Target · ${dest.nome}</h2>
-                <div class="scelta verticale">${tt.map((x) => h`<label><input type="radio" name="t" value="${x.id}" ${c && c.target === x ? grezzo('checked') : ''}><span>${x.testo} <small class="sotto">${P.STATI_TARGET[x.stato] || x.stato}</small></span></label>`)}
-                    <label><input type="radio" name="t" value="" ${!c ? grezzo('checked') : ''}><span>Nessun target (tutta l'attività)</span></label></div>
-                <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Sposta</button></div></form>`);
-            if (!r3) return;
-            t = tt.find((x) => x.id === r3.t) || null;
-        }
-        spostaSedute(p, scelte, dest, t);
-        dest.modificato = new Date().toISOString();
-        // l'attività di partenza rimasta senza dati: la si può togliere
-        if (g.att && !P.sedute(p, g.att).length && await conferma(`Togliere «${g.att.nome}» dal programma?`, 'Non ha più sedute: i suoi dati ora sono in «' + dest.nome + '».', { ok: 'Togli' })) {
-            const prog = P.programma(p);
-            prog.attivita = prog.attivita.filter((x) => x.id !== g.att.id);
-        }
-        await salvaPaziente(p);
-        avviso(`${scelte.length} ${scelte.length === 1 ? 'seduta spostata' : 'sedute spostate'} in «${dest.nome}»${t ? ' · ' + t.testo : ''}`);
-    }
-
     // ---------- Standard Celeration Chart di un target o di un'attività ----------
     function celerazioneTarget(p, att, t) {
         if (!window.TiceSCCGrafico || !window.TiceSCCDati) return '';
@@ -2544,101 +2176,6 @@
     }
     async function categoriaDalModulo(r, campo) {
         return r[campo] === '+' ? creaCategoria(r[campo + '_nuova']) : r[campo];
-    }
-    // Il foglio per vedere e aggiungere categorie e modalità
-    async function gestisciModalita() {
-        for (;;) {
-            const E = M.elenco(dizionario());
-            const r = await foglio(h`<form><h2>Categorie e modalità</h2>
-                <p class="sotto piccolo">Servono a raggruppare le attività nel programma e nelle statistiche. Nel centro valgono per tutti.</p>
-                <div class="campo"><span>Nuova modalità (tipo di attività)</span>
-                    <div class="riga-campi"><input class="campo-in" name="mod" maxlength="60" placeholder="es. Echo to tact" data-doppione="modalita" autocomplete="off">
-                        ${sceltaCategoria('cat', 'altro')}</div>
-                    ${campoNuovaCategoria('cat')}
-                    <span class="sotto piccolo avviso-doppione" data-doppione-nota></span>
-                    <button class="bt piccolo primario" name="azione" value="modalita">${icona('plus')} Aggiungi la modalità</button></div>
-                <div class="campo"><span>Nuova categoria</span>
-                    <div class="riga-campi"><input class="campo-in" name="categoria" maxlength="60" placeholder="es. Repertori accademici" data-doppione="categoria" autocomplete="off"></div>
-                    <span class="sotto piccolo avviso-doppione" data-doppione-nota></span>
-                    <button class="bt piccolo" name="azione" value="categoria">${icona('plus')} Aggiungi la categoria</button></div>
-                <p class="sotto piccolo">Tocca una categoria o una modalità per rinominarla, spostarla o eliminarla.</p>
-                <div class="elenco-modalita">${E.categorie.map((c) => { const ms = E.modalita.filter((m) => m.categoria === c.id); return h`<div class="cat-mod"><button type="button" class="cat-nome" data-foglio="${'c:' + c.id}"><b>${c.nome}</b> ${icona('pen')}</button>${c.centro ? h` <span class="pill grigia">del centro</span>` : ''}<div class="chips">${ms.length ? ms.map((m) => h`<button type="button" class="chip ${m.centro ? 'nuova' : ''}" data-foglio="${'m:' + m.id}">${m.nome}</button>`) : h`<span class="sotto piccolo">nessuna modalità</span>`}</div></div>`; })}</div>
-                <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Fatto</button></div></form>`, {
-                dopo: agganciaNuove,
-                invia: (form, bt) => { const d = Object.fromEntries(new FormData(form)); d.azione = bt && bt.value; return d; }
-            });
-            if (!r) return;
-            if (typeof r === 'string' && /^[mc]:/.test(r)) {
-                try { await (r[0] === 'm' ? modificaModalita(r.slice(2)) : modificaCategoria(r.slice(2))); } catch (e) { avviso(e.message || String(e), 'errore'); }
-                continue;
-            }
-            try {
-                if (r.azione === 'modalita') {
-                    if (!String(r.mod || '').trim()) { avviso('Scrivi il nome della modalità.', 'errore'); continue; }
-                    const gia = stessaModalita(r.mod);
-                    if (gia) { avviso(`«${gia.nome}» esiste già in ${nomeCategoria(gia.categoria)}.`); continue; }
-                    const cat = await categoriaDalModulo(r, 'cat');
-                    await creaModalita(r.mod, cat);
-                    avviso(`Modalità «${r.mod.trim()}» aggiunta in ${nomeCategoria(cat)}`);
-                } else if (r.azione === 'categoria') {
-                    if (!String(r.categoria || '').trim()) { avviso('Scrivi il nome della categoria.', 'errore'); continue; }
-                    const gia = stessaCategoria(r.categoria);
-                    if (gia) { avviso(`La categoria «${gia.nome}» esiste già.`); continue; }
-                    await creaCategoria(r.categoria);
-                    avviso(`Categoria «${r.categoria.trim()}» aggiunta`);
-                }
-            } catch (e) { avviso(e.message || String(e), 'errore'); return; }
-        }
-    }
-
-    // Quante attività (su questo dispositivo) usano una modalità o una categoria
-    function usoModalita(ids) {
-        const set = new Set(ids);
-        return pazienti().reduce((n, p) => n + P.programma(p).attivita.filter((a) => set.has(a.modalita)).length, 0);
-    }
-    async function modificaModalita(id) {
-        const E = M.elenco(dizionario()), m = E.modalita.find((x) => x.id === id);
-        if (!m) return;
-        const n = usoModalita([id]);
-        const r = await foglio(h`<form><h2>Modalità</h2>
-            <label class="campo"><span>Nome</span><input name="nome" required maxlength="60" value="${m.nome}" autocomplete="off"></label>
-            <div class="campo"><span>Categoria</span>${sceltaCategoria('cat', m.categoria)}${campoNuovaCategoria('cat')}<span class="sotto piccolo avviso-doppione" data-doppione-nota></span></div>
-            <p class="sotto piccolo">${n ? `La usano ${n} ${n === 1 ? 'attività' : 'attività'} su questo dispositivo: il nuovo nome e la categoria valgono anche per loro.` : 'Nessuna attività la usa su questo dispositivo.'}</p>
-            ${n ? '' : h`<button type="button" class="bt piccolo fantasma pericolo-testo" data-foglio="elimina">${icona('trash')} Elimina la modalità</button>`}
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, { dopo: agganciaNuove });
-        if (!r) return;
-        if (r === 'elimina') {
-            if (!await conferma(`Eliminare «${m.nome}»?`, 'Sparisce dall\'elenco delle modalità per tutto il centro.', { ok: 'Elimina', pericolo: true })) return;
-            await salvaDizionario({ modalita: [{ id, nome: m.nome, categoria: m.categoria, nascosta: true }], sinonimi: {} });
-            avviso(`Modalità «${m.nome}» eliminata`); return;
-        }
-        const nome = String(r.nome || '').trim();
-        const altra = stessaModalita(nome);
-        if (altra && altra.id !== id) { avviso(`«${altra.nome}» esiste già in ${nomeCategoria(altra.categoria)}.`, 'errore'); return; }
-        const cat = await categoriaDalModulo(r, 'cat');
-        await salvaDizionario({ modalita: [{ id, nome, categoria: cat }], sinonimi: {} });
-        avviso(`Modalità «${nome}» salvata`);
-    }
-    async function modificaCategoria(id) {
-        const E = M.elenco(dizionario()), c = E.categorie.find((x) => x.id === id);
-        if (!c) return;
-        const ms = E.modalita.filter((m) => m.categoria === id);
-        const r = await foglio(h`<form><h2>Categoria</h2>
-            <label class="campo"><span>Nome</span><input name="nome" required maxlength="60" value="${c.nome}" autocomplete="off"></label>
-            <p class="sotto piccolo">${ms.length ? `Contiene ${ms.length} ${ms.length === 1 ? 'modalità' : 'modalità'}: per eliminarla, prima spostale o eliminale.` : 'Non contiene modalità.'}</p>
-            ${ms.length || id === 'altro' ? '' : h`<button type="button" class="bt piccolo fantasma pericolo-testo" data-foglio="elimina">${icona('trash')} Elimina la categoria</button>`}
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`);
-        if (!r) return;
-        if (r === 'elimina') {
-            if (!await conferma(`Eliminare «${c.nome}»?`, 'Sparisce dall\'elenco delle categorie per tutto il centro.', { ok: 'Elimina', pericolo: true })) return;
-            await salvaDizionario({ categorie: [{ id, nome: c.nome, nascosta: true }], modalita: [], sinonimi: {} });
-            avviso(`Categoria «${c.nome}» eliminata`); return;
-        }
-        const nome = String(r.nome || '').trim();
-        const altra = stessaCategoria(nome);
-        if (altra && altra.id !== id) { avviso(`La categoria «${altra.nome}» esiste già.`, 'errore'); return; }
-        await salvaDizionario({ categorie: [{ id, nome }], modalita: [], sinonimi: {} });
-        avviso(`Categoria «${nome}» salvata`);
     }
     // Modalità scelta nel modulo, o riconosciuta dal nome quando è sicura
     // "+ Nuova modalità…" nel modulo: la si crea (o si usa quella con lo stesso nome)
@@ -3476,78 +3013,12 @@
 
     // ---------- eventi ----------
 
-    // ---------- tastiera nella presa dati ----------
-    // 1/2/3 (o V, P, X) segnano sull'ultima attività toccata, o sulla task analysis aperta;
-    // S o → saltano il passo, ← torna al passo prima, Z o Backspace annullano l'ultima risposta
-    function voceTastiera(p) {
-        if (T.ta && !T.ta.nascosta && T.ta.pid === p.id) return T.ta.attId;
-        if (T.tastiera && attivitaDi(p, T.tastiera)) return T.tastiera;
-        const aperte = Object.keys(T.aperte).filter((k) => T.aperte[k] && attivitaDi(p, k));
-        return aperte.length === 1 ? aperte[0] : null;
-    }
-    function segnaScelta() {
-        const r = radice();
-        if (!r) return;
-        const k = T.tastiera ? baseId(T.tastiera) : null;
-        r.querySelectorAll('.att.da-tastiera').forEach((x) => { if (x.dataset.att !== k) x.classList.remove('da-tastiera'); });
-        if (k) { const x = r.querySelector(`.att[data-att="${CSS.escape(k)}"]`); if (x) x.classList.add('da-tastiera'); }
-    }
-    // si sta scrivendo da qualche parte (anche negli editor della cartella clinica): i tasti sono lettere
-    function scrivendo(e) {
-        if (window.staScrivendo) return window.staScrivendo(e);
-        const el = document.activeElement, t = e.target;
-        return [t, el].some((x) => x && x.nodeType === 1 && (x.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(x.tagName)));
-    }
-    function tastieraSeduta(e) {
-        if (T.vista !== 'seduta' || e.altKey || e.ctrlKey || e.metaKey) return;
-        if (document.querySelector('.tice-foglio') || scrivendo(e)) return;
-        const r = radice();
-        if (!r || !r.isConnected || r.hidden || !r.getClientRects().length || document.querySelector('.modal-overlay:not(.hidden), .modal:not(.hidden)')) return;
-        const p = paz(T.pid);
-        if (!p) return;
-        // Maiusc + 1…9: l'ennesimo comportamento problema (un episodio, o avvia/ferma la durata)
-        const md = /^Digit([1-9])$/.exec(e.code || '');
-        if (e.shiftKey && md) {
-            const c = C.attivi(p)[+md[1] - 1];
-            if (c && !eGruppo(p)) { e.preventDefault(); azioni[c.misura === 'durata' ? 'comp-durata' : 'comp-piu']({ dataset: { id: c.id } }); }
-            return;
-        }
-        const k = voceTastiera(p);
-        if (!k) return;
-        const tasto = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-        const fai = (azione, extra) => { e.preventDefault(); T.tastiera = k; T.mantieniScroll = true; azioni[azione]({ dataset: Object.assign({ id: k }, extra || {}) }); segnaScelta(); };
-        if (['1', '2', '3', 'v', 'p', 'x'].includes(tasto)) {
-            // i tasti dell'attività, così come sono a schermo (con il tipo di oggi)
-            const att = attivitaDi(p, k), v = voce(p, att, k);
-            const eco = ecoico(attPerVoce(att, k)), tipo = v.sessionType || att.sessionType;
-            const ris = eco ? ['V', 'P', 'X'] : ['V', tipo === 'timedelay' ? 'P' : 'X'];
-            const rr = /[123]/.test(tasto) ? ris[+tasto - 1] : ris.find((x) => x.toLowerCase() === tasto);
-            if (!rr) return;
-            fai('segna', { r: rr });
-            const bt = r.querySelector(`[data-a="segna"][data-id="${CSS.escape(k)}"][data-r="${rr}"]`) || document.querySelector(`#tice-ta [data-a="segna"][data-r="${rr}"]`);
-            if (bt) { bt.classList.add('premuto'); setTimeout(() => bt.classList.remove('premuto'), 160); }
-        } else if (tasto === 's' || tasto === 'ArrowRight') {
-            const att = attivitaDi(p, k);
-            if (passiVoce(att, voce(p, att, k)).length) fai('salta-passo');
-        } else if (tasto === 'ArrowLeft') {
-            const att = attivitaDi(p, k), v = voce(p, att, k), passi = passiVoce(att, v);
-            if (!passi.length) return;
-            e.preventDefault();
-            const st = statoTA(v, passi);
-            if (st.i > 0) v.passo = st.i - 1; else if (st.giri > 0) { v.passo = passi.length - 1; v.giri = st.giri - 1; } else return;
-            salvaBozza(); aggiornaScheda(p, att.id); segnaScelta();
-        } else if (tasto === 'z' || tasto === 'Backspace') {
-            e.preventDefault();
-            annullaUltima(p, k); segnaScelta();
-        }
-    }
-
     function suClick(e) {
         // l'ultima attività toccata riceve i tasti della tastiera
         if (T.vista === 'seduta' && e.target.closest) {
             const seg = e.target.closest('[data-a="segna"]'), box = e.target.closest('.att[data-att]');
             const nuova = seg ? seg.dataset.id : box ? box.dataset.att : (e.target.closest('#tice-ta') && T.ta ? T.ta.attId : null);
-            if (nuova && nuova !== T.tastiera) { T.tastiera = nuova; segnaScelta(); }
+            if (nuova && nuova !== T.tastiera) { T.tastiera = nuova; if (EST.segnaScelta) EST.segnaScelta(); }
         }
         const b = e.target.closest('[data-a]');
         if (!b || !radice().contains(b)) return;
@@ -3734,15 +3205,6 @@
         r.addEventListener('click', suClick);
         r.addEventListener('input', suCambio);
         r.addEventListener('change', suCambio);
-        document.addEventListener('keydown', tastieraSeduta);
-        // nei grafici le frecce della tastiera passano al bambino prima o dopo
-        document.addEventListener('keydown', (e) => {
-            if (T.vista !== 'grafici' || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
-            if (document.querySelector('.tice-foglio') || scrivendo(e)) return;
-            if (!radice() || !radice().isConnected) return;
-            e.preventDefault();
-            passaGrafici(e.key === 'ArrowLeft' ? -1 : 1);
-        });
         r.addEventListener('toggle', (e) => { const d = e.target; if (d.dataset && d.dataset.chiusi) T.chiusiAperti[d.dataset.chiusi] = d.open; }, true);
         window.addEventListener('pagehide', salvaBozza);
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') salvaBozza(); });
@@ -3766,7 +3228,7 @@
             if (T.tocco) { T.ridisegnaDopo = true; return; }
             T.mantieniScroll = true; disegna();
         },
-        strumenti: { h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, esc, chiOpera: () => chiOpera(), puoProgrammi: (p) => puoProgrammi(p), formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
+        strumenti: { salvaDizionario, sceltaCategoria, campoNuovaCategoria, agganciaNuove, stessaModalita, stessaCategoria, nomeCategoria, categoriaDalModulo, creaModalita, creaCategoria, viste: VISTE, iniziali, pazientiAula, azioni, attivitaDi, voce, ecoico, attPerVoce, passiVoce, statoTA, aggiornaScheda, annullaUltima, baseId, dizionario: () => dizionario(), ETICHETTE_STATO, moduloAttivita: (p, att, base) => moduloAttivita(p, att, base), creaAttivitaDaModulo: (p, r) => creaAttivitaDaModulo(p, r), bozza, salvaBozza, ultimeDi, eGruppo, testoPiede, tastoAnnulla, secMmss, radice, disegna, h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, esc, chiOpera: () => chiOpera(), puoProgrammi: (p) => puoProgrammi(p), formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
     };
     if (document.readyState === 'complete') avvia();
     else window.addEventListener('load', avvia);

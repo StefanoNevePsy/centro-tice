@@ -78,7 +78,45 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
 
     await p.evaluate(() => TiceHome.vai('grafici')); await attesa(800);
     ok(await p.locator('[data-grafici] svg').count() > 0, 'grafici: il grafico del bambino si disegna');
-    await p.click('.tice-barra [data-a="apri-cartella"]'); await attesa(1500);
+    // frecce ← e →: con un secondo bambino (solo in memoria) si passa dall'uno all'altro e si torna indietro
+    await p.evaluate(() => { state.patients.push({ id: 'prova-zeta', name: 'Zeta', history: [] }); TiceHome.ridisegna(); }); await attesa(300);
+    const nomeGrafici = () => p.evaluate(() => ((document.querySelector('.grafici-bimbo.qui') || {}).lastElementChild || {}).textContent || '');
+    const n0 = (await nomeGrafici()).trim();
+    await p.keyboard.press('ArrowRight'); await attesa(300);
+    const n1 = (await nomeGrafici()).trim();
+    await p.keyboard.press('ArrowLeft'); await attesa(300);
+    ok(n0 === 'Prova B.' && n1 === 'Zeta' && (await nomeGrafici()).trim() === 'Prova B.' && /1 di 2/.test(await p.locator('.grafici-n').innerText()), 'grafici: le frecce ←/→ passano al bambino dopo e prima');
+    await p.click('[data-a="grafici-passa"][data-d="1"]'); await attesa(300);
+    ok((await nomeGrafici()).trim() === 'Zeta', 'grafici: il tasto «bambino successivo»');
+    await p.evaluate(() => { const i = state.patients.findIndex((x) => x.id === 'prova-zeta'); if (i >= 0) state.patients.splice(i, 1); TiceHome.attuale(); });
+    await p.evaluate(() => { TiceHome.strumenti.T.pid = state.patients.find((x) => x.name === 'Prova B.').id; });
+    // schermate spostate dal nucleo: «Andamento» di un comportamento, «Dati fuori dal programma», «Categorie e modalità»
+    await p.evaluate(() => { const l = state.patients.find((x) => x.name === 'Prova B.'); l.history.push({ id: 'fuori-1', mode: 'quaderno', setName: 'Vecchia attività', date: new Date().toISOString(), correct: 3, total: 4, wrong: 1 }); TiceHome.vai('programma', l.id); }); await attesa(500);
+    await p.click('[data-a="comp-andamento"]'); await attesa(400);
+    ok(/Colpire/.test(await p.locator('.tice-foglio').innerText()) && await p.locator('.tice-foglio .comp-grafico-box').count() === 1, 'programma: il foglio «Andamento» del comportamento');
+    await p.keyboard.press('Escape'); await attesa(300);
+    ok(/Dati fuori dal programma/i.test(await p.locator('.tice-main').innerText()), 'programma: la sezione «Dati fuori dal programma»');
+    await p.click('[data-a="sistema-fuori"]'); await attesa(400);
+    ok(/Correggi i dati/.test(await p.locator('.tice-foglio').innerText()), 'programma: «Correggi i dati» si apre dai dati fuori');
+    await p.keyboard.press('Escape'); await attesa(300);
+    await p.evaluate(() => { const l = state.patients.find((x) => x.name === 'Prova B.'); l.history = l.history.filter((x) => x.id !== 'fuori-1'); TiceHome.vai('bambini'); }); await attesa(400);
+    await p.click('.tice-barra [data-a="menu"]'); await attesa(300); await p.click('.tice-foglio [data-foglio="modalita"]'); await attesa(400);
+    ok(/Categorie e modalità/.test(await p.locator('.tice-foglio').innerText()), 'menu: il foglio «Categorie e modalità»');
+    await p.keyboard.press('Escape'); await attesa(300);
+    await p.evaluate(() => TiceHome.vai('grafici')); await attesa(500);
+    await p.click('.tice-barra [data-a="apri-cartella"]'); await attesa(800);
+    ok(await p.evaluate(() => TiceHome.attuale().vista) === 'cartella', 'la cartella nuova si apre dal tasto «Cartella»');
+    ok(/Svolta da\s*Prova/.test(await p.locator('.cr-giorno').first().innerText()), 'cartella, Giornate: compare chi ha svolto la seduta («Prova»)');
+    ok(!/Colpire/.test(await p.locator('.cr-corpo').innerText()), 'cartella, Giornate: i comportamenti non sono fra le sedute');
+    await p.click('[data-a="cartella-tab"][data-tab="attivita"]'); await attesa(300);
+    const attTxt = await p.locator('.cr-corpo').innerText();
+    ok(/Problem solving/.test(attTxt) && !/Colpire/.test(attTxt), 'cartella, Attività: l\'attività c\'è e i comportamenti no');
+    await p.click('.cr-att-testa'); await attesa(300);
+    ok(/Prova/.test(await p.locator('.cr-att .cr-sedute').first().innerText()), 'cartella, Attività: aprendola si vedono le sedute con chi le ha svolte');
+    await p.click('[data-a="cartella-tab"][data-tab="comportamenti"]'); await attesa(300);
+    ok(/Colpire/.test(await p.locator('.cr-corpo').innerText()) && await p.locator('.cr-corpo svg').count() > 0, 'cartella, Comportamenti: il grafico di «Colpire»');
+    await p.click('[data-a="cartella-vecchia"]'); await attesa(1800);
+    ok(await p.evaluate(() => !!document.getElementById('report-content')), 'dal collegamento si apre ancora la cartella vecchia');
     for (const t of ['overview', 'dates', 'activities', 'viz', 'diary']) { await p.evaluate((x) => { const l = state.patients.find((y) => y.name === 'Prova B.'); switchReportTab(x, l.id); }, t); await attesa(300); }
     ok(!/Colpire/.test(await p.evaluate(() => { const l = state.patients.find((y) => y.name === 'Prova B.'); switchReportTab('activities', l.id); return document.getElementById('report-content').innerText; })), 'cartella clinica: i comportamenti non compaiono fra le attività');
     ok(errori.length === 0, 'nessun errore di pagina' + (errori.length ? ': ' + errori.join(' | ') : ''));
