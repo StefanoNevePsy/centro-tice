@@ -719,16 +719,22 @@
         setInterval(() => {
             if ((S.fase !== 'attesa' && S.fase !== 'chiave') || controllando) return;
             if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
-            if (++controlli > 40 && controlli % 4) return;
+            // i primi 3 minuti ogni 5 secondi (qualcuno sta aspettando davanti allo schermo), poi ogni 15, poi ogni minuto
+            controlli++;
+            if (controlli > 36 && controlli <= 156 && controlli % 3) return;
+            if (controlli > 156 && controlli % 12) return;
             controllando = true;
             preparaCentro().catch(gestisciErrore).finally(() => { controllando = false; });
-        }, 15000);
+        }, 5000);
         // Mentre si prende una seduta o si guarda un programma, le modifiche dei colleghi
         // (attività nuove, target cambiati) arrivano entro una ventina di secondi
         setInterval(() => {
             if (!pronto() || incorso || document.visibilityState !== 'visible' || navigator.onLine === false) return;
             const v = window.TiceHome && TiceHome.attuale ? TiceHome.attuale().vista : '';
-            if (!['seduta', 'programma'].includes(v) || Date.now() - ultimoTira < 18000) return;
+            // i dispositivi che possono consegnare la chiave controllano spesso in ogni schermata:
+            // chi entra per la prima volta la riceve entro una ventina di secondi
+            const consegna = eAdmin() && S.chiave && S.chiave.extractable;
+            if ((!consegna && !['seduta', 'programma'].includes(v)) || Date.now() - ultimoTira < 18000) return;
             sincronizza();
         }, 5000);
         window.addEventListener('online', () => sincronizza());
