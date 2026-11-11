@@ -679,6 +679,25 @@ prova('si aggiungono, si rinominano e si nascondono; le tirocinanti non le cambi
   assert.ok(ok(chiama(PROPRIETARIO, 'io')).funzioni.includes('etichette'));
 });
 
+
+console.log('\nSincronizzazione in una richiesta');
+prova('profilo ed elenco insieme; con la stessa impronta l\'elenco non torna', () => {
+  const a = ok(chiama(PROPRIETARIO, 'sincronizza.stato', {}));
+  assert.ok(a.io.email === PROPRIETARIO && Array.isArray(a.elenco) && a.elenco.length && a.impronta);
+  const b2 = ok(chiama(PROPRIETARIO, 'sincronizza.stato', { impronta: a.impronta }));
+  assert.ok(b2.elenco === null && b2.impronta === a.impronta);
+  const pid = a.elenco.find((x) => !x.eliminato && !x.riservato).id;
+  const r = ok(chiama(PROPRIETARIO, 'paziente.leggi', { id: pid }));
+  ok(chiama(PROPRIETARIO, 'paziente.salva', { id: pid, busta: bk({ x: 1 }), versioneBase: r.version }));
+  const c = ok(chiama(PROPRIETARIO, 'sincronizza.stato', { impronta: a.impronta }));
+  assert.ok(Array.isArray(c.elenco) && c.impronta !== a.impronta, 'dopo un salvataggio l\'impronta cambia');
+});
+prova('l\'elenco dello stato rispetta le aule e le assegnazioni', () => {
+  const t = ok(chiama(TIR, 'sincronizza.stato', {}));
+  const e = ok(chiama(TIR, 'pazienti.elenco'));
+  assert.deepStrictEqual(t.elenco.map((x) => x.id).sort(), e.map((x) => x.id).sort());
+});
+
 console.log(`\n${passati} test passati, ${fallimenti.length} falliti`);
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fallimenti.length ? 1 : 0);

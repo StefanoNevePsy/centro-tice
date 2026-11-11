@@ -486,6 +486,8 @@ var QT = (function () {
   var VERSIONI = { recenti: 20, giorni: 60 };
   // salvataggi della stessa persona entro 30 minuti: una versione precedente sola
   var BOZZE_MS = 30 * 60000;
+  // …ed entro 3 minuti non se ne scrive nemmeno una nuova: resta quella di poco prima
+  var RAFFICA_MS = 3 * 60000;
 
   var P = {
     accessi: '_config/accessi.json',
@@ -907,8 +909,18 @@ var QT = (function () {
     // lavorando al programma) sono una versione sola: se ne tiene l'ultima.
     function archiviaVersione(r) {
       var idx = leggiIndiceVersioni(r.id), l = idx.versioni, prec = l[0];
-      A.scriviJSON(P.versione(r.id, r.version), r);
       var voce = { v: r.version, il: r.aggiornato || null, da: r.aggiornatoDa || null };
+      // Salvataggi a raffica della stessa persona (si sta ritoccando il programma): la versione
+      // precedente di pochi minuti fa basta, non si scrive niente su Drive oltre al paziente
+      if (prec && prec.v !== voce.v && prec.da && prec.da === voce.da && prec.il && voce.il &&
+          Math.abs(Date.parse(voce.il) - Date.parse(prec.il)) < RAFFICA_MS) {
+        // le versioni troppo vecchie si potano comunque (l'indice si riscrive solo se ne è uscita qualcuna)
+        var quante = l.length;
+        potaVersioni(r.id, idx);
+        if (idx.versioni.length !== quante) A.scriviJSON(P.indiceVersioni(r.id), idx);
+        return;
+      }
+      A.scriviJSON(P.versione(r.id, r.version), r);
       if (prec && prec.v !== voce.v && prec.da && prec.da === voce.da && prec.il && voce.il &&
           Math.abs(Date.parse(voce.il) - Date.parse(prec.il)) < BOZZE_MS) {
         A.elimina(P.versione(r.id, prec.v));
@@ -955,7 +967,7 @@ var QT = (function () {
       return {
         email: u.email, nome: u.nome, ruolo: u.ruolo, pazienti: u.pazienti,
         proprietario: u.proprietario, scadenza: u.scadenza, permessi: permessi(u),
-        aule: aule, cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati', 'aule', 'etichette'],
+        aule: aule, cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati', 'aule', 'etichette', 'stato'],
       };
     };
 
@@ -1124,6 +1136,21 @@ var QT = (function () {
       return Object.keys(elenco.pazienti)
         .filter(function (pid) { return vede(u, pid); })
         .map(function (pid) { return elenco.pazienti[pid]; });
+    };
+
+    // Tutto quello che serve a un giro di sincronizzazione in una richiesta sola: profilo ed
+    // elenco dei bambini. Se l'elenco è uguale a quello che l'app ha già (stessa impronta) non
+    // viene rimandato: il giro «niente di nuovo» è una risposta di poche righe.
+    function impronta(voci) {
+      var t = voci.map(function (v) { return [v.id, v.version, v.eliminato ? 1 : 0, v.aula || '', v.riservato ? 1 : 0, v.creatoDa || '', (v.condivisi || []).join(',')].join(':'); }).sort().join('|');
+      var h = 5381;
+      for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) >>> 0;
+      return voci.length + '-' + h.toString(36);
+    }
+    azioni['sincronizza.stato'] = function (u, d) {
+      var voci = azioni['pazienti.elenco'](u), imp = impronta(voci);
+      var uguale = typeof d.impronta === 'string' && d.impronta === imp;
+      return { io: azioni['io'](u), impronta: imp, elenco: uguale ? null : voci };
     };
 
     azioni['paziente.leggi'] = function (u, d) {

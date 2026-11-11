@@ -466,9 +466,9 @@
     }
     const etiFirme = {};   // etichetta cifrata già letta, per non decifrarla a ogni giro
     let ultimoTira = 0;
-    async function tira() {
+    async function tira(pronto0) {
         ultimoTira = Date.now();
-        const elenco = await chiama('pazienti.elenco');
+        const elenco = pronto0 || await chiama('pazienti.elenco');
         const visti = new Set();
         const recs = await tuttiRec();
         const perId = {};
@@ -524,6 +524,7 @@
 
     // ---------- ciclo ----------
     let incorso = null;
+    let statoUnico = true;   // il custode conosce «sincronizza.stato» (se no si torna alle due richieste)
     let ultimiControlli = 0;
     function sincronizza(opz) {
         if (!pronto()) return Promise.resolve(false);
@@ -532,15 +533,29 @@
         incorso = (async () => {
             try {
                 // Ruolo, chiave attuale: possono essere cambiati da un'altra parte
+                // profilo ed elenco in una richiesta sola (custode aggiornato); l'elenco arriva solo se è cambiato
+                let elencoPronto = null, impronta = null, nienteDiNuovo = false;
                 if (!(opz && opz.soloCoda)) {
-                    const io = await chiama('io');
+                    let io = null;
+                    if (statoUnico) {
+                        try {
+                            const st = await chiama('sincronizza.stato', { impronta: S.coda.size ? '' : (S.improntaElenco || '') });
+                            io = st.io; impronta = st.impronta; elencoPronto = st.elenco; nienteDiNuovo = !st.elenco;
+                        } catch (e) { if (!(e && e.custode && e.codice === 'richiesta-non-valida' && /Azione sconosciuta/.test(e.message))) throw e; statoUnico = false; }
+                    }
+                    if (!io) io = await chiama('io');
                     if (!io || typeof io !== 'object') throw new ErroreRete('Risposta del custode incompleta.');
                     S.io = io; await scriviMeta('io', io);
                     if (!S.cfg || io.kid !== S.cfg.kid) { await preparaCentro(true); if (!pronto()) return false; }
                 }
+                const inviati = S.coda.size;
                 for (const pid of [...S.coda]) await spingi(pid);
-                await scriviMeta('coda', [...S.coda]);
-                if (!(opz && opz.soloCoda)) await tira();
+                if (inviati) await scriviMeta('coda', [...S.coda]);
+                if (!(opz && opz.soloCoda)) {
+                    // dopo un invio l'elenco letto prima non vale più: lo si richiede
+                    if (nienteDiNuovo && !inviati) ultimoTira = Date.now();
+                    else { S.improntaElenco = null; await tira(inviati ? null : elencoPronto); if (!inviati && impronta) S.improntaElenco = impronta; }
+                }
                 for (const pid of [...S.coda]) await spingi(pid);   // quanto unito in ricezione
                 await scriviMeta('coda', [...S.coda]);
                 // dispositivi in attesa della chiave e dizionario delle modalità cambiano di rado:
