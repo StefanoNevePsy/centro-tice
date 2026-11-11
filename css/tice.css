@@ -875,7 +875,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 @media (pointer: fine) {
     .tice .att.da-tastiera { outline: 2px solid var(--accent-color); outline-offset: 2px; }
     .tice .att.da-tastiera .att-corpo::after {
-        content: 'Tastiera: 1 · 2 · 3 per segnare · Z annulla · S o → salta il passo · ← passo prima';
+        content: 'Tastiera: 1 · 2 · 3 per segnare · Z annulla · S o → salta il passo · ← passo prima · Maiusc+1…9 comportamenti';
         display: block; margin-top: 8px; font-size: 0.72rem; color: var(--text-secondary); text-align: right;
     }
 }

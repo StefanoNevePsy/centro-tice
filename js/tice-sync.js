@@ -912,6 +912,15 @@
         return v;
     }
 
+    /** Più bambini in un'altra aula, poi una sola sincronizzazione. Restituisce quanti sono stati spostati. */
+    async function spostaAule(pids, aula) {
+        let n = 0;
+        for (const pid of pids) { const v = await chiama('paziente.aula', { id: pid, aula }); S.aulaDi[pid] = v.aula || AULA_BASE; n++; }
+        await scriviMeta('aulaDi', S.aulaDi);
+        await sincronizza();
+        return n;
+    }
+
     async function dispositivi() { S.dispositivi = await chiama('dispositivi.elenco'); return S.dispositivi; }
     async function togliDispositivo(id) { await chiama('dispositivo.togli', { id }); return dispositivi(); }
     /** Porta sul Drive del centro un bambino che finora era solo su questo dispositivo. */
@@ -962,7 +971,7 @@
         turniRicordati: async (k) => { try { const x = await meta(cacheT(k)); return x && x.dati !== undefined ? x : null; } catch (e) { return null; } }, 
         // il ruolo nell'aula su cui si lavora (senza aule: quello unico)
         ruolo: () => (conAule() ? (auleMie()[aulaAttiva()] || {}).ruolo || S.io.ruolo : (S.io && S.io.ruolo)) || null,
-        conAule, aule: auleMie, aulaAttiva, impostaAula, aulaDi, puoIn, spostaAula, AULA_BASE,
+        conAule, aule: auleMie, aulaAttiva, impostaAula, aulaDi, puoIn, spostaAula, spostaAule, AULA_BASE,
         attivo: () => !!cfgApp().custodeUrl,
         pronto, condiviso: (pid) => S.condivisi.has(pid), inAttesa: (pid) => S.coda.has(pid),
         // nell'aula su cui si lavora

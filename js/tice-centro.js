@@ -41,14 +41,18 @@
         const aule = Y.aule(), ids = Object.keys(aule);
         if (ids.length < 2) return '';
         const a = Y.aulaAttiva();
-        return h`<button type="button" class="aula-scelta" data-a="scegli-aula">${icona('school')}<span>Aula: <b>${(aule[a] || {}).nome || a}</b></span>${icona('chevron-down')}</button>`;
+        return h`<button type="button" class="aula-scelta" data-a="scegli-aula">${icona('school')}<span>${tutteLeAule() ? h`<b>Tutte le aule</b> <small class="sotto">· nuovi e turni: ${(aule[a] || {}).nome || a}</small>` : h`Aula: <b>${(aule[a] || {}).nome || a}</b>`}</span>${icona('chevron-down')}</button>`;
     }
+    // nell'elenco si possono vedere i bambini di tutte le proprie aule insieme (nuovi bambini e turni restano dell'aula scelta)
+    const tutteLeAule = () => { try { return localStorage.getItem('tice_aula_tutte') === '1' && Object.keys(Y.aule()).length > 1; } catch (e) { return false; } };
     async function scegliAula() {
         const aule = Y.aule(), a = Y.aulaAttiva();
         const r = await foglio(h`<h2>Su quale aula lavori?</h2><p class="sotto">Bambini, nuovi bambini e turni sono quelli dell'aula scelta. Vale per questo dispositivo.</p>
             <div class="opzioni">${Object.keys(aule).sort((x, y) => aule[x].nome.localeCompare(aule[y].nome, 'it')).map((k) => h`<button class="opzione ${k === a ? 'scelta' : ''}" data-foglio="${'a:' + k}">${icona('school')}<span class="corpo">${aule[k].nome}<small>${RUOLI[aule[k].ruolo] || aule[k].ruolo}</small></span>${k === a ? icona('check') : ''}</button>`)}</div>
-            <div class="bottoni"><button class="bt" data-foglio="chiudi">Chiudi</button></div>`);
-        if (!r || r.indexOf('a:') !== 0) return;
+            <label class="spunta-riga" style="margin-top:10px"><input type="checkbox" data-tutte ${tutteLeAule() ? grezzo('checked') : ''}> <span><b>Nell'elenco mostra i bambini di tutte le mie aule</b><br><span class="sotto piccolo">Accanto a ogni nome compare la sua aula.</span></span></label>
+            <div class="bottoni"><button class="bt" data-foglio="chiudi">Chiudi</button></div>`, {
+            dopo: (f) => f.querySelector('[data-tutte]').addEventListener('change', (e) => { try { localStorage.setItem('tice_aula_tutte', e.target.checked ? '1' : '0'); } catch (x) { /* niente */ } TiceHome.ridisegna(); }) });
+        if (!r || r.indexOf('a:') !== 0) { TiceHome.ridisegna(); return; }
         Y.impostaAula(r.slice(2));
         aggiornaRuolo();
         TiceHome.ridisegna();
@@ -104,6 +108,8 @@
         if (!Y.attivo() || S.fase === 'fuori') return '';
         if (!Y.condiviso(p.id)) return h`<span class="pill grigia">solo su questo dispositivo</span> `;
         const inf = Y.info(p.id);
+        const aulaP = tutteLeAule() && Y.aulaDi(p.id) ? h`<span class="pill grigia">${(Y.aule()[Y.aulaDi(p.id)] || {}).nome || ''}</span> ` : '';
+        if (aulaP) return h`${aulaP}${Y.inAttesa(p.id) ? h`<span class="pill arancio">da inviare</span> ` : ''}`;
         const lucchetto = inf && inf.riservato ? h`<span class="pill grigia" title="Non dell'aula: lo vedono solo ${inf.creatoDa === (Y.io() || {}).email ? 'tu' : (inf.creatoDa || 'chi l\'ha creato')}${inf.condivisi.length ? ' e ' + inf.condivisi.length + (inf.condivisi.length === 1 ? ' persona' : ' persone') : ''}">${icona('lock')} non dell'aula</span> ` : '';
         if (Y.inAttesa(p.id)) return h`${lucchetto}<span class="pill arancio">da inviare</span> `;
         return lucchetto;
@@ -208,7 +214,7 @@
     }
     const puoProgrammi = (p) => !Y.attivo() || !Y.condiviso(p.id) || Y.puoIn(p.id, 'programmi');
     // un bambino del centro è dell'aula su cui si lavora; quelli solo su questo dispositivo si vedono sempre
-    const nellAula = (p) => !Y.conAule || !Y.conAule() || !Y.condiviso(p.id) || !Y.aulaDi(p.id) || Y.aulaDi(p.id) === Y.aulaAttiva();
+    const nellAula = (p) => !Y.conAule || !Y.conAule() || tutteLeAule() || !Y.condiviso(p.id) || !Y.aulaDi(p.id) || Y.aulaDi(p.id) === Y.aulaAttiva();
 
     // =====================================================================
     // Versione semplice per le tirocinanti: presa dati, giochi, storico in
@@ -433,7 +439,8 @@
                     <b>${icona('school')} ${proprietario ? 'Aule del centro' : nAule === 1 ? 'La tua aula' : 'Le tue aule'}</b>
                     <p class="sotto">${Object.keys(aule).map((k) => aule[k].nome).join(' · ')}</p>
                     <p class="sotto piccolo">${proprietario ? 'Ogni aula ha i suoi bambini, le sue persone e i suoi turni. Gli amministratori di un\'aula non vedono né modificano niente delle altre; solo tu le vedi tutte.' : 'Gestisci le persone e i bambini di queste aule; le altre aule del centro non sono visibili da qui.'}</p>
-                    ${proprietario ? h`<button class="bt piccolo" data-a="gestisci-aule">${icona('pen')} Aule: crea, rinomina, togli</button>` : ''}
+                    <div class="bottoni-piccoli" style="display:flex;flex-wrap:wrap;gap:8px">${proprietario ? h`<button class="bt piccolo" data-a="gestisci-aule">${icona('pen')} Aule: crea, rinomina, togli</button>` : ''}
+                    ${nAule > 1 ? h`<button class="bt piccolo" data-a="sposta-bambini">${icona('right-left')} Sposta bambini fra aule</button>` : ''}</div>
                 </div>` : ''}
                 <button class="bt primario largo" data-a="persona" data-email="">${icona('user-plus')} Aggiungi una persona</button>
                 <div class="scheda" style="margin-top:12px">
@@ -465,6 +472,23 @@
             if (e.codice === 'conflitto') T.accessi = null;
             return false;
         } finally { TiceHome.ridisegna(); }
+    }
+    async function spostaBambini() {
+        const aule = auleAcc(T.accessi) || {};
+        const ids = Object.keys(aule);
+        const bambini = Object.keys(S.etichette).filter((pid) => aule[Y.S.aulaDi[pid]]).sort((x, y) => nomeBambino(x).localeCompare(nomeBambino(y), 'it'));
+        const r = await foglio(h`<form><h2>Sposta bambini fra aule</h2>
+            <p class="sotto piccolo">Chi non fa parte della nuova aula non li vedrà più dalla prossima sincronizzazione; sedute e programma restano com'erano.</p>
+            <label class="campo"><span>Nell'aula</span><select name="aula" class="campo-in" required>${ids.map((k) => h`<option value="${k}">${aule[k].nome}</option>`)}</select></label>
+            <div class="opzioni" style="max-height:44vh;overflow-y:auto">${bambini.map((pid) => h`<label class="opzione"><input type="checkbox" name="p" value="${pid}"><span class="corpo">${nomeBambino(pid)}<small>ora in ${aule[Y.S.aulaDi[pid]].nome}</small></span></label>`)}</div>
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Sposta</button></div></form>`,
+            { invia: (f) => { const d = new FormData(f); return { aula: d.get('aula'), p: d.getAll('p') }; } });
+        if (!r) return;
+        const da = r.p.filter((pid) => Y.S.aulaDi[pid] !== r.aula);
+        if (!da.length) { avviso('Nessun bambino da spostare.'); return; }
+        try { const n = await Y.spostaAule(da, r.aula); avviso(`${n} ${n === 1 ? 'bambino spostato' : 'bambini spostati'} in ${aule[r.aula].nome}`); }
+        catch (e) { avviso(e.message, 'errore'); }
+        TiceHome.ridisegna();
     }
     async function gestisciAule() {
         const a = T.accessi;
@@ -961,6 +985,7 @@
             'vai-persone': () => { T.accessi = null; vai('persone'); },
             'scegli-aula': () => scegliAula(),
             'gestisci-aule': () => gestisciAule(),
+            'sposta-bambini': () => spostaBambini(),
             'vai-materiali': () => { T.indiceMateriali = null; T.erroreMateriali = null; vai('materiali'); },
             'crea-chiave': creaChiave,
             'inserisci-chiave': inserisciChiave,

@@ -458,6 +458,7 @@
             <main class="tice-main">
                 ${testata('Centro TICE · ' + pazientiAula().length + (pazientiAula().length === 1 ? ' bambino' : ' bambini'), 'Tutti i bambini')}
                 ${EST.banner ? EST.banner() : ''}
+                ${(() => { const vecchie = elenco.filter((x) => x.b && x.b.data < oggi()); return vecchie.length ? h`<div class="banda">${icona('hourglass-half')}<div><b>${vecchie.length === 1 ? 'Una seduta non salvata' : vecchie.length + ' sedute non salvate'} di giorni passati</b>: ${vecchie.map((x) => `${x.p.name} (${formatoData(x.b.data)})`).join(', ')}. Restano solo su questo dispositivo finché non le salvi o le scarti (⋮ nella seduta).</div></div>` : ''; })()}
                 ${pazienti().length > 6 ? h`<input class="cerca" type="search" placeholder="Cerca un bambino" value="${T.cerca}" data-cambio="cerca" aria-label="Cerca">` : ''}
                 ${righe.length ? h`<div class="scheda">${righe}</div>`
                     : h`<div class="vuoto">${q ? 'Nessun bambino con questo nome.' : 'Ancora nessun bambino.'}</div>`}
@@ -2317,29 +2318,48 @@
     }
     function moduloComportamento(c) {
         const a = c || { nome: '', definizione: '', misura: 'frequenza', antecedenti: [], conseguenze: [], stato: 'attivo' };
-        return foglio(h`<form class="modulo-att"><h2>${c ? 'Modifica comportamento' : 'Nuovo comportamento'}</h2>
-            <label class="campo"><span>Nome</span><input name="nome" required maxlength="120" value="${a.nome}" ${c ? '' : grezzo('autofocus')} placeholder="es. Colpire, Urlare, Fuga dal tavolo"></label>
-            <label class="campo"><span>Definizione operativa <small class="sotto">· cosa conta come episodio e cosa no; si legge in seduta</small></span><textarea name="definizione" rows="3" maxlength="2000" placeholder="es. Colpisce l'adulto con la mano aperta o chiusa. Non conta il contatto accidentale.">${a.definizione || ''}</textarea></label>
-            <div class="campo"><span>Come si misura</span><div class="scelta">
-                <label><input type="radio" name="misura" value="frequenza" ${a.misura !== 'durata' ? grezzo('checked') : ''}><span>Frequenza</span></label>
-                <label><input type="radio" name="misura" value="durata" ${a.misura === 'durata' ? grezzo('checked') : ''}><span>Durata</span></label></div>
-                <span class="sotto piccolo">Frequenza: un tocco per episodio (colpi, urla, lanci). Durata: avvia e ferma (crisi, pianto, fuga).</span></div>
-            <label class="spunta-riga"><input type="checkbox" name="intensita" ${a.intensita ? grezzo('checked') : ''}> <span><b>Intensità</b> <span class="sotto piccolo">· lieve, media, grave per ogni episodio (facoltativa in seduta)</span></span></label>
-            <details class="sez apribile" ${(a.antecedenti || []).length || (a.conseguenze || []).length ? grezzo('open') : ''}><summary><span class="sez-titolo">ABC</span> <span class="sotto piccolo">antecedenti e conseguenze, per l'analisi funzionale</span></summary>
-                <div class="riga-campi">
-                    <label class="campo"><span>Antecedenti, uno per riga</span><textarea name="antecedenti" rows="4" placeholder="Richiesta&#10;Attesa&#10;Transizione&#10;Rumore">${(a.antecedenti || []).join('\n')}</textarea></label>
-                    <label class="campo"><span>Conseguenze, una per riga</span><textarea name="conseguenze" rows="4" placeholder="Pausa&#10;Attenzione&#10;Oggetto&#10;Ignorato">${(a.conseguenze || []).join('\n')}</textarea></label>
+        const testa = (ic, titolo, sotto) => h`<div class="ma-testa"><span class="ma-ic">${icona(ic)}</span><h3>${titolo}</h3>${sotto ? h`<span class="ma-sotto">${sotto}</span>` : ''}</div>`;
+        const conAbc = (a.antecedenti || []).length || (a.conseguenze || []).length;
+        return foglio(h`<form class="modulo-att ma"><h2>${c ? 'Modifica comportamento' : 'Nuovo comportamento'}</h2>
+            <section class="ma-card">${testa('triangle-exclamation', 'Cosa')}
+                <label class="campo"><span>Nome</span><input name="nome" required maxlength="120" value="${a.nome}" ${c ? '' : grezzo('autofocus')} placeholder="es. Colpire, Urlare, Fuga dal tavolo"></label>
+                <label class="campo"><span>Definizione operativa <small class="sotto">· cosa conta come episodio e cosa no; si legge in seduta</small></span><textarea name="definizione" rows="3" maxlength="2000" placeholder="es. Colpisce l'adulto con la mano aperta o chiusa. Non conta il contatto accidentale.">${a.definizione || ''}</textarea></label>
+            </section>
+            <section class="ma-card">${testa('hand-pointer', 'In seduta', 'come si misura')}
+                <div class="ma-tiles ma-due">
+                    <label class="ma-tile"><input type="radio" name="misura" value="frequenza" ${a.misura !== 'durata' ? grezzo('checked') : ''}><span class="ma-grande">${icona('plus')}</span><b>Frequenza</b><small>un tocco per episodio: colpi, urla, lanci</small></label>
+                    <label class="ma-tile"><input type="radio" name="misura" value="durata" ${a.misura === 'durata' ? grezzo('checked') : ''}><span class="ma-grande">${icona('stopwatch')}</span><b>Durata</b><small>avvia e ferma: crisi, pianto, fuga</small></label>
                 </div>
-                <span class="sotto piccolo">In seduta, dopo ogni episodio, si toccano antecedente e conseguenza (facoltativi).</span></details>
-            <div class="riga-campi">
-                <label class="campo"><span>Obiettivo: al massimo <small class="sotto">· ${'episodi (o minuti) all\'ora'}</small></span><input name="max" type="number" min="0" max="999" step="0.1" inputmode="decimal" value="${a.obiettivo ? a.obiettivo.max : ''}" placeholder="facoltativo"></label>
-                <label class="campo"><span>Per giorni di fila</span><input name="giorni" type="number" min="1" max="30" inputmode="numeric" value="${a.obiettivo ? a.obiettivo.giorni : 5}"></label>
-            </div>
-            ${c ? h`<div class="campo"><span>Stato</span><div class="scelta">
+            </section>
+            <section class="ma-card">${testa('flag-checkered', 'Obiettivo', 'facoltativo')}
+                <p class="ma-frase">Al massimo <input name="max" type="number" min="0" max="999" step="0.1" inputmode="decimal" value="${a.obiettivo ? a.obiettivo.max : ''}" placeholder="—" class="ma-n"> all'ora per <input name="giorni" type="number" min="1" max="30" inputmode="numeric" value="${a.obiettivo ? a.obiettivo.giorni : 5}" class="ma-n"> giorni di fila</p>
+                <span class="sotto piccolo">Episodi all'ora (frequenza) o minuti all'ora (durata).</span>
+            </section>
+            <section class="ma-card">${testa('sliders', 'Opzioni', 'tocca per attivare')}
+                <div class="ma-chips">
+                    <label class="ma-chip ${a.intensita ? 'on' : ''}" title="Lieve, media, grave per ogni episodio"><input type="checkbox" name="intensita" ${a.intensita ? grezzo('checked') : ''}>${icona('gauge-high')} Intensità</label>
+                    <button type="button" class="ma-chip ${conAbc ? 'on' : ''}" data-ma-apri="abc" aria-pressed="${conAbc ? 'true' : 'false'}">${icona('diagram-next')} ABC: antecedenti e conseguenze</button>
+                </div>
+                <div class="ma-opz" data-ma-sez="abc" ${conAbc ? '' : grezzo('hidden')}>
+                    <div class="riga-campi">
+                        <label class="campo"><span>Antecedenti, uno per riga</span><textarea name="antecedenti" rows="4" placeholder="Richiesta&#10;Attesa&#10;Transizione&#10;Rumore">${(a.antecedenti || []).join('\n')}</textarea></label>
+                        <label class="campo"><span>Conseguenze, una per riga</span><textarea name="conseguenze" rows="4" placeholder="Pausa&#10;Attenzione&#10;Oggetto&#10;Ignorato">${(a.conseguenze || []).join('\n')}</textarea></label>
+                    </div>
+                    <span class="sotto piccolo">In seduta, dopo ogni episodio, si toccano antecedente e conseguenza (facoltativi).</span></div>
+            </section>
+            ${c ? h`<section class="ma-card">${testa('toggle-on', 'Stato')}<div class="scelta">
                 <label><input type="radio" name="stato" value="attivo" ${c.stato !== 'sospeso' ? grezzo('checked') : ''}><span>Si monitora</span></label>
                 <label><input type="radio" name="stato" value="sospeso" ${c.stato === 'sospeso' ? grezzo('checked') : ''}><span>Sospeso</span></label></div>
-                <span class="sotto piccolo">Sospeso: sparisce dalla seduta, i dati restano.</span></div>` : ''}
-            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`);
+                <span class="sotto piccolo">Sospeso: sparisce dalla seduta, i dati restano.</span></section>` : ''}
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, {
+            dopo: (el) => {
+                el.querySelectorAll('.ma-chip > input[type=checkbox]').forEach((x) => x.addEventListener('change', () => x.closest('.ma-chip').classList.toggle('on', x.checked)));
+                el.querySelectorAll('[data-ma-apri]').forEach((b) => b.addEventListener('click', () => {
+                    const z = el.querySelector(`[data-ma-sez="${b.dataset.maApri}"]`), apri = z.hidden;
+                    z.hidden = !apri; b.classList.toggle('on', apri); b.setAttribute('aria-pressed', apri ? 'true' : 'false');
+                }));
+            }
+        });
     }
     async function andamentoComportamento(p, c) {
         const pt = C.andamento(p, c), R = C.riepilogo(pt);
@@ -3485,6 +3505,13 @@
         if (!r || !r.isConnected || r.hidden || !r.getClientRects().length || document.querySelector('.modal-overlay:not(.hidden), .modal:not(.hidden)')) return;
         const p = paz(T.pid);
         if (!p) return;
+        // Maiusc + 1…9: l'ennesimo comportamento problema (un episodio, o avvia/ferma la durata)
+        const md = /^Digit([1-9])$/.exec(e.code || '');
+        if (e.shiftKey && md) {
+            const c = C.attivi(p)[+md[1] - 1];
+            if (c && !eGruppo(p)) { e.preventDefault(); azioni[c.misura === 'durata' ? 'comp-durata' : 'comp-piu']({ dataset: { id: c.id } }); }
+            return;
+        }
         const k = voceTastiera(p);
         if (!k) return;
         const tasto = e.key.length === 1 ? e.key.toLowerCase() : e.key;
