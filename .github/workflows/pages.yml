@@ -54,6 +54,10 @@ jobs:
         with:
           node-version: '20'
 
+      # Se un test fallisce la pubblicazione si ferma qui: online resta la versione di prima
+      - name: Test (sicurezza del custode, calcoli clinici, sintassi)
+        run: sh tools/test-tutti.sh
+
       - name: Build del sito in www/
         run: node build.js
         env:
