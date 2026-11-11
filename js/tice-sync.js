@@ -731,10 +731,7 @@
         setInterval(() => {
             if (!pronto() || incorso || document.visibilityState !== 'visible' || navigator.onLine === false) return;
             const v = window.TiceHome && TiceHome.attuale ? TiceHome.attuale().vista : '';
-            // i dispositivi che possono consegnare la chiave controllano spesso in ogni schermata:
-            // chi entra per la prima volta la riceve entro una ventina di secondi
-            const consegna = eAdmin() && S.chiave && S.chiave.extractable;
-            if ((!consegna && !['seduta', 'programma'].includes(v)) || Date.now() - ultimoTira < 18000) return;
+            if (!['seduta', 'programma'].includes(v) || Date.now() - ultimoTira < 18000) return;
             sincronizza();
         }, 5000);
         window.addEventListener('online', () => sincronizza());
@@ -942,6 +939,17 @@
         return n;
     }
 
+    /** A mano, da un amministratore: consegna subito la chiave ai dispositivi che la aspettano. */
+    async function consegnaOra() {
+        if (!eAdmin()) throw new Error('La chiave la consegnano gli amministratori.');
+        if (!S.chiave || !S.chiave.extractable) throw new Error('Su questo dispositivo la chiave è arrivata già pronta e non si può consegnare: inseriscila una volta da «Mostra la chiave», oppure usa il dispositivo su cui l\'hai creata.');
+        const n = await consegnaChiavi();
+        const inAttesa = (S.dispositivi || []).filter((d) => !d.abilitato && d.personaAbilitata).length;
+        if (S.io) S.io.inAttesa = inAttesa;
+        cambiato('stato');
+        return { consegnate: n, inAttesa };
+    }
+
     async function dispositivi() { S.dispositivi = await chiama('dispositivi.elenco'); return S.dispositivi; }
     async function togliDispositivo(id) { await chiama('dispositivo.togli', { id }); return dispositivi(); }
     /** Porta sul Drive del centro un bambino che finora era solo su questo dispositivo. */
@@ -986,7 +994,7 @@
         S, Auth, chiama, ErroreRete, ErroreCustode,
         avvia, sincronizza, condividi, condivisione, esci,
         info: (pid) => S.info[pid] || null, io: () => S.io,
-        conRiservati: () => !!(S.io && (S.io.funzioni || []).indexOf('riservati') >= 0), creaChiave, inserisciChiave, cambiaChiave, mostraFrase, dispositivi, togliDispositivo,
+        conRiservati: () => !!(S.io && (S.io.funzioni || []).indexOf('riservati') >= 0), creaChiave, inserisciChiave, cambiaChiave, mostraFrase, dispositivi, togliDispositivo, consegnaOra,
         ripristina, versioni, anteprimaVersione, preparaCentro, eAdmin, leggiModalita, aggiornaModalita, leggiTurni, modificaTurni,
         // l'ultima copia dei turni vista su questo dispositivo, subito (senza rete)
         turniRicordati: async (k) => { try { const x = await meta(cacheT(k)); return x && x.dati !== undefined ? x : null; } catch (e) { return null; } }, 

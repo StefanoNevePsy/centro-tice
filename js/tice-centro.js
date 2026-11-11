@@ -389,6 +389,8 @@
                     <b>${icona('key')} Chiave del centro</b> <span class="sotto piccolo">${S.cfg ? S.cfg.kid : ''}</span>
                     <p class="sotto">La conoscono solo gli amministratori. Ai dispositivi delle persone abilitate l'app la consegna da sola, senza mostrarla: chi perde l'accesso non ha niente da conservare.</p>
                     ${T.lavoroChiave ? h`<p class="sotto">${icona('spinner fa-spin')} ${T.lavoroChiave}</p>` : ''}
+                    <button class="bt primario largo" data-a="consegna-chiavi" style="margin-bottom:8px" ${T.consegnando ? grezzo('disabled') : ''}>${icona(T.consegnando ? 'spinner fa-spin' : 'paper-plane')} ${T.consegnando ? 'Controllo…' : 'Consegna la chiave a chi la aspetta'}${io().inAttesa > 0 ? h` <span class="pill arancio">${io().inAttesa}</span>` : ''}</button>
+                    <p class="sotto piccolo">Quando una persona entra per la prima volta (o da un dispositivo nuovo), toccalo: la riceve subito. Senza toccarlo arriva comunque da sola, ma può volerci qualche minuto.</p>
                     <div class="bottoni">
                         <button class="bt" data-a="mostra-chiave">${icona('eye')} Mostra la chiave</button>
                         <button class="bt" data-a="vai-dispositivi">${icona('mobile-screen')} Dispositivi</button>
@@ -603,6 +605,7 @@
         return h`${barra({ indietro: 'vai-account', titolo: 'Dispositivi' })}
             <main class="tice-main">
                 <p class="sotto">Ogni dispositivo che accede riceve la chiave del centro dall'app di un amministratore, senza vederla. Qui controlli quali sono: se ne vedi uno che non riconosci, toglilo e valuta di cambiare la chiave.</p>
+                ${T.elencoDisp.some((d) => !d.abilitato && d.personaAbilitata) ? h`<button class="bt primario largo" data-a="consegna-chiavi" ${T.consegnando ? grezzo('disabled') : ''}>${icona('paper-plane')} Consegna la chiave a chi la aspetta</button>` : ''}
                 ${Object.keys(perPersona).sort().map((em) => h`<h3>${em}</h3><div class="scheda">
                     ${perPersona[em].map((d) => h`<div class="riga" style="cursor:default">
                         <span class="corpo"><span class="t1">${d.nome}${!d.personaAbilitata ? h` <span class="pill grigia">persona non abilitata</span>` : ''}</span>
@@ -984,6 +987,15 @@
             'vai-account': () => vai('account'),
             'vai-persone': () => { T.accessi = null; vai('persone'); },
             'scegli-aula': () => scegliAula(),
+            'consegna-chiavi': async () => {
+                T.consegnando = true; TiceHome.ridisegna();
+                try {
+                    const r = await Y.consegnaOra();
+                    avviso(r.consegnate ? `Chiave consegnata a ${r.consegnate} ${r.consegnate === 1 ? 'dispositivo' : 'dispositivi'}: ${r.consegnate === 1 ? 'si collega' : 'si collegano'} entro pochi secondi` : 'Nessun dispositivo aspetta la chiave. Se la persona ha appena fatto l\'accesso, riprova fra qualche secondo.');
+                    T.elencoDisp = null;
+                } catch (e) { avviso(e.message, 'errore'); }
+                T.consegnando = false; TiceHome.ridisegna();
+            },
             'gestisci-aule': () => gestisciAule(),
             'sposta-bambini': () => spostaBambini(),
             'vai-materiali': () => { T.indiceMateriali = null; T.erroreMateriali = null; vai('materiali'); },
