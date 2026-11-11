@@ -21,7 +21,7 @@
   'use strict';
 
   // Liste i cui elementi hanno un id e si uniscono elemento per elemento
-  var PER_ID = { 'history': true, 'programma.attivita': true, 'programma.attivita.target': true, 'fasi': true, 'comportamenti': true, 'learnUnitStoriche': false };
+  var PER_ID = { 'history': true, 'programma.attivita': true, 'programma.attivita.target': true, 'fasi': true, 'comportamenti': true, 'diario': true, 'learnUnitStoriche': false };
 
   function stabile(v) {
     if (Array.isArray(v)) return '[' + v.map(stabile).join(',') + ']';

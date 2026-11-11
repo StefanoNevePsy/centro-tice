@@ -69,6 +69,8 @@
         if (!pazienti().length) state.patients = await DB.getAllPatients();
     }
     async function salvaPaziente(p) {
+        // le note del giorno arrivate da fuori (quaderni importati, versioni di prima) diventano voci del diario
+        if (window.TiceNote) window.TiceNote.allinea(p);
         T.salvandoQui = true;
         try { await DB.savePatient(p); } finally { T.salvandoQui = false; }
         // se il resto dell'app ha ricaricato l'elenco nel frattempo, rimette questo oggetto
@@ -441,12 +443,12 @@
         const righe = elenco.map(({ p, b, u }) => {
             const attive = P.attiveOggi(p).length;
             const risposte = b ? Object.values(b.voci).reduce((n, v) => n + v.v + v.p + v.x, 0) : 0;
-            return h`<button class="riga" data-a="apri-bambino" data-pid="${p.id}">
+            return h`<div class="riga-con"><button class="riga" data-a="apri-bambino" data-pid="${p.id}">
                 <span class="avatar ${eGruppo(p) ? 'gruppo' : ''}">${eGruppo(p) ? icona('users') : p.photo ? h`<img src="${p.photo}" alt="">` : iniziali(p.name)}</span>
                 <span class="corpo"><span class="t1">${p.name}</span>
-                    <span class="t2">${EST.pillola ? EST.pillola(p) : ''}${b && risposte ? h`<span class="pill arancio">seduta in corso · ${risposte} risposte</span> ` : ''}${attive ? `${attive} attività in corso` : 'nessun programma'}${u ? ' · ultima ' + formatoData(P.giorno(u)) : ''}${eGruppo(p) ? ' · gruppo di ' + membriDi(p).length : ''}${p.category ? ' · ' + p.category : ''}${eta(p) ? ' · ' + eta(p) : ''}</span></span>
+                    <span class="t2">${EST.pillola ? EST.pillola(p) : ''}${b && risposte ? h`<span class="pill arancio">seduta in corso · ${risposte} risposte</span> ` : ''}${attive ? `${attive} attività in corso` : 'nessun programma'}${u ? ' · ultima ' + formatoData(P.giorno(u)) : ''}${eGruppo(p) ? ' · gruppo di ' + membriDi(p).length : ''}${p.category ? ' · ' + p.category : ''}${eta(p) ? ' · ' + eta(p) : ''}${EST.sottoRiga ? EST.sottoRiga(p) : ''}</span></span>
                 ${icona('chevron-right')}
-            </button>`;
+            </button>${EST.accantoRiga && !eGruppo(p) ? EST.accantoRiga(p) : ''}</div>`;
         });
         return h`${barra({ indietro: VISTE.turni ? 'vai-bambini' : null, titolo: 'Tutti i bambini', destra: h`
                 <button class="ib" data-a="vai-turni" aria-label="Turni" title="Turni della settimana">${icona('calendar-week')}</button>
@@ -767,6 +769,7 @@
                 ${testata((eGruppo(p) ? 'Gruppo · ' : 'Seduta · ') + (nonOggi ? 'del ' : 'oggi, ') + new Date(b.data + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) + (chiDellaSeduta(p, b) ? ' · ' + chiDellaSeduta(p, b) : ''), p.name, { azione: 'data' })}
                 ${nonOggi ? h`<div class="banda">${icona('calendar-day')}<div>Stai registrando una seduta del <b>${formatoData(b.data, true)}</b>, non di oggi.</div></div>` : ''}
                 ${eGruppo(p) ? h`<div class="presenti"><span class="sotto piccolo">Presenti oggi</span>${membriDi(p).map((x) => h`<button class="pill-presenza ${presente(b, x.id) ? 'si' : ''}" data-a="presente" data-pid="${x.id}" aria-pressed="${presente(b, x.id) ? 'true' : 'false'}">${presente(b, x.id) ? icona('check') : icona('xmark')} ${x.name}</button>`)}</div>` : ''}
+                ${EST.noteSeduta ? EST.noteSeduta(p) : ''}
                 ${striscia(p)}
                 ${!P.programma(p).attivita.length && !C.attivi(p).length ? h`<div class="scheda imbottita">
                     <b>Nessun programma per ${p.name}.</b>
@@ -1302,6 +1305,7 @@
         }
         if (T.vista === 'grafici') { T.pidGrafici = T.pid; montaGrafici(r); }
         if (EST.dopo) EST.dopo(T.vista, r);
+        if (EST.dopoVista) EST.dopoVista(T.vista, r);
         if (T.mantieniScroll) r.scrollTop = alto;
         T.mantieniScroll = false;
     }
@@ -1382,7 +1386,8 @@
             const p = paz(T.pid);
             const r = await foglio(h`<h2>${p.name}</h2><div class="opzioni">
                 <button class="opzione" data-foglio="programma">${icona('list-check')}<span class="corpo">Programma<small>Attività e target</small></span></button>
-                <button class="opzione" data-foglio="cartella">${icona('chart-line')}<span class="corpo">Cartella clinica<small>Grafici, giornate, diario</small></span></button>
+                ${VISTE.diario ? h`<button class="opzione" data-foglio="diario">${icona('book-open')}<span class="corpo">Diario<small>Note, da tenere a mente</small></span></button>` : ''}
+                <button class="opzione" data-foglio="cartella">${icona('chart-line')}<span class="corpo">Cartella clinica<small>Grafici, giornate, report</small></span></button>
                 <button class="opzione" data-foglio="giochi">${icona('gamepad')}<span class="corpo">Giochi con ${p.name}<small>Le sedute dei giochi vanno nella sua cartella</small></span></button>
                 <button class="opzione" data-foglio="stampa">${icona('print')}<span class="corpo">Stampa le griglie<small>Per prendere i dati su carta e ricopiarli dopo</small></span></button>
                 <button class="opzione" data-foglio="data">${icona('calendar-day')}<span class="corpo">Cambia la data della seduta<small>Per ricopiare un foglio di un altro giorno</small></span></button>
@@ -1395,6 +1400,7 @@
             if (r && r.indexOf('est:') === 0 && EST.sceltaBambino) return EST.sceltaBambino(r.slice(4), p);
             if (r === 'programma') vai('programma');
             else if (r === 'cartella') apriCartella(p.id);
+            else if (r === 'diario') azioni['vai-diario']();
             else if (r === 'giochi') { if (typeof setGlobalPatient === 'function') setGlobalPatient(p.id); chiudi(); }
             else if (r === 'data') azioni.data();
             else if (r === 'stampa') azioni['stampa-griglie']();
@@ -1830,9 +1836,22 @@
                         const [scelta, cat, nuovo] = v.split('|');
                         let nm = '';
                         if (scelta === '+') {
-                            nm = String(nuovo || nome.value || '').trim() || String(prompt('Nome della nuova modalità') || '').trim();
-                            if (!nm) return;
-                            hid.value = '+|' + (cat || 'altro') + '|' + nm;
+                            nm = String(nuovo || nome.value || '').trim();
+                            let catN = cat || '';
+                            if (!nm || !catN) {
+                                // nome e categoria della nuova modalità, in un foglio dell'app
+                                const rm = await foglio(h`<form><h2>Nuova modalità</h2>
+                                    <label class="campo"><span>Nome</span><input name="nm" required maxlength="60" value="${nm}" autofocus placeholder="es. Lettura sillabe" autocomplete="off"></label>
+                                    <label class="campo"><span>Categoria</span>${sceltaCategoria('mod_cat', catN || 'altro')}</label>
+                                    ${campoNuovaCategoria('mod_cat')}
+                                    <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Aggiungi</button></div></form>`, { dopo: agganciaNuove });
+                                if (!rm || !String(rm.nm || '').trim()) return;
+                                nm = String(rm.nm).trim();
+                                try { catN = await categoriaDalModulo(rm, 'mod_cat'); } catch (e) { catN = 'altro'; }
+                            }
+                            const giaC = stessaModalita(nm);
+                            if (giaC) { avviso(`«${giaC.nome}» esiste già: uso quella`); }
+                            hid.value = '+|' + (catN || 'altro') + '|' + nm;
                             bt.innerHTML = `<span>Nuova: ${esc(nm)}</span>${icona('magnifying-glass')}`;
                         } else if (scelta) {
                             const m = M.trovaModalita(scelta, dizionario());
@@ -3193,8 +3212,13 @@
         if (compSalvati.length) { p.history = p.history || []; compSalvati.forEach((x) => p.history.push(x)); }
         const nota = String(dati.nota || '').trim();
         if (nota) {
-            p.dailyNotes = p.dailyNotes || {};
-            p.dailyNotes[b.data] = p.dailyNotes[b.data] ? p.dailyNotes[b.data] + '\n\n' + nota : nota;
+            if (window.TiceNote) {
+                const me = (window.TiceSync && TiceSync.attivo() && TiceSync.S.io) || {};
+                window.TiceNote.aggiungi(p, { testo: nota, data: b.data, tag: 'seduta', autore: operatore || me.nome || '', email: me.email || '' });
+            } else {
+                p.dailyNotes = p.dailyNotes || {};
+                p.dailyNotes[b.data] = p.dailyNotes[b.data] ? p.dailyNotes[b.data] + '\n\n' + nota : nota;
+            }
         }
         await salvaPaziente(p);
         eliminaBozza(p.id);
@@ -3715,7 +3739,7 @@
             if (T.tocco) { T.ridisegnaDopo = true; return; }
             T.mantieniScroll = true; disegna();
         },
-        strumenti: { h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
+        strumenti: { h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, esc, chiOpera: () => chiOpera(), puoProgrammi: (p) => puoProgrammi(p), formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
     };
     if (document.readyState === 'complete') avvia();
     else window.addEventListener('load', avvia);

@@ -985,3 +985,42 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice-foglio .ma .pill.field { background: rgba(var(--shade-rgb), 0.25); color: var(--text-primary); }
 .tice-foglio .ma .pill.arancio { background: rgba(217, 119, 6, 0.16); color: #b45309; }
 .tice-foglio .ma .ma-tile .ma-mini i { min-width: 22px; }
+
+/* ---------- Diario e note ---------- */
+.tice .vis-nascosto, .tice-foglio .vis-nascosto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tice .riga-con { display: flex; align-items: center; border-top: 1px solid var(--t-bordo); }
+.tice .riga-con:first-child { border-top: 0; }
+.tice .riga-con .riga { border-top: 0; flex: 1; min-width: 0; }
+.tice .nt-riga { margin-right: 8px; flex: none; }
+.tice .nt-tasti { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.tice .nt-tasto { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--t-bordo); border-radius: 999px; background: transparent; color: var(--text-primary); font: inherit; font-size: 0.82rem; cursor: pointer; }
+.tice .nt-tasto.mente { border-color: var(--accent-color); color: var(--accent-color); font-weight: 700; }
+.tice .nt-tasto b { font-variant-numeric: tabular-nums; }
+.nt-tag { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); white-space: nowrap; }
+[data-theme] .nt-tag, .nt-tag { color: color-mix(in srgb, var(--c) 70%, var(--text-primary)); }
+.nt-voce { background: var(--t-sup); border: 1px solid var(--t-bordo); border-radius: 14px; padding: 9px 12px; margin-bottom: 8px; }
+.nt-voce.fissata { border-left: 4px solid var(--accent-color); }
+.nt-voce header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 3px; min-height: 28px; }
+.nt-voce header .nt-mod { margin-left: auto; width: 32px; height: 32px; }
+.nt-voce p { margin: 0; white-space: pre-wrap; line-height: 1.45; user-select: text; -webkit-user-select: text; overflow-wrap: anywhere; }
+.nt-pin { color: var(--accent-color); }
+.tice .nt-mente { margin-bottom: 12px; }
+.tice .nt-mente h3, .tice .nt-giorno h3 { margin: 14px 2px 6px; }
+.tice .nt-giorno h3 { display: flex; align-items: baseline; gap: 8px; text-transform: none; letter-spacing: 0; }
+.tice .nt-giorno h3 b { font-family: 'Gloock', Georgia, serif; font-weight: 400; font-size: 1.2rem; color: var(--text-primary); }
+.tice .nt-giorno h3 span { font-size: 0.78rem; }
+.tice .nt-giorno h3::after { content: ''; flex: 1; border-bottom: 1px dashed var(--t-bordo); }
+.tice .nt-filtri { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin: 8px 0 4px; scrollbar-width: none; }
+.tice .nt-filtro { flex: none; padding: 5px 10px; border: 1px solid var(--t-bordo); border-radius: 999px; background: transparent; color: var(--text-primary); font: inherit; font-size: 0.8rem; cursor: pointer; }
+.tice .nt-filtro.on { border-color: var(--accent-color); box-shadow: inset 0 0 0 1px var(--accent-color); }
+.tice .nt-main { padding-bottom: 110px; }
+.tice .nt-fab { position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); z-index: 5; display: inline-flex; align-items: center; gap: 8px; padding: 14px 18px; border: 0; border-radius: 999px; background: var(--accent-color); color: #fff; font: inherit; font-weight: 700; cursor: pointer; box-shadow: 0 8px 20px -6px rgba(0,0,0,0.45); }
+.tice-foglio .nt-scelta { display: flex; flex-wrap: wrap; gap: 6px; }
+.tice-foglio .nt-chip { position: relative; cursor: pointer; }
+.tice-foglio .nt-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.tice-foglio .nt-chip span { display: inline-block; padding: 6px 12px; border-radius: 999px; font-size: 0.84rem; font-weight: 600; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); color: color-mix(in srgb, var(--c) 70%, var(--text-primary)); }
+.tice-foglio .nt-chip input:checked + span { background: var(--c); border-color: var(--c); color: #fff; }
+.tice-foglio .nt-chip input:focus-visible + span { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.tice-foglio .nt-fissa { flex: 1; }
+.tice-foglio .nt-breve .nt-voce { background: rgba(var(--shade-rgb), 0.10); }
+.nt-voce header { border: 0 !important; padding: 0 !important; background: none !important; }

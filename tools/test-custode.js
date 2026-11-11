@@ -668,6 +668,17 @@ console.log('\nAule');
   });
 }
 
+
+console.log('\nEtichette delle note');
+prova('si aggiungono, si rinominano e si nascondono; le tirocinanti non le cambiano', () => {
+  let d = ok(chiama(PROPRIETARIO, 'modalita.aggiorna', { etichette: [{ id: 'famiglia', nome: 'Famiglia', colore: '#2a4d8f' }, { id: 'scuola', nome: 'Scuola' }] }));
+  assert.strictEqual(d.etichette.length, 2);
+  d = ok(chiama(PROPRIETARIO, 'modalita.aggiorna', { etichette: [{ id: 'scuola', nome: 'Scuola e insegnanti', nascosta: true }] }));
+  assert.ok(d.etichette.length === 2 && d.etichette[1].nascosta && d.etichette[1].nome === 'Scuola e insegnanti');
+  ko(chiama(PROPRIETARIO, 'modalita.aggiorna', { etichette: [{ id: 'x', nome: 'X', colore: 'rosso' }] }), 'richiesta-non-valida');
+  assert.ok(ok(chiama(PROPRIETARIO, 'io')).funzioni.includes('etichette'));
+});
+
 console.log(`\n${passati} test passati, ${fallimenti.length} falliti`);
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fallimenti.length ? 1 : 0);

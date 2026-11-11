@@ -526,7 +526,7 @@ var QT = (function () {
       return {
         email: u.email, nome: u.nome, ruolo: u.ruolo, pazienti: u.pazienti,
         proprietario: u.proprietario, scadenza: u.scadenza, permessi: permessi(u),
-        aule: aule, cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati', 'aule'],
+        aule: aule, cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati', 'aule', 'etichette'],
       };
     };
 
@@ -1042,6 +1042,14 @@ var QT = (function () {
         if (m.nascosta === true) mm.nascosta = true;
         return mm;
       });
+      // etichette delle note del diario (Seduta, Famiglia…): nomi, non dati dei bambini
+      var eti = listaV(d.etichette || [], 60, 'etichette').map(function (e) {
+        oggettoV(e, 'etichetta');
+        var ee = { id: idV(e.id, RE_MOD, 'etichetta.id'), nome: testoV(e.nome, 40, true, 'etichetta.nome') };
+        if (e.colore) { ee.colore = testoV(e.colore, 7, false, 'etichetta.colore'); if (!/^#[0-9a-fA-F]{6}$/.test(ee.colore)) throw err('richiesta-non-valida', 'Colore non valido'); }
+        if (e.nascosta === true) ee.nascosta = true;
+        return ee;
+      });
       var sin = {}, modi = {};
       var sinIn = d.sinonimi ? oggettoV(d.sinonimi, 'sinonimi') : {};
       var chiaviSin = Object.keys(sinIn);
@@ -1070,6 +1078,12 @@ var QT = (function () {
           var i = -1; x.modalita.forEach(function (y, k) { if (y.id === m.id) i = k; });
           if (i >= 0) x.modalita[i] = m; else x.modalita.push(m);
         });
+        x.etichette = x.etichette || [];
+        eti.forEach(function (e) {
+          var i = -1; x.etichette.forEach(function (y, k) { if (y.id === e.id) i = k; });
+          if (i >= 0) x.etichette[i] = e; else x.etichette.push(e);
+        });
+        if (x.etichette.length > 60) throw err('richiesta-non-valida', 'Troppe etichette.');
         Object.keys(sin).forEach(function (k) { if (sin[k] === null) delete x.sinonimi[k]; else x.sinonimi[k] = sin[k]; });
         Object.keys(modi).forEach(function (k) { if (modi[k] === null) delete x.modi[k]; else x.modi[k] = modi[k]; });
         if (Object.keys(x.sinonimi).length > 3000 || x.modalita.length > 500) throw err('richiesta-non-valida', 'Il dizionario delle modalità è troppo grande.');

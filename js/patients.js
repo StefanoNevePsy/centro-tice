@@ -434,6 +434,7 @@ window.openThresholdEditor = (pid) => {
     const history = p.history || [];
     const activities = {};
     history.forEach(h => {
+        if (h.mode === 'comportamento') return;   // i comportamenti problema hanno il loro grafico, non sono sedute
         const key = `${h.setName}::${h.mode}`;
         if (!activities[key]) activities[key] = { setName: h.setName, mode: h.mode };
     });
@@ -1070,6 +1071,7 @@ function renderDatesTab(patient) {
     const dailyNotes = patient.dailyNotes || {};
     const byDate = {};
     history.forEach((h, idx) => {
+        if (h.mode === 'comportamento') return;   // i comportamenti problema hanno il loro grafico, non sono sedute
         const dk = getDateKey(h.date);
         if (!byDate[dk]) byDate[dk] = [];
         byDate[dk].push({ ...h, originalIndex: idx });
@@ -1599,6 +1601,7 @@ function renderActivitiesTab(patient, sortBy) {
     // Group by setName::mode::sessionType
     const groups = {};
     history.forEach((h, idx) => {
+        if (h.mode === 'comportamento') return;   // i comportamenti problema hanno il loro grafico, non sono sedute
         const typeGroup = getSessionTypeGroup(h);
         const key = `${h.setName}::${h.mode}::${typeGroup}`;
         if (!groups[key]) groups[key] = [];
@@ -2808,7 +2811,7 @@ window.exportPatientExcel = (pid) => {
     const p = state.patients.find(x => x.id === pid);
     if (!p || !p.history || p.history.length === 0) return alert("Nessun dato da esportare.");
 
-    const sorted = [...p.history].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const sorted = p.history.filter(h => h.mode !== 'comportamento').sort((a, b) => new Date(a.date) - new Date(b.date));
 
     let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:spreadsheet" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="UTF-8">

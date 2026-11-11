@@ -919,6 +919,8 @@
         if (!pronto()) throw new Error('Questo dispositivo non ha ancora la chiave del centro.');
         if (opz && opz.riservato) { S.nuoviRiservati.add(pid); await scriviMeta('nuoviRiservati', [...S.nuoviRiservati]); }
         S.condivisi.add(pid);
+        // l'aula è quella su cui si sta lavorando adesso, anche se l'invio parte più tardi (senza rete, cambio d'aula)
+        if (conAule() && !S.aulaDi[pid]) { S.aulaDi[pid] = aulaAttiva(); await scriviMeta('aulaDi', S.aulaDi); }
         await scriviRec(pid, { version: 0, base: null });
         await inCoda(pid);
         return sincronizza({ soloCoda: true });
