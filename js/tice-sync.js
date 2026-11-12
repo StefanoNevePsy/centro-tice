@@ -546,6 +546,7 @@
                     if (!io) io = await chiama('io');
                     if (!io || typeof io !== 'object') throw new ErroreRete('Risposta del custode incompleta.');
                     S.io = io; await scriviMeta('io', io);
+                    await aggiornaPersone();
                     if (!S.cfg || io.kid !== S.cfg.kid) { await preparaCentro(true); if (!pronto()) return false; }
                 }
                 const inviati = S.coda.size;
@@ -630,6 +631,7 @@
         S.condivisi.clear(); S.coda.clear();
         await scriviMeta('coda', []);
         await scriviMeta('io', null);
+        persone = []; await scriviMeta('persone', null);
         await C.dimenticaTutto();
         S.chiave = null; S.chiavi = {}; S.io = null;
     }
@@ -680,6 +682,62 @@
         }
         if (n) cambiato('dispositivi');
         return n;
+    }
+
+    // ---------- nomi delle persone ----------
+    // Le persone del centro (email -> nome attuale), tenute in cache: i nomi scritti nei dati
+    // (sedute, note, turni) sono copie, e si mostra sempre quello di «Persone e accessi».
+    let persone = [];
+    const minuscola = (e) => String(e || '').trim().toLowerCase();
+    /** Il nome attuale di una persona del centro; se non la conosco, il ripiego (o l'email). */
+    function nomePersona(email, ripiego) {
+        const e = minuscola(email);
+        if (e) {
+            const x = persone.find((q) => minuscola(q.email) === e);
+            // un «nome» uguale all'email vuol dire che non ne ha uno assegnato
+            if (x && x.nome && minuscola(x.nome) !== e) return x.nome;
+            if (S.io && minuscola(S.io.email) === e && S.io.nome) return S.io.nome;
+            if (x && x.nome) return ripiego != null && ripiego !== '' ? ripiego : x.nome;
+        }
+        return ripiego != null && ripiego !== '' ? ripiego : (email || '');
+    }
+    /** L'email della persona del centro con questo nome (confronto esatto, senza maiuscole), o ''. */
+    function emailDiNome(nome) {
+        const n = String(nome || '').trim().toLowerCase();
+        if (!n) return '';
+        const l = persone.filter((q) => String(q.nome || '').trim().toLowerCase() === n);
+        if (l.length === 1) return l[0].email;
+        if (!l.length && S.io && String(S.io.nome || '').trim().toLowerCase() === n) return S.io.email;
+        return '';
+    }
+    const tokenOperatori = (t) => String(t || '').split('+').map((x) => x.trim()).filter(Boolean);
+    /** Per un testo «Anna + Luca»: le email in parallelo ai nomi ('' per chi non è del centro); [] se nessuno lo è. */
+    function emailOperatori(testo) {
+        const l = tokenOperatori(testo).map(emailDiNome);
+        return l.some(Boolean) ? l : [];
+    }
+    /** Chi ha svolto una seduta, coi nomi attuali quando la seduta ricorda le email. */
+    function nomiSeduta(sed) {
+        const l = tokenOperatori(sed && sed.operatore);
+        const em = (sed && sed.operatoriEmail) || [];
+        return l.map((n, i) => (em[i] ? nomePersona(em[i], n) : n));
+    }
+    /** L'autore di una nota col nome attuale. Le note di seduta riportano chi ha svolto (non chi scrive). */
+    function autoreNota(n) {
+        if (!n) return '';
+        if (n.operatoriEmail && n.operatoriEmail.length) return nomiSeduta({ operatore: n.autore, operatoriEmail: n.operatoriEmail }).join(' + ');
+        if (n.email && n.tag !== 'seduta') return nomePersona(n.email, n.autore);
+        return n.autore || '';
+    }
+    async function aggiornaPersone() {
+        try {
+            const l = await chiama('persone.elenco', undefined, { tentativi: 1, attesaMax: 20000 });
+            if (!Array.isArray(l)) return false;
+            const prima = JSON.stringify(persone);
+            persone = l.map((x) => ({ email: x.email, nome: x.nome, aule: x.aule }));
+            if (JSON.stringify(persone) !== prima) { await scriviMeta('persone', persone); cambiato('persone'); }
+            return true;
+        } catch (e) { return false; }
     }
 
     // ---------- avvio, accesso, chiave ----------
@@ -750,6 +808,7 @@
         if (!u) { S.fase = 'fuori'; cambiato('stato'); return; }
         // Senza rete si lavora con quanto già noto: profilo e chiave ricordati
         S.io = await meta('io');
+        persone = (await meta('persone')) || [];
         S.cfg = await meta('cfg');
         S.modalita = (await meta('modalita')) || null;
         S.chiavi = await C.portachiavi();
@@ -992,6 +1051,7 @@
 
     window.TiceSync = {
         S, Auth, chiama, ErroreRete, ErroreCustode,
+        nomePersona, emailDiNome, emailOperatori, nomiSeduta, autoreNota, aggiornaPersone, impostaPersone: (l) => { persone = (l || []).slice(); cambiato('persone'); }, persone: () => persone.slice(),
         avvia, sincronizza, condividi, condivisione, esci,
         info: (pid) => S.info[pid] || null, io: () => S.io,
         conRiservati: () => !!(S.io && (S.io.funzioni || []).indexOf('riservati') >= 0), creaChiave, inserisciChiave, cambiaChiave, mostraFrase, dispositivi, togliDispositivo, consegnaOra,

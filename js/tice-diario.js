@@ -11,6 +11,8 @@
     const X = TiceHome.strumenti;
     const { h, grezzo, icona, foglio, conferma, avviso, barra, vai, paz, salvaPaziente, formatoData, T } = X;
     const centro = () => !!(Y && Y.attivo() && Y.S.io);
+    // l'autore col nome attuale (le note ricordano l'email di chi le ha scritte)
+    const autoreDi = (n) => (window.TiceSync && TiceSync.autoreNota ? TiceSync.autoreNota(n) : (n.autore || ''));
     const io = () => (centro() ? { nome: Y.S.io.nome || Y.S.io.email, email: Y.S.io.email } : { nome: X.chiOpera() || '', email: '' });
     const oggi = () => N.giorno(new Date());
 
@@ -49,7 +51,7 @@
                 <label class="campo"><span>${icona('calendar-day')} Giorno</span><input name="data" type="date" required value="${n.data}" max="${oggi()}"></label>
                 <label class="spunta-riga nt-fissa"><input type="checkbox" name="fissata" ${n.fissata ? grezzo('checked') : ''}> <span>${icona('thumbtack')} <b>Da tenere a mente</b><br><span class="sotto piccolo">sempre in vista in seduta</span></span></label>
             </div>
-            ${nota ? h`<p class="sotto piccolo">${nota.autore ? 'Scritta da ' + nota.autore : 'Senza autore'}${nota.modificato ? ' · modificata il ' + formatoData(N.giorno(nota.modificato)) : ''}</p>
+            ${nota ? h`<p class="sotto piccolo">${autoreDi(nota) ? 'Scritta da ' + autoreDi(nota) : 'Senza autore'}${nota.modificato ? ' · modificata il ' + formatoData(N.giorno(nota.modificato)) : ''}</p>
                 <button type="button" class="bt piccolo fantasma pericolo-testo" data-foglio="togli">${icona('trash')} Elimina la nota</button>` : ''}
             <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">${icona('check')} Salva</button></div></form>`, {
             dopo: (f) => {
@@ -78,9 +80,9 @@
 
     // ---------- note in breve: le ultime e quelle da tenere a mente ----------
     const ora = (n) => (/T12:00:00$/.test(n.il) ? '' : new Date(n.il).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
-    const voce = (p, n, conData, nelFoglio) => h`<article class="nt-voce ${n.fissata ? 'fissata' : ''}" data-testo="${(n.testo + ' ' + (n.autore || '') + ' ' + ((etichetta(n.tag) || {}).nome || '')).toLowerCase()}">
+    const voce = (p, n, conData, nelFoglio) => h`<article class="nt-voce ${n.fissata ? 'fissata' : ''}" data-testo="${(n.testo + ' ' + autoreDi(n) + ' ' + ((etichetta(n.tag) || {}).nome || '')).toLowerCase()}">
         <header>${n.fissata ? h`<span class="nt-pin" title="Da tenere a mente">${icona('thumbtack')}</span>` : ''}${pill(n.tag)}
-            <span class="sotto piccolo">${[conData ? formatoData(n.data) : '', n.autore || '', ora(n)].filter(Boolean).join(' · ')}</span>
+            <span class="sotto piccolo">${[conData ? formatoData(n.data) : '', autoreDi(n), ora(n)].filter(Boolean).join(' · ')}</span>
             ${puoCambiare(p, n) ? h`<button type="button" class="ib nt-mod" ${nelFoglio ? grezzo(`data-foglio="mod:${X.esc(n.id)}"`) : grezzo(`data-a="nota-mod" data-id="${X.esc(n.id)}"`)} aria-label="Modifica la nota">${icona('pen')}</button>` : ''}</header>
         <p>${n.testo}</p></article>`;
     async function foglioBreve(p, quali) {
@@ -176,7 +178,7 @@
         if (!r) return;
         const esc = X.esc;
         const l = tutte.filter((n) => (!r.da || n.data >= r.da) && (!r.a || n.data <= r.a)).reverse();
-        const righe = l.map((n) => `<tr><td style="white-space:nowrap;vertical-align:top;padding:2mm 3mm 2mm 0"><b>${esc(formatoData(n.data))}</b><br><small>${esc([(etichetta(n.tag) || {}).nome, n.autore].filter(Boolean).join(' · '))}</small></td><td style="padding:2mm 0;border-bottom:0.2mm solid #ccc">${n.fissata ? '📌 ' : ''}${esc(n.testo).replace(/\n/g, '<br>')}</td></tr>`).join('');
+        const righe = l.map((n) => `<tr><td style="white-space:nowrap;vertical-align:top;padding:2mm 3mm 2mm 0"><b>${esc(formatoData(n.data))}</b><br><small>${esc([(etichetta(n.tag) || {}).nome, autoreDi(n)].filter(Boolean).join(' · '))}</small></td><td style="padding:2mm 0;border-bottom:0.2mm solid #ccc">${n.fissata ? '📌 ' : ''}${esc(n.testo).replace(/\n/g, '<br>')}</td></tr>`).join('');
         await X.stampa(`<div class="st-foglio"><div class="st-bambino">${esc(p.name)}</div><p>Diario${r.da ? ' dal ' + esc(formatoData(r.da)) : ''}${r.a ? ' al ' + esc(formatoData(r.a)) : ''} · ${l.length} note</p><table style="width:100%;border-collapse:collapse;font-size:10pt">${righe}</table></div>`);
     }
     async function gestisciEtichette() {

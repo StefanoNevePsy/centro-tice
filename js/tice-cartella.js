@@ -32,7 +32,9 @@
     // ---------- piccoli aiuti sui dati ----------
     const sedutePaz = (p) => (p.history || []).filter((x) => x && x.mode !== 'comportamento');
     const giornoDi = (s) => P.giorno(s.date);
-    const nomi = (s) => String((s && s.operatore) || '').split('+').map((x) => x.trim()).filter(Boolean);
+    // chi ha svolto: i nomi attuali delle persone del centro quando la seduta ne ricorda l'email, altrimenti quelli scritti
+    const nomi = (s) => (window.TiceSync && TiceSync.nomiSeduta ? TiceSync.nomiSeduta(s) : String((s && s.operatore) || '').split('+').map((x) => x.trim()).filter(Boolean));
+    const autoreDi = (n) => (window.TiceSync && TiceSync.autoreNota ? TiceSync.autoreNota(n) : (n.autore || ''));
     const chiave = (n) => n.toLowerCase();
     const unici = (l) => { const v = {}, o = []; l.forEach((n) => { if (!v[chiave(n)]) { v[chiave(n)] = 1; o.push(n); } }); return o; };
     const stessi = (a, b) => a.map(chiave).sort().join('|') === b.map(chiave).sort().join('|');
@@ -248,7 +250,7 @@
                         </header>
                         <div class="cr-svolta ${dn.length ? '' : 'manca'}">${icona(dn.length > 1 ? 'user-group' : 'user')}<span>${dn.length ? h`Svolta da <b>${dn.join(' + ')}</b>` : 'Svolta da: non indicato'}</span></div>
                         <div class="cr-sedute">${gi.sedute.map((x) => rigaSeduta(p, x, { nomiGiorno: dn }))}</div>
-                        ${nt.length ? h`<div class="cr-diario">${nt.map((n) => h`<p>${icona('note-sticky')} ${n.testo}${n.autore ? h` <span class="sotto">· ${n.autore}</span>` : ''}</p>`)}</div>` : ''}
+                        ${nt.length ? h`<div class="cr-diario">${nt.map((n) => h`<p>${icona('note-sticky')} ${n.testo}${autoreDi(n) ? h` <span class="sotto">· ${autoreDi(n)}</span>` : ''}</p>`)}</div>` : ''}
                     </section>`;
                 })}</div>
                 ${giorni.length > visibili.length ? h`<button class="bt largo" data-a="cartella-altri">Mostra altri ${Math.min(BLOCCO, giorni.length - visibili.length)} <span class="sotto">(restano ${giorni.length - visibili.length})</span></button>` : ''}`}`;

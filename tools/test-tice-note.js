@@ -46,5 +46,8 @@ ok(u2.diario.filter((x) => x.data === '2026-11-05').map((x) => x.testo).sort().j
 const e = N.etichette([{ id: 'scuola', nome: 'Scuola e insegnanti', nascosta: true }, { id: 'c-logopedia', nome: 'Logopedia' }]);
 ok(e.length === 7 && e.find((x) => x.id === 'scuola').nascosta && e[6].colore, 'etichette: di serie più quelle del centro, rinominate o nascoste');
 ok(N.fissate(p).length === 0 && N.aggiungi(p, { testo: 'Allergia alle arachidi', fissata: true }) && N.fissate(p).length === 1, 'da tenere a mente');
+const w = { id: 'pw', history: [] };
+const a2 = N.aggiungi(w, { testo: 'Con due.', data: '2026-11-03', autore: 'Marta + Luca', operatoriEmail: ['M@x.it', ''] });
+ok(a2 && a2.operatoriEmail.join('|') === 'm@x.it|' && !N.aggiungi(w, { testo: 'x', operatoriEmail: ['', ''] }).operatoriEmail, 'gli operatori con email si ricordano in parallelo ai nomi');
 console.log(`\n${n - f}/${n} superati`);
 process.exit(f ? 1 : 0);

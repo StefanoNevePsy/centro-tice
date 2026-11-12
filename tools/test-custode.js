@@ -698,6 +698,77 @@ prova('l\'elenco dello stato rispetta le aule e le assegnazioni', () => {
   assert.deepStrictEqual(t.elenco.map((x) => x.id).sort(), e.map((x) => x.id).sort());
 });
 
+console.log('\nNome del proprietario');
+{
+  const ADM_X = 'admin.x@centrotice.it';
+  const DEVP = 'dev' + crypto.randomBytes(8).toString('hex');
+  prova('il proprietario si da un nome: compare in io e in persone.elenco; ruolo e aule restano admin di tutto', () => {
+    ok(chiama(PROPRIETARIO, 'dispositivo.registra', { id: DEVP, nome: 'Chrome · PC', pubblica: PUB }));
+    ok(chiama(PROPRIETARIO, 'dispositivi.abilita', { id: DEVP, kid: ok(chiama(PROPRIETARIO, 'io')).kid, chiave: consegna(PUB), pubblica: PUB }));
+    const a = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    a.utenti[ADM_X] = { nome: 'Admin X', aule: { principale: 'admin' }, pazienti: [] };
+    // tutto il resto che il proprietario prova a scrivere nella sua voce viene ignorato
+    a.utenti[PROPRIETARIO] = { nome: 'Stefano Neve', ruolo: 'tirocinante', aule: { principale: 'tirocinante' }, pazienti: [], attivo: false, scadenza: '2020-01-01' };
+    const salvati = ok(chiama(PROPRIETARIO, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    assert.strictEqual(salvati.utenti[PROPRIETARIO].nome, 'Stefano Neve');
+    const v = JSON.parse(fs.readFileSync(path.join(dir, '_config', 'accessi.json'), 'utf8')).utenti[PROPRIETARIO];
+    assert.ok(v.ruolo === 'admin' && v.attivo === true && v.scadenza === null && v.pazienti === '*' && Object.values(v.aule).every((r) => r === 'admin'));
+    const io = ok(chiama(PROPRIETARIO, 'io'));
+    assert.ok(io.nome === 'Stefano Neve' && io.ruolo === 'admin' && io.proprietario === true && io.scadenza === null);
+    assert.ok(Object.keys(io.aule).length >= 1 && Object.values(io.aule).every((r) => r.ruolo === 'admin'));
+    const el = ok(chiama(TIR, 'persone.elenco'));
+    assert.strictEqual(el.find((x) => x.email === PROPRIETARIO).nome, 'Stefano Neve');
+    assert.strictEqual(el.filter((x) => x.email === PROPRIETARIO).length, 1);
+  });
+  prova('senza voce il proprietario compare ancora con la sua email', () => {
+    const a = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    delete a.utenti[PROPRIETARIO];
+    ok(chiama(PROPRIETARIO, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    assert.strictEqual(ok(chiama(TIR, 'persone.elenco')).find((x) => x.email === PROPRIETARIO).nome, PROPRIETARIO);
+    assert.strictEqual(ok(chiama(PROPRIETARIO, 'io')).ruolo, 'admin');
+    const b = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    b.utenti[PROPRIETARIO] = { nome: 'Stefano Neve', aule: { principale: 'admin' }, pazienti: '*' };
+    ok(chiama(PROPRIETARIO, 'accessi.salva', { accessi: b, versioneBase: b.version }));
+  });
+  prova('un admin d\'aula non cambia il nome del proprietario ne\' lo toglie', () => {
+    let a = ok(chiama(ADM_X, 'accessi.leggi'));
+    a.utenti[PROPRIETARIO] = { nome: 'Falso', aule: { principale: 'tirocinante' }, pazienti: [], attivo: false, scadenza: '2020-01-01' };
+    ok(chiama(ADM_X, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    assert.strictEqual(ok(chiama(TIR, 'persone.elenco')).find((x) => x.email === PROPRIETARIO).nome, 'Stefano Neve');
+    assert.strictEqual(ok(chiama(PROPRIETARIO, 'io')).ruolo, 'admin');
+    a = ok(chiama(ADM_X, 'accessi.leggi'));
+    delete a.utenti[PROPRIETARIO];
+    ok(chiama(ADM_X, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    assert.strictEqual(ok(chiama(PROPRIETARIO, 'accessi.leggi')).utenti[PROPRIETARIO].nome, 'Stefano Neve');
+    assert.strictEqual(ok(chiama(PROPRIETARIO, 'io')).nome, 'Stefano Neve');
+  });
+  prova('un admin d\'aula non puo\' dare al proprietario una voce che non ha', () => {
+    let a = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    delete a.utenti[PROPRIETARIO];
+    ok(chiama(PROPRIETARIO, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    a = ok(chiama(ADM_X, 'accessi.leggi'));
+    a.utenti[PROPRIETARIO] = { nome: 'Falso', aule: { principale: 'admin' }, pazienti: '*' };
+    ok(chiama(ADM_X, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    assert.ok(!ok(chiama(PROPRIETARIO, 'accessi.leggi')).utenti[PROPRIETARIO]);
+    const b = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    b.utenti[PROPRIETARIO] = { nome: 'Stefano Neve' };
+    b.utenti[PROPRIETARIO].aule = { principale: 'admin' };
+    ok(chiama(PROPRIETARIO, 'accessi.salva', { accessi: b, versioneBase: b.version }));
+  });
+  prova('con la voce il proprietario non perde dispositivi ne\' chiavi', () => {
+    const d = ok(chiama(PROPRIETARIO, 'dispositivi.elenco')).find((x) => x.id === DEVP);
+    assert.ok(d && d.abilitato === true && d.personaAbilitata === true);
+    assert.ok(Object.keys(ok(chiama(PROPRIETARIO, 'dispositivo.chiave', { id: DEVP })).chiavi).length >= 1);
+    assert.strictEqual(custode.revocaScaduti(), 0);
+    // e anche togliendogli la voce
+    const a = ok(chiama(PROPRIETARIO, 'accessi.leggi'));
+    delete a.utenti[PROPRIETARIO];
+    ok(chiama(PROPRIETARIO, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    assert.ok(Object.keys(ok(chiama(PROPRIETARIO, 'dispositivo.chiave', { id: DEVP })).chiavi).length >= 1);
+    ok(chiama(PROPRIETARIO, 'dispositivo.togli', { id: DEVP }));
+  });
+}
+
 console.log(`\n${passati} test passati, ${fallimenti.length} falliti`);
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fallimenti.length ? 1 : 0);

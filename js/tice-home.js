@@ -553,7 +553,7 @@
                     ${att.promptVisivo ? h`<span class="target riga-prompt">P: ${casellePrompt(att.promptVisivo)}</span>` : ''}
                     ${st ? h`<span class="target ta-riga">${icona('list-ol')} passo <b>${st.i + 1}/${passi.length}</b> · ${st.passo.testo}${st.giri ? h` <span class="pill grigia">giro ${st.giri + 1}</span>` : ''}</span>` : ''}
                     ${lu && (lu.prec || lu.oggi) ? h`<span class="target lu-attesa">${icona('hourglass-half')} ${testoLU(lu)}</span>` : ''}
-                    ${oggiT ? h`<span class="target">${icona('circle-check')} già oggi: ${oggiV}/${oggiT} (${Math.round(100 * oggiV / oggiT)}%)${(() => { const chi = [...new Set(giaOggi.map((x) => x.operatore).filter(Boolean))]; return chi.length ? h` <span class="chi">· ${chi.join(', ')}</span>` : ''; })()}</span>` : ''}
+                    ${oggiT ? h`<span class="target">${icona('circle-check')} già oggi: ${oggiV}/${oggiT} (${Math.round(100 * oggiV / oggiT)}%)${(() => { const chi = [...new Set(giaOggi.map((x) => (window.TiceSync && TiceSync.nomiSeduta ? TiceSync.nomiSeduta(x).join(' + ') : x.operatore)).filter(Boolean))]; return chi.length ? h` <span class="chi">· ${chi.join(', ')}</span>` : ''; })()}</span>` : ''}
                 </span>
                 <span class="conto">${ms.length ? h`<span class="piccolo sotto conto-ms">${ms.map((m, i) => { const x = vm[i], n = x ? x.v + x.p + x.x : 0; return h`<span>${m.nome}: <b class="${n ? classePct(Math.round(100 * x.v / n), soglia) : ''}">${n ? Math.round(100 * x.v / n) + '%' : '—'}</b></span>`; })}</span>` : tot ? h`<b class="${classePct(pct, soglia)}">${pct}%</b><br><span class="piccolo sotto">${v.v}/${tot}${att.prove ? ' di ' + att.prove : ''}</span>`
                     : h`<span class="piccolo sotto prove-n" title="${att.prove ? 'LU da ' + att.prove + ' prove' : 'Dato in percentuale a ogni seduta'}">${att.prove ? h`${icona('layer-group')} ${att.prove}` : icona('percent')}</span>`}</span>
@@ -1614,7 +1614,13 @@
         window.print();
     }
 
-    const chiOpera = () => { try { return localStorage.getItem('tice_operatore') || ''; } catch (e) { return ''; } };
+    // l'ultimo operatore: col nome attuale se è una persona del centro (se ne ricorda l'email)
+    const chiOpera = () => {
+        try {
+            const n = localStorage.getItem('tice_operatore') || '', em = localStorage.getItem('tice_operatore_email') || '';
+            return em && window.TiceSync && TiceSync.nomePersona ? TiceSync.nomePersona(em, n) : n;
+        } catch (e) { return ''; }
+    };
     const sec = (n) => n + '″';
     // Il time delay di oggi: quello cambiato in seduta, altrimenti quello del programma
     const tdOggi = (att, v, t) => {

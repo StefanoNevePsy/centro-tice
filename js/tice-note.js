@@ -1,7 +1,7 @@
 /**
  * Note del diario di un bambino: ogni nota è una voce a sé.
  *
- * patient.diario = [{ id, data: 'AAAA-MM-GG', il: ISO, testo, tag?, autore?, email?, fissata?, modificato? }]
+ * patient.diario = [{ id, data: 'AAAA-MM-GG', il: ISO, testo, tag?, autore?, email?, operatoriEmail?, fissata?, modificato? }]
  *   - `fissata`: sta in «Da tenere a mente» (allergie, rinforzatori, cosa evitare)
  * patient.diarioVisti = { hash: 1 }   paragrafi già passati di qui (modificati o tolti): non rientrano
  *
@@ -93,6 +93,8 @@
     if (d.tag) n.tag = String(d.tag);
     if (d.autore) n.autore = String(d.autore).slice(0, 120);
     if (d.email) n.email = String(d.email).toLowerCase();
+    // chi ha svolto, in parallelo ai nomi di «autore» (note di seduta): serve a mostrare i nomi attuali
+    if (Array.isArray(d.operatoriEmail) && d.operatoriEmail.some(Boolean)) n.operatoriEmail = d.operatoriEmail.map(function (e) { return String(e || '').toLowerCase(); });
     if (d.fissata) n.fissata = true;
     p.diario.push(n);
     scriviCopia(p, n.data);

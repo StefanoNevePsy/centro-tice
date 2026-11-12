@@ -432,7 +432,10 @@
             return h`${barra({ indietro: 'vai-account', titolo: 'Persone e accessi' })}<main class="tice-main"><p class="sotto">${icona('spinner fa-spin')} Caricamento…</p></main>`;
         }
         const oggi = new Date().toISOString().slice(0, 10);
-        const persone = Object.keys(a.utenti).sort((x, y) => (a.utenti[x].nome || x).localeCompare(a.utenti[y].nome || y, 'it'));
+        const prop = String(a.proprietario || '').toLowerCase();
+        // il proprietario ha una riga a parte: nella sua voce conta solo il nome
+        const nomeProp = (a.utenti[prop] && a.utenti[prop].nome) || (prop === String(io().email || '').toLowerCase() ? io().nome : '') || '';
+        const persone = Object.keys(a.utenti).filter((e) => e !== prop).sort((x, y) => (a.utenti[x].nome || x).localeCompare(a.utenti[y].nome || y, 'it'));
         const aule = auleAcc(a), proprietario = !!io().proprietario;
         const nAule = aule ? Object.keys(aule).length : 0;
         return h`${barra({ indietro: 'vai-account', titolo: 'Persone e accessi' })}
@@ -447,7 +450,9 @@
                 </div>` : ''}
                 <button class="bt primario largo" data-a="persona" data-email="">${icona('user-plus')} Aggiungi una persona</button>
                 <div class="scheda" style="margin-top:12px">
-                    ${proprietario || !aule ? h`<div class="riga" style="cursor:default"><span class="corpo"><span class="t1">${a.proprietario}</span><span class="t2">Amministratore di tutte le aule · proprietario del custode, sempre abilitato</span></span></div>` : ''}
+                    ${proprietario || !aule || a.utenti[prop] ? (proprietario
+                        ? h`<button class="riga" data-a="nome-proprietario"><span class="corpo"><span class="t1">${nomeProp && nomeProp.toLowerCase() !== prop ? nomeProp : a.proprietario}</span><span class="t2">${nomeProp && nomeProp.toLowerCase() !== prop ? a.proprietario + ' · ' : ''}Amministratore di tutte le aule · proprietario del custode, sempre abilitato</span></span>${icona('pen')}</button>`
+                        : h`<div class="riga" style="cursor:default"><span class="corpo"><span class="t1">${nomeProp || a.proprietario}</span><span class="t2">${nomeProp ? a.proprietario + ' · ' : ''}Amministratore di tutte le aule · proprietario del custode, sempre abilitato</span></span></div>`) : ''}
                     ${persone.map((em) => {
                         const u = a.utenti[em];
                         const scaduto = u.scadenza && u.scadenza < oggi;
@@ -467,6 +472,8 @@
             T.accessi.proprietario = a.proprietario;
             if (io().proprietario && nuovi.aule) T.accessi.aule = T.accessi.aule || nuovi.aule;
             avviso('Accessi salvati');
+            // i nomi nuovi si vedono subito ovunque (cartella, diario, turni)
+            await Y.aggiornaPersone();
             // le aule e i ruoli di chi usa l'app possono essere cambiati
             Y.sincronizza().catch(() => {});
             return true;
@@ -590,7 +597,90 @@
             if (aule) nuovi.utenti[em].aule = r.aule;
         }
         if (!io().proprietario) delete nuovi.aule;
-        await salvaAccessi(nuovi, a);
+        const salvato = await salvaAccessi(nuovi, a);
+        if (salvato && r !== 'togli' && email) await nomeCambiato(email, u.nome, nuovi.utenti[em] && nuovi.utenti[em].nome);
+    }
+    // Il proprietario non ha ruolo da modificare: gli si dà solo un nome
+    async function nomeProprietario() {
+        const a = T.accessi;
+        if (!a || !io().proprietario) return;
+        const em = String(a.proprietario || io().email || '').toLowerCase();
+        const voce = a.utenti[em];
+        const attuale = (voce && voce.nome) || (em === String(io().email || '').toLowerCase() ? io().nome : '') || '';
+        const r = await foglio(h`<form><h2>Nome del proprietario</h2>
+            <label class="campo"><span>Nome</span><input name="nome" maxlength="60" required autofocus value="${attuale && attuale.toLowerCase() !== em ? attuale : ''}"></label>
+            <p class="sotto piccolo">Il proprietario è sempre amministratore di tutte le aule. Qui si cambia solo il nome con cui compare.</p>
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
+            { invia: (f) => ({ nome: String(new FormData(f).get('nome') || '').trim() }) });
+        if (!r || !r.nome || r.nome === attuale) return;
+        const nuovi = JSON.parse(JSON.stringify(a));
+        const tutte = {};
+        Object.keys(auleAcc(a) || { principale: 1 }).forEach((k) => { tutte[k] = 'admin'; });
+        nuovi.utenti[em] = { nome: r.nome, ruolo: 'admin', aule: tutte, pazienti: '*', scadenza: null, attivo: true };
+        if (await salvaAccessi(nuovi, a)) await nomeCambiato(em, attuale && attuale.toLowerCase() !== em ? attuale : '', r.nome);
+    }
+
+    // ---------- un nome cambiato in «Persone e accessi» ----------
+    // Le sedute e le note nuove ricordano l'email e mostrano il nome attuale; quelle vecchie
+    // hanno solo il nome scritto: si sostituisce (con conferma) il nome vecchio con il nuovo.
+    const tokenOp = (t) => String(t || '').split('+').map((x) => x.trim()).filter(Boolean);
+    /** «Anna + Marta» con Marta → Marta Rossi: solo i nomi uguali per intero. null se non cambia niente. */
+    function sostituisciNome(testo, vecchio, nuovo) {
+        const l = tokenOp(testo);
+        if (!l.includes(vecchio)) return null;
+        return l.map((x) => (x === vecchio ? nuovo : x)).join(' + ');
+    }
+    function correggiPaziente(p, vecchio, nuovo, email, scrivi) {
+        let n = 0;
+        (p.history || []).forEach((s) => {
+            const t = s && sostituisciNome(s.operatore, vecchio, nuovo);
+            if (t != null) { n++; if (scrivi) s.operatore = t; }
+        });
+        (p.diario || []).forEach((d) => {
+            if (!d) return;
+            let t = sostituisciNome(d.autore, vecchio, nuovo);
+            // una nota scritta da lui (non di seduta) porta il suo nome di allora, qualunque fosse
+            if (t == null && email && d.email === email && d.tag !== 'seduta' && d.autore && d.autore !== nuovo) t = nuovo;
+            if (t != null) { n++; if (scrivi) d.autore = t; }
+        });
+        return n;
+    }
+    function correggiBozza(b, vecchio, nuovo) {
+        if (!b) return false;
+        let c = false;
+        const t = sostituisciNome(b.operatore, vecchio, nuovo);
+        if (t != null) { b.operatore = t; c = true; }
+        Object.keys(b.voci || {}).forEach((k) => { const v = b.voci[k], x = v && sostituisciNome(v.operatore, vecchio, nuovo); if (x != null) { v.operatore = x; c = true; } });
+        return c;
+    }
+    async function nomeCambiato(email, vecchio, nuovo) {
+        vecchio = String(vecchio || '').trim(); nuovo = String(nuovo || '').trim();
+        email = String(email || '').toLowerCase();
+        if (!vecchio || !nuovo || vecchio === nuovo) return;
+        // suggerimenti e bozze di questo dispositivo: si aggiornano senza chiedere
+        try {
+            if (localStorage.getItem('tice_operatore') === vecchio) localStorage.setItem('tice_operatore', nuovo);
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (!k || k.indexOf('tice_bozza_') !== 0) continue;
+                if (T.bozza && 'tice_bozza_' + T.bozza.pid === k) continue;
+                const b = JSON.parse(localStorage.getItem(k) || 'null');
+                if (correggiBozza(b, vecchio, nuovo)) localStorage.setItem(k, JSON.stringify(b));
+            }
+        } catch (e) { /* solo una comodità */ }
+        if (T.bozza && correggiBozza(T.bozza, vecchio, nuovo)) TiceHome.strumenti.salvaBozza();
+        const toccati = pazienti().filter((p) => correggiPaziente(p, vecchio, nuovo, email, false) > 0);
+        if (!toccati.length) return;
+        const q = toccati.length === 1 ? '1 bambino' : toccati.length + ' bambini';
+        if (!await conferma(`Aggiornare anche il nome scritto nelle sedute e nelle note già registrate (${q})?`,
+            `Dove compare «${vecchio}» come chi ha svolto o come autore, diventa «${nuovo}». Cambia solo il nome scritto: i dati restano gli stessi. Vale per i bambini che vedi su questo dispositivo.`, { ok: 'Aggiorna' })) return;
+        let fatti = 0;
+        for (const p of toccati) {
+            try { correggiPaziente(p, vecchio, nuovo, email, true); await TiceHome.strumenti.salvaPaziente(p); fatti++; }
+            catch (e) { avviso(`${p.name}: ${e.message || e}`, 'errore'); }
+        }
+        avviso(fatti === 1 ? 'Nome aggiornato in 1 bambino' : `Nome aggiornato in ${fatti} bambini`);
+        TiceHome.ridisegna();
     }
 
     // =====================================================================
@@ -1025,6 +1115,7 @@
                 vai('bambini');
             },
             persona: (b) => persona(b.dataset.email),
+            'nome-proprietario': () => nomeProprietario(),
             versione,
             'scarica-set': scaricaSet,
             'scarica-tutti': scaricaTutti,

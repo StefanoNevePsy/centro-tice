@@ -187,12 +187,15 @@
         if (nota) {
             if (window.TiceNote) {
                 const me = (window.TiceSync && TiceSync.attivo() && TiceSync.S.io) || {};
-                window.TiceNote.aggiungi(p, { testo: nota, data: b.data, tag: 'seduta', autore: operatore || me.nome || '', email: me.email || '' });
+                window.TiceNote.aggiungi(p, { testo: nota, data: b.data, tag: 'seduta', autore: operatore || me.nome || '', email: me.email || '', operatoriEmail: operatore && window.TiceSync && TiceSync.emailOperatori ? TiceSync.emailOperatori(operatore) : [] });
             } else {
                 p.dailyNotes = p.dailyNotes || {};
                 p.dailyNotes[b.data] = p.dailyNotes[b.data] ? p.dailyNotes[b.data] + '\n\n' + nota : nota;
             }
         }
+        // le email di chi ha svolto, accanto ai nomi: così un nome cambiato in «Persone e accessi» si vede anche qui
+        const emailDi = window.TiceSync && TiceSync.emailOperatori;
+        if (emailDi) [].concat(nuove, compSalvati).forEach((x) => { const em = x && x.operatore ? emailDi(x.operatore) : []; if (em.length) x.operatoriEmail = em; });
         await salvaPaziente(p);
         eliminaBozza(p.id);
         T.aperte = {};
@@ -274,8 +277,7 @@
                 // chi ha svolto la seduta: dai turni del calendario; se non c'è nessuno, lo si chiede
                 const cal = EST.chiDi ? await EST.chiDi(p.id, b.data).catch(() => ({ nomi: [], persone: [] })) : { nomi: [], persone: [] };
                 const operatore = b.operatore || cal.nomi.join(' + ');
-                let ultimo = '';
-                try { ultimo = localStorage.getItem('tice_operatore') || ''; } catch (e) { /* niente */ }
+                const ultimo = chiOpera();
                 const suggeriti = [...new Set([ultimo, ...cal.persone].filter(Boolean))];
                 const dati = await foglio(h`<form class="fine-seduta"><h2>Fine seduta</h2>
                     ${r0.n ? h`<table class="tabella" style="margin-bottom:14px"><tbody>${righe}</tbody>
@@ -288,7 +290,12 @@
                     <label class="campo"><span>Note sulla seduta (vanno nel diario del giorno)</span><textarea name="nota" maxlength="5000" placeholder="Comportamento, rinforzatori, osservazioni…"></textarea></label>
                     <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Torna alla seduta</button><button class="bt primario">${icona('check')} Salva</button></div></form>`, { dopo: agganciaChi });
                 if (!dati) return;
-                try { localStorage.setItem('tice_operatore', dati.operatore.trim().split('+')[0].trim()); } catch (e) { /* niente */ }
+                try {
+                    const primo = dati.operatore.trim().split('+')[0].trim();
+                    localStorage.setItem('tice_operatore', primo);
+                    const em = window.TiceSync && TiceSync.emailDiNome ? TiceSync.emailDiNome(primo) : '';
+                    if (em) localStorage.setItem('tice_operatore_email', em); else localStorage.removeItem('tice_operatore_email');
+                } catch (e) { /* niente */ }
                 if (conComp) dati.comportamenti = true;
                 await salvaSeduta(p, b, dati);
             }

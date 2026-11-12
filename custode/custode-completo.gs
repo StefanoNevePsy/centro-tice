@@ -774,7 +774,9 @@ var QT = (function () {
         // configurazioni a mano e nessuno puo' chiuderlo fuori per errore.
         var tutte = {};
         Object.keys(auleDelCentro(accessi)).forEach(function (id) { tutte[id] = 'admin'; });
-        return { email: email, nome: (voce && voce.nome) || identita.nome || email, ruolo: 'admin', aule: tutte, pazienti: '*', proprietario: true, scadenza: null };
+        // La voce (se c'e') serve SOLO per il nome: ruolo, aule, stato e scadenza non contano.
+        var nomeProp = (voce && typeof voce.nome === 'string' && voce.nome.trim()) || identita.nome || email;
+        return { email: email, nome: nomeProp, ruolo: 'admin', aule: tutte, pazienti: '*', proprietario: true, scadenza: null };
       }
       if (!voce) throw err('non-autorizzato', 'L\'account ' + email + ' non è abilitato. Chiedi a un amministratore di aggiungerti.');
       if (voce.attivo === false) { revocaSeServe(email); throw err('disattivato', 'L\'account ' + email + ' è stato disattivato.'); }
@@ -1336,7 +1338,7 @@ var QT = (function () {
         // un riservato resta condiviso solo con chi fa parte della nuova aula
         if (r.riservato) {
           var acc = leggiAccessi();
-          r.condivisi = (r.condivisi || []).filter(function (e) { return acc.utenti[e] && auleDiVoce(acc.utenti[e])[nuova]; });
+          r.condivisi = (r.condivisi || []).filter(function (e) { return e === String(amb.proprietario() || '').toLowerCase() || (acc.utenti[e] && auleDiVoce(acc.utenti[e])[nuova]); });
         }
         if (nuova === AULA_BASE) delete r.aula; else r.aula = nuova;
         r.aggiornato = amb.ora(); r.aggiornatoDa = u.email;
@@ -1596,8 +1598,10 @@ var QT = (function () {
       if (sola && !ruoloIn(u, sola)) throw err('vietato', 'Non fai parte di quest\'aula.');
       Object.keys(a.utenti).forEach(function (e) {
         var x = a.utenti[e];
-        if (x.attivo === false || (x.scadenza && oggi() > x.scadenza)) return;
-        var va = auleDiVoce(x);
+        // il proprietario e' sempre attivo e in tutte le aule, qualunque cosa dica la sua voce
+        var delProp = e === prop;
+        if (!delProp && (x.attivo === false || (x.scadenza && oggi() > x.scadenza))) return;
+        var va = delProp ? auleDelCentro(a) : auleDiVoce(x);
         var comuni = Object.keys(va).filter(function (k) { return (sola ? k === sola : true) && !!ruoloIn(u, k); });
         if (!comuni.length) return;
         out.push({ email: e, nome: x.nome || e, aule: comuni });
@@ -1641,8 +1645,10 @@ var QT = (function () {
       var el = leggiElenco().pazienti;
       var mioPid = function (pid) { return mie.indexOf((el[pid] && el[pid].aula) || AULA_BASE) >= 0; };
       // le persone che l'admin non vede restano come sono
+      var propAdm = String(amb.proprietario() || '').toLowerCase();
       Object.keys(attuale.utenti || {}).forEach(function (e) {
         var x = attuale.utenti[e], va = auleDiVoce(x);
+        if (e === propAdm) { out.utenti[e] = x; return; }   // la voce del proprietario la cambia solo lui
         var mia = Object.keys(va).some(function (k) { return mie.indexOf(k) >= 0; });
         if (!mia) { out.utenti[e] = x; return; }
         var n = nuovo.utenti[e];
@@ -1665,6 +1671,7 @@ var QT = (function () {
       // persone nuove: solo nelle aule dell'admin; chi esiste già in altre aule non si può prendere da qui
       Object.keys(nuovo.utenti).forEach(function (e) {
         if (attuale.utenti && attuale.utenti[e]) return;
+        if (e === propAdm) return;   // un admin non crea ne' tocca la voce del proprietario
         var n = nuovo.utenti[e], qui = {};
         Object.keys(n.aule).forEach(function (k) { if (mie.indexOf(k) >= 0) qui[k] = n.aule[k]; });
         if (!Object.keys(qui).length) throw err('vietato', e + ': puoi aggiungere persone solo alle tue aule.');
@@ -1684,6 +1691,13 @@ var QT = (function () {
           throw err('conflitto', 'Gli accessi sono stati modificati da ' + (attuale.aggiornatoDa || 'un altro admin') + ' nel frattempo.', { attuale: accessiVisti(u, attuale) });
         }
         var nuovo = u.proprietario ? arrivati : unisciAccessiAdmin(u, attuale, arrivati);
+        // La voce del proprietario vale solo per il nome: il resto e' sempre «admin di tutto».
+        var propS = String(amb.proprietario() || '').toLowerCase();
+        if (nuovo.utenti[propS]) {
+          var tuttiAdmin = {};
+          Object.keys(auleDelCentro(nuovo)).forEach(function (k) { tuttiAdmin[k] = 'admin'; });
+          nuovo.utenti[propS] = { nome: nuovo.utenti[propS].nome, ruolo: 'admin', aule: tuttiAdmin, pazienti: '*', attivo: true, scadenza: null };
+        }
         if (u.proprietario) {
           // un'aula si toglie solo se non ha più bambini
           var el = leggiElenco().pazienti;

@@ -170,7 +170,9 @@
             out.push({ email: email.toLowerCase(), nome: nomeLeggibile(u.nome, email), ruolo: r === 'tirocinante' ? 'tirocinante' : 'terapeuta' });
         });
         if (prop && !out.some((x) => x.email === prop)) {
-            const io = Y.S && Y.S.io && Y.S.io.email === prop ? Y.S.io.nome : '';
+            // il proprietario può non avere una voce: il suo nome è quello conosciuto dal centro
+            const noto = Y.nomePersona ? Y.nomePersona(prop, '') : '';
+            const io = noto || (Y.S && Y.S.io && Y.S.io.email === prop ? Y.S.io.nome : '');
             out.push({ email: prop, nome: nomeLeggibile(io, prop), ruolo: 'terapeuta' });
         }
         return out;
@@ -344,7 +346,7 @@
                     ${modifica ? h`<div class="bottoni" style="justify-content:center;margin-top:12px">${!(S.modello && (S.modello.voci || []).length) ? h`<button class="bt primario" data-a="vai-modello">${icona('calendar-week')} Prepara la settimana tipo</button>` : ''}
                     <button class="bt ${S.modello && (S.modello.voci || []).length ? 'primario' : ''}" data-a="tt-bambini">${icona('child')} Scegli i bambini</button>
                     <button class="bt" data-a="tt-copia">${icona('copy')} Copia da un altro giorno</button></div>` : ''}</div>` : ''}
-                <button class="bt largo tt-apri-altro" data-a="tt-apri">${icona('child-reaching')} Apri un bambino <span class="sotto piccolo">· anche se non è in calendario</span></button>
+                <button class="bt largo tt-apri-altro" data-a="tt-apri">${icona('children')} Tutti i bambini <span class="sotto piccolo">· anche chi non è in turno oggi</span></button>
                 ${inModifica ? h`<div class="bottoni tt-strumenti">
                     ${gi.bambini.length ? h`<button class="bt" data-a="vai-modello">${icona('calendar-week')} Settimana tipo</button>
                     <button class="bt" data-a="tt-bambini">${icona('child')} Bambini del giorno</button>
@@ -523,14 +525,14 @@
             cambiaModello((m) => Object.assign(m, { orari: { da, a, fascia: +r.fascia, pausa: +r.pausa } }));
         },
         'tt-giorno': (b) => { S.giorno = TT.piu(S.giorno, +b.dataset.d); TiceHome.ridisegna(); },
-        // apre il foglio di presa dati di un bambino qualsiasi (anche fuori calendario)
+        // «Tutti i bambini»: apre la presa dati di un bambino qualsiasi (anche chi non è in turno)
         'tt-apri': async () => {
             const tutti = X.pazientiAula().slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
             if (!tutti.length) { TiceHome.vai('bambini'); return; }
             const gi = TT.giornata(S.sett, S.giorno, S.modello);
             const oggiCal = tutti.filter((p) => gi.bambini.includes(p.id)), altri = tutti.filter((p) => !gi.bambini.includes(p.id));
             const voce = (p) => h`<button class="opzione" data-foglio="${'p:' + p.id}"><span class="corpo">${p.name}${p.category ? h`<small>${p.category}</small>` : ''}</span>${icona('chevron-right')}</button>`;
-            const r = await foglio(h`<h2>Apri un bambino</h2>
+            const r = await foglio(h`<h2>Tutti i bambini</h2>
                 ${tutti.length > 8 ? h`<input class="cerca" type="search" placeholder="Cerca" aria-label="Cerca un bambino" data-filtra-foglio>` : ''}
                 ${oggiCal.length ? h`<p class="eti">In calendario ${S.giorno === oggi() ? 'oggi' : lunga(S.giorno).toLowerCase()}</p><div class="opzioni">${oggiCal.map(voce)}</div><p class="eti">Gli altri</p>` : ''}
                 <div class="opzioni">${altri.map(voce)}</div>
@@ -720,6 +722,8 @@
     // il riepilogo aperto/chiuso resta com'era
     document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('tt-riepilogo')) S.riepilogoAperto = e.target.open; }, true);
     if (Y && Y.alCambio) Y.alCambio((cosa) => {
+        // un nome nuovo dal centro: la lista dei turni si allinea subito, non al giro dopo
+        if (cosa === 'persone') allineaAlCentro(true);
         if (cosa === 'turni' && TiceHome.attuale().vista === 'turni') TiceHome.ridisegna();
         if (cosa === 'turni' && ['turni', 'turni-modello'].includes(TiceHome.attuale().vista)) rileggiSeCambiata();
         // il centro è diventato pronto (o non lo è più): i turni si rileggono da lì

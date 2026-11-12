@@ -176,6 +176,24 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     await p.keyboard.press('Escape'); await attesa(300);
     ok(await p.locator('.tice-foglio').count() === 0, 'cartella: il foglio dei dettagli si chiude');
     ok(await p.locator('.cr-scelta').count() === 0, 'cartella: con un solo bambino non compare il selettore');
+    // un nome cambiato in «Persone e accessi»: la cartella e il diario mostrano quello nuovo (sedute con email), le vecchie restano com'erano
+    await p.evaluate(() => {
+      const l = state.patients.find((x) => x.name === 'Prova B.');
+      l.history.forEach((x) => { if (x.operatore === 'Prova') x.operatoriEmail = ['prova@centro.test']; });
+      (l.diario || []).forEach((x) => { if (x.autore === 'Prova') { x.operatoriEmail = ['prova@centro.test']; } });
+      TiceSync.impostaPersone([{ email: 'prova@centro.test', nome: 'Prova Nuova', aule: [] }]);
+      TiceHome.ridisegna();
+    }); await attesa(500);
+    ok(/Svolta da\s*Prova Nuova/.test(await p.locator('.cr-giorno').first().innerText()) && /Prova Nuova/.test(await p.locator('.cr-riep').innerText()), 'cartella: dopo un cambio di nome si vede il nome nuovo (giornata e riepilogo per persona)');
+    ok(/Prova Nuova/.test(await p.locator('.cr-diario').first().innerText()), 'cartella: l\'autore della nota di seduta ha il nome nuovo');
+    ok(await p.evaluate(() => TiceSync.nomePersona('prova@centro.test', 'Prova') === 'Prova Nuova' && TiceSync.nomePersona('altro@x.it', 'Altro') === 'Altro' && TiceSync.nomiSeduta({ operatore: 'Prova + Luca', operatoriEmail: ['prova@centro.test', ''] }).join('|') === 'Prova Nuova|Luca'), 'nomePersona: nome attuale dall\'email, ripiego sul nome salvato');
+    await p.click('.cr-giorno .cr-sed'); await attesa(400);
+    ok(/Svolta da\s*Prova Nuova/.test(await p.locator('.tice-foglio').innerText()), 'cartella: il dettaglio della seduta mostra il nome nuovo');
+    await p.keyboard.press('Escape'); await attesa(300);
+    await p.evaluate(() => { TiceHome.vai('diario', state.patients.find((x) => x.name === 'Prova B.').id); }); await attesa(500);
+    ok(/Prova Nuova/.test(await p.locator('.nt-giorno').innerText()), 'diario: l\'autore della nota ha il nome nuovo');
+    await p.evaluate(() => { TiceSync.impostaPersone([]); TiceHome.vai('cartella', state.patients.find((x) => x.name === 'Prova B.').id); }); await attesa(500);
+    ok(/Svolta da\s*Prova\b/.test(await p.locator('.cr-giorno').first().innerText()) && !/Prova Nuova/.test(await p.locator('.cr-giorno').first().innerText()), 'cartella: se la persona non è nota si resta sul nome salvato');
     const idA = await p.evaluate(() => TiceHome.attuale().pid);
     await p.evaluate(() => { state.patients.push({ id: 'p-prova-zeta', name: 'Zeta Prova', history: [], programma: { attivita: [] } }); TiceHome.ridisegna(); }); await attesa(400);
     await p.click('[data-a="cartella-tab"][data-tab="attivita"]'); await attesa(300);
@@ -367,7 +385,9 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     await equivalenza('diario');
     await p.evaluate((id) => TiceHome.vai('cartella', id), pidB); await attesa(600);
     await equivalenza('cartella');
-    if (await p.evaluate(() => !!TiceHome.strumenti.viste.turni)) { await p.evaluate(() => TiceHome.vai('turni')); await attesa(600); await equivalenza('turni'); }
+    if (await p.evaluate(() => !!TiceHome.strumenti.viste.turni)) { await p.evaluate(() => TiceHome.vai('turni')); await attesa(600); await equivalenza('turni');
+      const tt = await p.locator('.tt-apri-altro').innerText();
+      ok(/Tutti i bambini/.test(tt) && /anche chi non è in turno oggi/.test(tt) && !/Apri un bambino/.test(tt), 'turni: il tasto «Tutti i bambini» (anche chi non è in turno oggi)'); }
     await p.evaluate(() => TiceHome.vai('cartella', state.patients.find((x) => x.name === 'Prova B.').id)); await attesa(500);
     await p.click('[data-a="cartella-vecchia"]'); await attesa(1800);
     ok(await p.evaluate(() => !!document.getElementById('report-content')), 'dal collegamento si apre ancora la cartella vecchia');
