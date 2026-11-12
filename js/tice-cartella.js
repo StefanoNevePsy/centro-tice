@@ -389,7 +389,7 @@
                 ${X.testata('Cartella' + (e ? ' · ' + e : '') + (p.category ? ' · ' + p.category : ''), p.name)}
                 ${nav ? h`<div class="cr-scelta">
                     <button type="button" class="ib" data-a="cartella-passa" data-d="-1" aria-label="Bambino precedente" title="Precedente (←)">${icona('chevron-left')}</button>
-                    <select class="campo-in" data-cr-bambino="1" aria-label="Bambino">${tutti.map((x) => h`<option value="${x.id}" ${x === p ? grezzo('selected') : ''}>${x.name}</option>`)}</select>
+                    <select class="campo-in" data-cr-bambino="1" aria-label="Bambino" title="${p.name}">${tutti.map((x) => h`<option value="${x.id}" title="${x.name}" ${x === p ? grezzo('selected') : ''}>${x.name}</option>`)}</select>
                     <span class="sotto piccolo cr-scelta-n">${qui + 1} di ${tutti.length}</span>
                     <button type="button" class="ib" data-a="cartella-passa" data-d="1" aria-label="Bambino successivo" title="Successivo (→)">${icona('chevron-right')}</button>
                 </div>` : ''}

@@ -78,6 +78,40 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
 
     await p.evaluate(() => TiceHome.vai('grafici')); await attesa(800);
     ok(await p.locator('[data-grafici] svg').count() > 0, 'grafici: il grafico del bambino si disegna');
+    // schermata Grafici (js/tice-home-grafici.js): schede divise in gruppi, scelta del grafico, periodo, comportamenti, telefono
+    ok(await p.locator('.gr-scheda').count() >= 5 && await p.locator('.gr-gruppo-t').count() >= 3, 'grafici: le schede dei grafici, divise in gruppi');
+    ok(/Target nel tempo/.test(await p.locator('.gr-testa').innerText()) && await p.locator('.gr-scheda.on').count() === 1, 'grafici: per un bambino con programma si parte da «Target nel tempo», con il nome e a cosa serve');
+    const firmaG = () => p.locator('[data-grafici]').getAttribute('data-morph-firma');
+    const f0 = await firmaG();
+    await p.click('.gr-scheda[data-id="calendar"]'); await attesa(500);
+    ok(await p.evaluate(() => state._vizView) === 'calendar' && /Calendario/.test(await p.locator('.gr-testa').innerText()) && await p.locator('[data-grafici] svg').count() > 0 && await firmaG() !== f0, 'grafici: si sceglie un altro grafico (cambia la firma del contenitore e si ridisegna)');
+    const f1 = await firmaG();
+    await p.click('[data-a="gr-periodo"][data-v="month"]'); await attesa(500);
+    ok(await p.evaluate(() => state._vizFilter) === 'month' && /Ultimo mese/.test(await p.locator('.cr-chip.on').first().innerText()) && await firmaG() !== f1 && await p.locator('[data-grafici] svg').count() > 0, 'grafici: il periodo «Ultimo mese» si applica e il grafico si ridisegna');
+    await p.click('[data-a="gr-periodo"][data-v="custom"]'); await attesa(300);
+    await p.evaluate(() => { state._vizFrom = '2099-01-01'; TiceHome.ridisegna(); }); await attesa(500);
+    ok(/Nessuna seduta nel periodo scelto/.test(await p.locator('[data-grafici]').innerText()) && /Tutto/.test(await p.locator('[data-grafici]').innerText()), 'grafici: periodo senza sedute, messaggio chiaro con «Tutto»');
+    await p.click('[data-grafici] [data-a="gr-periodo"][data-v="all"]'); await attesa(500);
+    ok(await p.evaluate(() => state._vizFilter) === 'all' && await p.locator('[data-grafici] svg').count() > 0, 'grafici: «Mostra tutto» riporta il grafico');
+    // cambio di bambino: grafico e periodo restano (un secondo bambino, copia in memoria del primo)
+    await p.evaluate(() => { const o = JSON.parse(JSON.stringify(state.patients.find((x) => x.name === 'Prova B.'))); o.id = 'prova-copia'; o.name = 'Copia con un nome molto lungo per vedere come si taglia'; state.patients.push(o); state._vizFilter = 'year'; TiceHome.ridisegna(); }); await attesa(400);
+    await p.click('[data-a="grafici-passa"][data-d="1"]'); await attesa(600);
+    ok(await p.evaluate(() => state._vizView + '|' + state._vizFilter) === 'calendar|year' && await p.locator('.gr-scheda.on[data-id="calendar"]').count() === 1 && /Anno/.test(await p.locator('.cr-chip.on').first().innerText()) && await p.locator('[data-grafici] svg').count() > 0, 'grafici: passando a un altro bambino restano il grafico e il periodo');
+    ok(/Copia con un nome molto lungo/.test(await p.locator('.tice-barra .titolo-testo').innerText()) && /Copia con un nome molto lungo/.test(await p.locator('.grafici-scelta select').getAttribute('title')), 'grafici: il nome intero sta nel titolo della barra e nel «title» della tendina');
+    await p.evaluate(() => { const i = state.patients.findIndex((x) => x.id === 'prova-copia'); if (i >= 0) state.patients.splice(i, 1); state._vizFilter = 'all'; TiceHome.strumenti.T.pid = state.patients.find((x) => x.name === 'Prova B.').id; TiceHome.ridisegna(); }); await attesa(400);
+    await p.click('.gr-scheda[data-id="comportamenti"]'); await attesa(500);
+    ok(/Colpire/.test(await p.locator('[data-grafici]').innerText()), 'grafici: «Comportamenti problema» disegna i grafici dei comportamenti del bambino');
+    // telefono: l'elenco si chiude dopo la scelta e il tasto «Cambia grafico» lo riapre
+    await p.setViewportSize({ width: 390, height: 844 }); await attesa(300);
+    ok(!(await p.locator('.gr-elenco').isVisible()) && await p.locator('.gr-cambia').isVisible(), 'grafici, telefono: si vede solo il grafico scelto, con «Cambia grafico»');
+    await p.click('.gr-cambia'); await attesa(400);
+    ok(await p.locator('.gr-elenco').isVisible() && !(await p.locator('.gr-destra').isVisible()), 'grafici, telefono: «Cambia grafico» apre l\'elenco');
+    await p.click('.gr-scheda[data-id="tice-tempo"]'); await attesa(500);
+    ok(!(await p.locator('.gr-elenco').isVisible()) && await p.locator('[data-grafici] svg').count() > 0 && await p.evaluate(() => { const m = document.querySelector('.grafici-main'); return m.scrollWidth <= m.clientWidth + 1; }), 'grafici, telefono: dopo la scelta l\'elenco si chiude, il grafico resta e la pagina non scorre di lato');
+    // le scritte dei grafici arrivano ad almeno 12px reali
+    ok(await p.evaluate(() => { let min = 99; document.querySelectorAll('[data-grafici] svg').forEach((svg) => { const vb = svg.viewBox.baseVal, sc = vb && vb.width ? svg.getBoundingClientRect().width / vb.width : 1; svg.querySelectorAll('text').forEach((t) => { if (!t.getAttribute('data-diradato') && t.textContent.trim()) min = Math.min(min, parseFloat(getComputedStyle(t).fontSize) * sc); }); }); return min >= 11.9; }), 'grafici: le scritte dei grafici sono di almeno 12px sullo schermo');
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
+    await p.evaluate(() => { delete state._vizView; state._vizFilter = 'all'; TiceHome.vai('grafici'); }); await attesa(500);
     // frecce ← e →: con un secondo bambino (solo in memoria) si passa dall'uno all'altro e si torna indietro
     await p.evaluate(() => { state.patients.push({ id: 'prova-zeta', name: 'Zeta', history: [] }); TiceHome.ridisegna(); }); await attesa(300);
     const nomeGrafici = () => p.evaluate(() => ((document.querySelector('.grafici-bimbo.qui') || {}).lastElementChild || {}).textContent || '');

@@ -9,8 +9,8 @@
 const VIZ_SKINS = {
     clinico: {
         label: 'Clinico', icon: 'fa-stethoscope',
-        bg: 'transparent', grid: 'rgba(var(--ink-rgb),0.07)', axis: 'rgba(var(--ink-rgb),0.35)',
-        text: 'rgba(var(--ink-rgb),0.65)', textDim: 'rgba(var(--ink-rgb),0.3)',
+        bg: 'transparent', grid: 'rgba(var(--ink-rgb),0.09)', axis: 'rgba(var(--ink-rgb),0.45)',
+        text: 'rgba(var(--ink-rgb),0.8)', textDim: 'rgba(var(--ink-rgb),0.62)',
         good: '#10b981', mid: '#f59e0b', bad: '#ef4444',
         v: '#10b981', p: '#f59e0b', x: '#ef4444',
         accent: '#6366f1', organic: false, font: 'inherit'
@@ -922,6 +922,8 @@ function renderVizTab(patient, box) {
     if (box !== undefined) _vizBox = box;
     const content = vizContenitore();
     if (!content) return;
+    // nella schermata Grafici del Centro TICE la scelta e il disegno li gestisce js/tice-home-grafici.js
+    if (content.hasAttribute && content.hasAttribute('data-grafici') && typeof window._vizRidisegna === 'function') { window._vizRidisegna(patient, content); return; }
     const cur = state._vizView || 'calendar';
     const sk = getVizSkin();
     const tf = state._vizFilter || 'all';
@@ -973,6 +975,8 @@ window.selectVizView = (id, pid) => { state._vizView = id; const p = state.patie
 // expose extractors for testing
 window._vizApi = {
     vizDailyData, vizItemStats, vizDomainStats, vizTimeDelaySeries, VIZ_VIEWS, VIZ_SKINS,
+    // filtro del periodo e contenitore, per la schermata Grafici (js/tice-home-grafici.js)
+    vizFilteredPatient, vizFilterRange, impostaContenitore: (b) => { _vizBox = b; },
     // drawing toolkit for add-on visualizations (js/dataviz-extra.js)
     svgRoot, svgEl, skin, pctSkinColor, _smooth, _caption, _title, _vizLegendChips, _esc
 };

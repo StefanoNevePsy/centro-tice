@@ -68,7 +68,7 @@
         const ultimoX = A.punti.length ? A.punti[A.punti.length - 1].x : 0;
         let fineX = Math.max(ultimoX + (scala === 'settimane' ? 4 : 14), scala === 'settimane' ? 16 : 42);
         visibili.forEach((k) => { const a = A.serie[k].arrivo; if (a && a.x < ultimoX + (scala === 'settimane' ? 26 : 120)) fineX = Math.max(fineX, Math.ceil(a.x) + 2); });
-        const pad = { l: 46, r: 16, t: 30, b: 34 };
+        const pad = { l: 56, r: 16, t: 34, b: 38 };
         const largo = (box.clientWidth || 0) - pad.l - pad.r - 12;
         if (largo > 0) fineX = Math.max(fineX, Math.min(Math.floor(largo / pxX), scala === 'settimane' ? 52 : 140));
         const W = Math.round(pad.l + fineX * pxX + pad.r), Hh = Math.round(pad.t + decadi * H_DEC + pad.b);
@@ -84,11 +84,11 @@
         for (let d = lo; d <= hi; d++) {
             const y = Y(Math.pow(10, d));
             el('line', { x1: pad.l, x2: W - pad.r, y1: y, y2: y }, griglia, 'stroke:rgba(var(--ink-rgb),0.28);stroke-width:1');
-            testo(asse, pad.l - 6, y + 3.5, numero(Math.pow(10, d)), 'font-size:10px;fill:var(--text-secondary);font-weight:600', 'end');
+            testo(asse, pad.l - 6, y + 4, numero(Math.pow(10, d)), 'font-size:12px;fill:var(--text-secondary);font-weight:600', 'end');
             if (d < hi) for (let m = 2; m <= 9; m++) {
                 const ym = Y(m * Math.pow(10, d));
                 el('line', { x1: pad.l, x2: W - pad.r, y1: ym, y2: ym }, griglia, `stroke:rgba(var(--ink-rgb),${m === 5 ? 0.14 : 0.07});stroke-width:1`);
-                if (m === 5 && H_DEC > 70) testo(asse, pad.l - 6, ym + 3, numero(5 * Math.pow(10, d)), 'font-size:8.5px;fill:var(--text-muted)', 'end');
+                if (m === 5 && H_DEC > 70) testo(asse, pad.l - 6, ym + 4, numero(5 * Math.pow(10, d)), 'font-size:12px;fill:var(--text-secondary)', 'end');
             }
         }
         // griglia verticale: giorni leggeri, lunedì marcati, date sotto
@@ -100,13 +100,13 @@
             const xp = X(x) - pxX / 2;
             if (scala === 'giorni' && !lun && pxX < 4) continue;
             el('line', { x1: xp, x2: xp, y1: pad.t, y2: Hh - pad.b }, griglia, `stroke:rgba(var(--ink-rgb),${lun ? 0.16 : 0.05});stroke-width:1`);
-            if (lun && xp - ultimaEtichetta > 38) {
-                testo(griglia, xp + 2, Hh - pad.b + 13, breve(k), 'font-size:9px;fill:var(--text-secondary)');
+            if (lun && xp - ultimaEtichetta > 46) {
+                testo(griglia, xp + 2, Hh - pad.b + 15, breve(k), 'font-size:12px;fill:var(--text-secondary)');
                 ultimaEtichetta = xp;
             }
         }
-        testo(griglia, pad.l, Hh - 6, scala === 'settimane' ? 'settimane (ogni punto: mediana dei giorni)' : 'giorni di calendario (le righe più scure sono i lunedì)', 'font-size:9px;fill:var(--text-muted)');
-        testo(asse, 4, pad.t - 16, A.perMinuto ? 'al minuto' : 'al giorno', 'font-size:9px;fill:var(--text-muted)');
+        testo(griglia, pad.l, Hh - 7, scala === 'settimane' ? 'settimane (ogni punto: mediana dei giorni)' : 'giorni di calendario (le righe più scure sono i lunedì)', 'font-size:12px;fill:var(--text-secondary)');
+        testo(asse, 2, pad.t - 18, A.perMinuto ? 'al minuto' : 'al giorno', 'font-size:12px;fill:var(--text-secondary)');
 
         // linee di cambio fase
         (opz.fasi || []).forEach((f) => {
@@ -114,7 +114,7 @@
             if (x < 0 || x > fineX) return;
             const xp = X(scala === 'settimane' ? Math.floor(x) : x) - pxX / 2 - (scala === 'settimane' ? 0 : 0);
             el('line', { x1: xp, x2: xp, y1: pad.t - 4, y2: Hh - pad.b }, gFasi, `stroke:var(--text-primary);stroke-width:${f.auto ? 1 : 1.6};${f.auto ? 'stroke-dasharray:4 3;opacity:.55' : 'opacity:.85'}`);
-            const t = testo(gFasi, xp + 3, pad.t - 8, f.etichetta.length > 22 ? f.etichetta.slice(0, 21) + '…' : f.etichetta, `font-size:9px;fill:var(--text-primary);font-weight:${f.auto ? 500 : 700};opacity:${f.auto ? 0.7 : 1}`);
+            const t = testo(gFasi, xp + 3, pad.t - 8, f.etichetta.length > 22 ? f.etichetta.slice(0, 21) + '…' : f.etichetta, `font-size:12px;fill:var(--text-primary);font-weight:${f.auto ? 500 : 700};opacity:${f.auto ? 0.7 : 1}`);
             el('title', {}, t).textContent = (f.auto ? 'Cambio (automatico): ' : 'Cambio di fase: ') + f.etichetta + ' · ' + lunga(f.data);
         });
 
@@ -123,7 +123,7 @@
             const ob = A.serie[k].obiettivo;
             if (!ob) return;
             el('line', { x1: pad.l, x2: W - pad.r, y1: Y(ob), y2: Y(ob) }, gLinee, `stroke:${SERIE[k].colore};stroke-width:1.2;stroke-dasharray:2 4;opacity:.8`);
-            testo(gLinee, W - pad.r - 2, Y(ob) - 4, 'obiettivo ' + numero(ob), `font-size:9px;fill:${SERIE[k].colore};font-weight:700`, 'end');
+            testo(gLinee, W - pad.r - 2, Y(ob) - 4, 'obiettivo ' + numero(ob), `font-size:12px;fill:${SERIE[k].colore};font-weight:700`, 'end');
         });
 
         // celerazioni (una per fase), variabilità e proiezione
@@ -143,7 +143,7 @@
                     el('line', { x1: X(c.a_), y1: Y(c.valore(c.a_)), x2: X(fineP), y2: Y(c.valore(fineP)) }, gLinee, `stroke:${SERIE[k].colore};stroke-width:1.4;stroke-dasharray:3 4;opacity:.7`);
                 }
                 const xm = (c.da + c.a_) / 2, ym = Y(c.valore(xm));
-                const lab = testo(gTesti, X(xm), ym - 7, c.testo, `font-size:10.5px;font-weight:800;fill:${SERIE[k].colore};paint-order:stroke;stroke:var(--taccuino-carta, var(--modal-bg));stroke-width:3px`, 'middle');
+                const lab = testo(gTesti, X(xm), ym - 7, c.testo, `font-size:12px;font-weight:800;fill:${SERIE[k].colore};paint-order:stroke;stroke:var(--taccuino-carta, var(--modal-bg));stroke-width:3px`, 'middle');
                 el('title', {}, lab).textContent = `${SERIE[k].nome}: ${c.testo} ${scala === 'settimane' ? 'ogni 4 settimane' : 'a settimana'} (${c.n} ${scala === 'settimane' ? 'settimane' : 'giorni'})`;
             });
         });

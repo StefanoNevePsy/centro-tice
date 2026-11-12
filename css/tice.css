@@ -1160,7 +1160,8 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
     .tice .cr-giorni > .scheda { break-inside: avoid; margin: 0 0 10px; }
     .tice .cr-riep-elenco { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .tice .cr-riep-riga:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
-    .tice .cr-scelta { max-width: 520px; }
+    .tice .cr-scelta { max-width: 640px; }
+    .tice .cr-scelta select { text-overflow: ellipsis; }
 }
 @media (min-width: 1100px) {
     .tice .cr-riep-elenco { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -1260,3 +1261,73 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
     .tice .bt.largo.tt-apri-altro { width: auto; min-width: 420px; display: flex; margin-left: auto; margin-right: auto; }
 }
 .tice [data-grafici] span[style*="font-size:0.62rem"] { font-size: 0.72rem !important; opacity: 0.85 !important; }
+
+/* ---------- Grafici (gr-): periodo, scelta del grafico a schede, disegno ---------- */
+.tice .grafici-bimbo-nome { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tice .grafici-scelta select { text-overflow: ellipsis; min-height: 44px; }
+.tice .grafici-scelta .ib { flex: none; min-width: 44px; min-height: 44px; }
+.tice .gr-controlli { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; padding: 10px 12px; background: var(--t-sup); border: 1px solid var(--t-bordo); border-radius: 14px; }
+.tice .gr-riga { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; min-width: 0; }
+.tice .gr-et { flex: none; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+.tice .gr-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.tice .gr-chips .cr-chip { min-height: 40px; }
+.tice .gr-date label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-secondary); }
+.tice .gr-date .campo-in { width: auto; min-height: 40px; }
+.tice .gr-sotto-riga { justify-content: space-between; }
+.tice .gr-periodo-n { min-width: 0; }
+.tice .gr-aspetto-tasto { min-height: 40px; padding: 0 4px; font-size: 0.85rem; white-space: nowrap; }
+.tice .gr-aspetto { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--t-bordo); }
+
+.tice .gr-corpo { display: block; }
+.tice .gr-elenco { display: none; margin-bottom: 14px; }
+.tice .gr-corpo.apre .gr-elenco { display: block; }
+.tice .gr-corpo.apre .gr-destra { display: none; }
+.tice .gr-elenco-testa { display: flex; align-items: center; justify-content: space-between; margin: 2px 2px 8px; }
+.tice .gr-elenco-testa b { font-size: 1.05rem; }
+.tice .gr-gruppo { margin-bottom: 12px; }
+.tice .gr-gruppo-t { margin: 0 2px 6px; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+.tice .gr-gruppo-tasto { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; padding: 0 2px; border: 0; background: transparent; font: inherit; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; text-align: left; cursor: pointer; }
+.tice .gr-gruppo-tasto small { font-weight: 600; opacity: 0.8; }
+.tice .gr-gruppo-tasto i { margin-left: auto; }
+.tice .gr-griglia { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tice .gr-scheda { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; min-height: 44px; padding: 10px; text-align: left; font: inherit; color: var(--text-primary); background: var(--t-sup); border: 1px solid var(--t-bordo); border-radius: 14px; cursor: pointer; box-shadow: var(--shadow); }
+.tice .gr-scheda.on { border-color: var(--accent-color); box-shadow: inset 0 0 0 1.5px var(--accent-color); }
+.tice .gr-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 10px; background: var(--t-sup-2); color: var(--accent-color); font-size: 0.95rem; }
+.tice .gr-scheda.on .gr-ico { background: var(--accent-color); color: var(--modal-bg, #fff); }
+.tice .gr-scheda-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tice .gr-scheda-t b { font-size: 0.92rem; line-height: 1.2; overflow-wrap: anywhere; }
+.tice .gr-scheda-t small { font-size: 0.78rem; line-height: 1.3; color: var(--text-secondary); overflow-wrap: anywhere; }
+.tice .gr-testa { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 10px; background: var(--t-sup-2); border-radius: 14px; }
+.tice .gr-ico-grande { width: 38px; height: 38px; background: var(--accent-color); color: var(--modal-bg, #fff); font-size: 1.05rem; }
+.tice .gr-testa-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tice .gr-testa-t b { font-size: 1rem; line-height: 1.2; overflow-wrap: anywhere; }
+.tice .gr-testa-t small { font-size: 0.8rem; line-height: 1.3; color: var(--text-secondary); }
+.tice .gr-cambia { flex: none; min-height: 40px; }
+.tice .gr-canvas { min-height: 120px; }
+.tice .gr-vuoto { text-align: center; padding: 28px 12px; color: var(--text-secondary); line-height: 1.5; }
+.tice .gr-vuoto p { margin: 0 0 8px; }
+.tice .gr-vuoto b { color: var(--text-primary); }
+/* i comandi interni ai grafici non sono più quelli di prima: restano normali */
+.tice .gr-canvas button { min-height: 32px; }
+@media (max-width: 520px) {
+    .tice .grafici-scelta, .tice .cr-scelta { flex-wrap: wrap; }
+    .tice .grafici-scelta select, .tice .cr-scelta select { font-size: 0.92rem; padding-left: 8px; padding-right: 8px; }
+    .tice .grafici-n, .tice .cr-scelta-n { order: 3; flex-basis: 100%; text-align: center; margin-top: -4px; }
+    .tice-barra .sotto-titolo { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+}
+@media (min-width: 900px) {
+    .tice .gr-corpo { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .tice .gr-elenco, .tice .gr-corpo.apre .gr-elenco { display: block; margin-bottom: 0; position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow-y: auto; padding-right: 4px; }
+    .tice .gr-corpo.apre .gr-destra { display: block; }
+    .tice .gr-griglia { grid-template-columns: 1fr; gap: 6px; }
+    .tice .gr-scheda { flex-direction: row; align-items: center; gap: 10px; padding: 8px 10px; box-shadow: none; }
+    .tice .gr-elenco-testa { display: none; }
+    .tice .gr-cambia { display: none; }
+    .tice .gr-scheda-t small { font-size: 0.76rem; }
+    .tice .gr-controlli { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+    .tice .gr-sotto-riga { flex: 1; justify-content: flex-end; gap: 14px; }
+    .tice .gr-aspetto { flex-basis: 100%; flex-direction: row; align-items: center; gap: 10px; }
+    .tice .gr-testa { background: transparent; padding-left: 2px; }
+    .tice .grafici-scelta { max-width: 560px; }
+}
+.tice .grafici-bimbo .avatar { font-size: 0.62rem !important; letter-spacing: -0.02em; overflow: hidden; }

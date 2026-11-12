@@ -214,7 +214,67 @@
         { id: 'tice-sedute', label: 'Sedute al criterio', icon: 'fa-chart-column', fn: vizSeduteCriterio, group: 'Programma' }
     );
 
-    // ---------- leggibilità: nessun testo sotto i 10px sullo schermo ----------
+    // ---------- leggibilità: nessun testo sotto i 12px sullo schermo ----------
+    // Le scritte dei grafici sono disegnate in unità del viewBox: se il disegno si rimpicciolisce (telefono)
+    // diventano minuscole. Qui si alzano a 12px reali; se poi due scritte si sovrappongono si dirada
+    // (si nasconde la seconda) invece di rimpicciolire. I calcoli del grafico non cambiano.
+    const MINIMO = 12;
+    const angolo = (t) => { const m = /rotate\(\s*(-?[\d.]+)/.exec(t.getAttribute('transform') || ''); return m ? parseFloat(m[1]) : 0; };
+    function leggibili(tela, minimo) {
+        minimo = minimo || MINIMO;
+        if (!tela || !tela.querySelectorAll) return;
+        tela.setAttribute('data-viz-leggibile', '1');
+        tela.querySelectorAll('svg').forEach((svg) => {
+            const vb = svg.viewBox && svg.viewBox.baseVal, w = svg.getBoundingClientRect().width;
+            if (!vb || !vb.width || !w) return;
+            const scala = w / vb.width;
+            const testi = Array.from(svg.querySelectorAll('text'));
+            // si riparte dall'originale (il ridimensionamento della finestra rifà il conto)
+            testi.forEach((t) => {
+                if (t._fs0 === undefined) t._fs0 = t.style.fontSize || '';
+                else { t.style.fontSize = t._fs0; }
+                t.style.display = ''; t.removeAttribute('data-diradato');
+            });
+            let alzato = false;
+            testi.forEach((t) => {
+                const reale = (parseFloat(getComputedStyle(t).fontSize) || 0) * scala;
+                if (reale && reale < minimo - 0.05) { t.style.fontSize = (minimo / scala).toFixed(2) + 'px'; alzato = true; }
+            });
+            if (alzato) svg.style.overflow = 'visible';
+            if (!alzato) return;
+            // diradare: in ordine di disegno, una scritta resta solo se non ne copre una già tenuta
+            const tenuti = [], ruotati = [];
+            testi.forEach((t) => {
+                if (!(t.textContent || '').trim()) return;
+                const r = t.getBoundingClientRect();
+                if (!r.width || !r.height) return;
+                const a = angolo(t);
+                if (a) {
+                    const x = parseFloat(t.getAttribute('x')) || 0, y = parseFloat(t.getAttribute('y')) || 0, rad = a * Math.PI / 180;
+                    const fs = (parseFloat(getComputedStyle(t).fontSize) || minimo) * scala;
+                    const n = { x: -Math.sin(rad), y: Math.cos(rad) };
+                    const troppo = ruotati.some((q) => Math.abs(q.a - a) < 1 && Math.abs((x - q.x) * n.x + (y - q.y) * n.y) * scala < fs * 0.95);
+                    if (troppo) { t.style.display = 'none'; t.setAttribute('data-diradato', '1'); } else ruotati.push({ a, x, y });
+                    return;
+                }
+                const copre = tenuti.some((q) => {
+                    const ox = Math.min(r.right, q.right) - Math.max(r.left, q.left), oy = Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top);
+                    return ox > -4 && oy > 0.35 * Math.min(r.height, q.height);   // anche se si sfiorano a meno di 4px
+                });
+                if (copre) { t.style.display = 'none'; t.setAttribute('data-diradato', '1'); } else tenuti.push(r);
+            });
+        });
+    }
+    A.leggibili = leggibili;
+    // quando la finestra cambia larghezza il disegno si ridimensiona: si rifà il conto
+    let _rid = 0;
+    window.addEventListener('resize', () => {
+        clearTimeout(_rid);
+        _rid = setTimeout(() => document.querySelectorAll('[data-viz-leggibile]').forEach((t) => { if (t.isConnected) leggibili(t); }), 150);
+    });
+    // per la schermata Grafici: c'è un programma TICE con target?
+    A.haProgramma = (patient) => !!(patient && righeProgramma(patient).length);
+
     const orig = window.renderVizTab;
     window.renderVizTab = function (patient, box) {
         // per i bambini con un programma TICE si parte dai target
@@ -223,14 +283,7 @@
         const dove = window._vizContenitore ? window._vizContenitore() : document;
         const tela = dove && dove.querySelector('#viz-canvas');
         if (!tela) return;
-        requestAnimationFrame(() => tela.querySelectorAll('svg').forEach((svg) => {
-            const vb = svg.viewBox && svg.viewBox.baseVal, w = svg.getBoundingClientRect().width;
-            if (!vb || !vb.width || !w) return;
-            const scala = w / vb.width;
-            svg.querySelectorAll('text').forEach((t) => {
-                const fs = parseFloat(t.getAttribute('font-size') || '0');
-                if (fs && fs * scala < 10) t.setAttribute('font-size', (10 / scala).toFixed(1));
-            });
-        }));
+        leggibili(tela);
+        requestAnimationFrame(() => leggibili(tela));
     };
 })();
