@@ -244,9 +244,10 @@
 
     function dopo(vista, r) {
         const gis = r.querySelector('#tice-gis');
-        if (gis) Y.Auth.pulsante(gis).catch((e) => { gis.innerHTML = String(h`<p class="sotto">${e.message}</p>`); });
+        // il contenitore resta lo stesso fra un ridisegno e l'altro (morph): il pulsante si monta e il gestore si attacca una volta sola
+        if (gis && !gis._montato) { gis._montato = true; Y.Auth.pulsante(gis).catch((e) => { gis._montato = false; gis.innerHTML = String(h`<p class="sotto">${e.message}</p>`); }); }
         const f = r.querySelector('[data-a-form="accesso-dev"]');
-        if (f) f.addEventListener('submit', (e) => { e.preventDefault(); Y.Auth.accessoDev(f.email.value); });
+        if (f && !f._accessoDev) { f._accessoDev = true; f.addEventListener('submit', (e) => { e.preventDefault(); Y.Auth.accessoDev(f.email.value); }); }
     }
 
     // =====================================================================

@@ -205,7 +205,7 @@
                 ${riga('Attività', att ? att.nome : 'non collegata al programma')}
                 ${riga('Target', t ? t.testo : '')}
                 ${riga('Tipo', (td ? 'Time delay' + (s.timeDelaySeconds != null ? ' · ' + s.timeDelaySeconds + ' s' : '') : s.scala === 'percentuale' ? 'Percentuale' : 'Indipendente') + (s.mantenimento ? ' · mantenimento' : '') + (s.mode === 'quaderno_task' ? ' · task analysis' : ''))}
-                ${riga('Esito', tot > 0 ? h`${v} corrette (V) · ${pr} con aiuto (P) · ${x} errori (X) — su ${tot}${pc != null ? ' · ' + pc + '%' : ''}` : (pc != null ? pc + '%' : ''))}
+                ${riga('Esito', tot > 0 ? h`${v} ${v === 1 ? 'corretta' : 'corrette'} (V) · ${pr} con aiuto (P) · ${x} ${x === 1 ? 'errore' : 'errori'} (X) — su ${tot}${pc != null ? ' · ' + pc + '%' : ''}` : (pc != null ? pc + '%' : ''))}
                 ${riga('Misura', s.misuraNome || '')}
                 ${riga('Durata', durT)}
                 ${s.fuoriStatistiche ? riga('Statistiche', 'Non conteggiata nelle statistiche') : ''}

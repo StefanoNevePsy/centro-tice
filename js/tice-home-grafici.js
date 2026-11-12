@@ -29,13 +29,14 @@
                 </div>
                 <div class="grafici-bambini" role="list">${tutti.map((x) => h`<button role="listitem" class="grafici-bimbo ${x === p ? 'qui' : ''}" data-a="grafici-vai" data-pid="${x.id}" ${x === p ? grezzo('aria-current="true"') : ''}>
                     <span class="avatar">${x.photo ? h`<img src="${x.photo}" alt="">` : iniziali(x.name)}</span><span>${x.name}</span></button>`)}</div>
-                ${(p.history || []).length ? h`<div class="grafici-tela" data-grafici></div>` : h`<div class="vuoto">${p.name}: ancora nessuna seduta registrata.</div>`}`
+                ${(p.history || []).length ? h`<div class="grafici-tela" data-grafici data-morph-firma="${p.id}|${(p.history || []).length}|${String((p.history[p.history.length - 1] || {}).date || '')}"></div>` : h`<div class="vuoto">${p.name}: ancora nessuna seduta registrata.</div>`}`
                 : h`<div class="vuoto">Ancora nessun bambino.</div>`}
             </main>`;
     }
     function montaGrafici(r) {
         const box = r.querySelector('[data-grafici]'), p = bambinoGrafici();
-        if (box && p && window.renderVizTab) window.renderVizTab(p, box);
+        // con il ridisegno parziale il contenitore resta, già disegnato, finché non cambia la sua firma (bambino o sedute)
+        if (box && p && window.renderVizTab && !box.firstChild) window.renderVizTab(p, box);
         const qui = r.querySelector('.grafici-bimbo.qui');
         if (qui) qui.scrollIntoView({ block: 'nearest', inline: 'center' });
     }

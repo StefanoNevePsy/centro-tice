@@ -887,8 +887,14 @@
         const chiave = (el, i, tutti) => el.className.split(' ')[0] + ':' + tutti.filter((x) => x.className.split(' ')[0] === el.className.split(' ')[0]).indexOf(el);
         const prima = T.vista === T.vistaDisegnata ? scorrevoli().map((el, i, tutti) => [chiave(el, i, tutti), el.scrollLeft, el.scrollTop]).filter((x) => x[1] || x[2]) : [];
         const f = VISTE[T.vista] || vistaBambini;
-        r.innerHTML = String(f());
-        T.vistaDisegnata = T.vista;
+        const html = String(f());
+        // stessa schermata, stesso bambino: si ridisegna solo ciò che cambia (js/tice-morph.js); altrimenti, e se il morph fallisce, da capo
+        let parziale = !!(window.TiceMorph && T.vista === T.vistaDisegnata && T.pid === T.pidDisegnato && TiceMorph.attivo());
+        if (parziale) {
+            try { TiceMorph.aggiorna(r, html); } catch (e) { console.warn('TiceMorph: ridisegno parziale non riuscito, si ridisegna tutto', e); parziale = false; }
+        }
+        if (!parziale) { r.innerHTML = html; if (window.TiceMorph) TiceMorph.segna(r); }
+        T.vistaDisegnata = T.vista; T.pidDisegnato = T.pid;
         if (prima.length) {
             const dopo = scorrevoli();
             prima.forEach(([k, sx, sy]) => { const el = dopo.find((x, i, tutti) => chiave(x, i, tutti) === k); if (el) { el.scrollLeft = sx; el.scrollTop = sy; } });
@@ -1778,7 +1784,8 @@
             const pos = el.selectionStart;
             disegna();
             const n = radice().querySelector('[data-cambio=cerca]');
-            if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* niente */ } }
+            // col ridisegno parziale il campo non viene toccato e ha già il focus; resta per il ridisegno completo (interruttore spento)
+            if (n && document.activeElement !== n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { /* niente */ } }
         } else if (CAMBI[c]) {
             CAMBI[c](el, e);
         }
@@ -1790,6 +1797,7 @@
         const r = radice();
         r.hidden = false;
         document.body.classList.add('tice-aperto');
+        T.vistaDisegnata = null;   // all'apertura si ridisegna tutto, come prima
         disegna();
         aggiornaLinguetta();
     }

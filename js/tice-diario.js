@@ -151,7 +151,7 @@
     function dopoDiario(r) {
         const c = r.querySelector('[data-nt-cerca]');
         if (!c) return;
-        c.addEventListener('input', () => {
+        const filtra = () => {
             const q = c.value.trim().toLowerCase();
             let n = 0;
             r.querySelectorAll('.nt-giorno').forEach((g) => {
@@ -160,7 +160,11 @@
                 g.hidden = !vis; n += vis;
             });
             r.querySelector('.nt-nessuna').hidden = n > 0 || !q;
-        });
+        };
+        // il campo può restare lo stesso fra un ridisegno e l'altro (morph): il gestore si attacca una volta sola
+        if (!c._ntCerca) { c._ntCerca = true; c.addEventListener('input', filtra); }
+        // il ridisegno rimette visibili le note: se nel campo c'è ancora una ricerca, si riapplica
+        if (c.value.trim()) filtra();
     }
     async function stampaDiario(p) {
         const tutte = N.elenco(p);
