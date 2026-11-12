@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.secondo.outputs.page_url || steps.primo.outputs.page_url }}
     steps:
       - name: Checkout del branch scelto
         uses: actions/checkout@v4
@@ -69,5 +69,25 @@ jobs:
         with:
           path: www
 
+      # GitHub a volte non trova subito il pacchetto appena caricato («No artifacts named github-pages»):
+      # si riprova dopo qualche secondo invece di segnare la pubblicazione come fallita
+      - id: primo
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Attesa prima di riprovare
+        if: steps.primo.outcome == 'failure'
+        run: sleep 30
+
+      - id: secondo
+        if: steps.primo.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Attesa prima dell'ultimo tentativo
+        if: steps.primo.outcome == 'failure' && steps.secondo.outcome == 'failure'
+        run: sleep 60
+
       - id: deployment
+        if: steps.primo.outcome == 'failure' && steps.secondo.outcome == 'failure'
         uses: actions/deploy-pages@v4
