@@ -71,6 +71,7 @@ var QT = (function () {
     versione: function (pid, v) { return 'Pazienti/' + pid + '/versioni/v' + ('00000000' + v).slice(-8) + '.json'; },
     indiceMateriali: 'Materiali/indice.json',
     modalita: '_config/modalita.json',
+    specchio: '_config/specchio.json',
     turni: function (k, aula) { return aula && aula !== AULA_BASE ? 'Turni/' + aula + '/' + k + '.json' : 'Turni/' + k + '.json'; },
     cartellaImmagini: 'Materiali/immagini',
     set: function (id) { return 'Materiali/set/' + id + '.json'; },
@@ -303,6 +304,110 @@ var QT = (function () {
   }
 
   // ------------------------------------------------------------------------
+  // Corsia veloce (Firestore): la copia degli accessi
+  // ------------------------------------------------------------------------
+  // Le regole di Firestore (firestore.rules) non possono leggere il Drive: decidono su una COPIA di
+  // quanto il custode sa su chi puo' vedere cosa, scritta SOLO da qui (via REST, con l'account del
+  // proprietario) e mai dai client. Due raccolte:
+  //   accessi/<email>  aule con ruolo, aule dove vede tutto / registra / gestisce, bambini assegnati, scadenza
+  //   pazienti/<pid>   aula, riservato, chi l'ha creato, con chi e' condiviso
+  // Le funzioni qui sotto sono pure (nessun servizio Google): le usa il custode e le prova tools/test-*.js.
+  var FS = { fine: '2100-01-01T00:00:00.000Z', pulizia: ['modifiche', 'buste', 'richieste', 'consegne'] };
+
+  function cyrb53(str) {
+    var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (var i = 0; i < str.length; i++) {
+      var ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+  function giornoDopo(g) { return new Date(Date.parse(g + 'T00:00:00Z') + 86400000).toISOString(); }
+
+  /**
+   * Cosa deve contenere Firestore: { 'accessi/<email>': {...}, 'pazienti/<pid>': {...} }.
+   * Segue alla lettera utenteDa() e vede(): chi non e' abilitato (disattivato, scaduto, sconosciuto)
+   * non ha il documento; il proprietario e' admin di tutte le aule; un riservato lo vedono solo chi
+   * l'ha creato e chi e' nei condivisi. I timestamp sono { $ts: ISO }.
+   */
+  function copiaFirestore(accessi, elenco, proprietario, oggi) {
+    var utenti = (accessi && accessi.utenti) || {}, esistenti = auleDelCentro(accessi), prop = String(proprietario || '').toLowerCase();
+    var docs = {};
+    function accesso(email, aule, pazienti, sono, scadenza) {
+      var vt = [], sc = [], ge = [];
+      Object.keys(aule).forEach(function (a) {
+        var x = PERMESSI[aule[a]];
+        if (x.vediTutti) vt.push(a);
+        if (x.registraSedute) sc.push(a);
+        if (x.gestisciAccessi) ge.push(a);
+      });
+      docs['accessi/' + email] = {
+        email: email, attivo: true, proprietario: !!sono,
+        scadeIl: { $ts: scadenza ? giornoDopo(scadenza) : FS.fine },
+        aule: aule, vedeTutte: vt.sort(), scrivono: sc.sort(), gestisce: ge.sort(),
+        tutti: pazienti === '*', pazienti: pazienti === '*' ? [] : (pazienti || []).slice().sort(),
+      };
+    }
+    Object.keys(utenti).forEach(function (email) {
+      var voce = utenti[email];
+      if (email === prop) return;
+      if (!voce || voce.attivo === false || (voce.scadenza && oggi > voce.scadenza)) return;
+      var mie = {}, va = auleDiVoce(voce);
+      Object.keys(va).forEach(function (id) { if (esistenti[id] && PERMESSI[va[id]]) mie[id] = va[id]; });
+      accesso(email, mie, voce.pazienti, false, voce.scadenza || null);
+    });
+    if (prop) {
+      var tutte = {};
+      Object.keys(esistenti).forEach(function (id) { tutte[id] = 'admin'; });
+      accesso(prop, tutte, '*', true, null);
+    }
+    var el = (elenco && elenco.pazienti) || {};
+    Object.keys(el).forEach(function (pid) {
+      var v = el[pid];
+      docs['pazienti/' + pid] = {
+        aula: v.aula || AULA_BASE, riservato: !!v.riservato, creatoDa: v.riservato ? (v.creatoDa || '') : '',
+        condivisi: v.riservato ? (v.condivisi || []).slice().sort() : [], eliminato: !!v.eliminato,
+      };
+    });
+    return docs;
+  }
+
+  // Valori nel formato REST di Firestore (https://firestore.googleapis.com/v1/...)
+  function fsValore(v) {
+    if (v === null || v === undefined) return { nullValue: null };
+    if (typeof v === 'boolean') return { booleanValue: v };
+    if (typeof v === 'number') return Math.floor(v) === v ? { integerValue: String(v) } : { doubleValue: v };
+    if (typeof v === 'string') return { stringValue: v };
+    if (Array.isArray(v)) return { arrayValue: v.length ? { values: v.map(fsValore) } : {} };
+    if (typeof v === 'object' && typeof v.$ts === 'string') return { timestampValue: v.$ts };
+    var campi = fsCampi(v);
+    return { mapValue: Object.keys(campi).length ? { fields: campi } : {} };
+  }
+  function fsCampi(o) {
+    var out = {};
+    Object.keys(o).forEach(function (k) { out[k] = fsValore(o[k]); });
+    return out;
+  }
+  function fsNome(progetto, percorso) { return 'projects/' + progetto + '/databases/(default)/documents/' + percorso; }
+  /** Corpo di una `commit`: i documenti da scrivere (percorso → dati) e quelli da cancellare (percorsi). */
+  function fsCommit(progetto, scritture, cancellazioni) {
+    var w = [];
+    Object.keys(scritture).forEach(function (p) { w.push({ update: { name: fsNome(progetto, p), fields: fsCampi(scritture[p]) } }); });
+    (cancellazioni || []).forEach(function (p) { w.push({ 'delete': fsNome(progetto, p) }); });
+    return { writes: w };
+  }
+  /** Corpo di una `runQuery`: i documenti di una raccolta con `scade` gia' passata. */
+  function fsScadute(collezione, adessoIso, limite) {
+    return { structuredQuery: {
+      from: [{ collectionId: collezione }],
+      where: { fieldFilter: { field: { fieldPath: 'scade' }, op: 'LESS_THAN', value: { timestampValue: adessoIso } } },
+      limit: limite || 200,
+    } };
+  }
+
+  // ------------------------------------------------------------------------
   // Il custode
   // ------------------------------------------------------------------------
   /**
@@ -404,6 +509,7 @@ var QT = (function () {
     A.elenca = function (p) { return cron('L', p, function () { return A0.elenca(p); }); };
     if (A0.nomiFile) A.nomiFile = function (p) { return cron('L', p, function () { return A0.nomiFile(p); }); };
     A.scriviJSON = function (p, o, opz) {
+      if (p === P.accessi || p === P.elenco) specchioDaFare = true;
       var t = prima(p);
       try { return cron('S', p, function () { return A0.scriviJSON(p, o, opz); }); } finally { if (t && !inLock) chiudiStato(); }
     };
@@ -416,6 +522,85 @@ var QT = (function () {
     function leggiRinviabile(p) {
       if (!A0.leggiAggiornato) return A.leggiJSON(p);
       return cron('L', p, function () { return A0.leggiAggiornato(p); });
+    }
+
+    // --- Corsia veloce: la copia degli accessi su Firestore --------------------------
+    // amb.specchio = { progetto, commit(corpo), interroga(corpo) } (facoltativo: senza, la corsia veloce
+    // non esiste e il custode e' quello di prima). Dopo ogni scrittura degli accessi o dell'elenco dei
+    // bambini la copia si riallinea (solo i documenti cambiati), e al risveglio periodico si rifa'.
+    // Firestore e' una comodita': se non risponde il custode funziona lo stesso e riprova dopo.
+    var SPECCHIO_IMP = 'qt:specchio:imp', SPECCHIO_ERR = 'qt:specchio:err';
+    var specchioDaFare = false, specchioUltimoErrore = null;
+    function cPutTtl(k, v, secondi) { if (!C) return false; try { C.put(k, v, secondi); return true; } catch (e) { return false; } }
+    /** Riallinea la copia. `tutto`: riscrive ogni documento (dopo aver svuotato Firestore). Restituisce i documenti scritti o cancellati. */
+    function specchia(tutto) {
+      var S = amb.specchio;
+      if (!S) return 0;
+      var docs = copiaFirestore(leggiAccessi(), leggiElenco(), amb.proprietario(), oggi());
+      var chiavi = Object.keys(docs).sort(), hash = {};
+      chiavi.forEach(function (k) { hash[k] = cyrb53(stabile(docs[k])); });
+      var imp = cyrb53(chiavi.map(function (k) { return k + '=' + hash[k]; }).join('|')) + ':' + chiavi.length;
+      if (!tutto && cGet(SPECCHIO_IMP) === imp) return 0;
+      var stato = A.leggiJSON(P.specchio) || { schema: SCHEMA, docs: {} };
+      var scritture = {}, cancellazioni = [];
+      chiavi.forEach(function (k) {
+        if (!tutto && stato.docs[k] === hash[k]) return;
+        scritture[k] = docs[k];
+        // un bambino cambiato di aula o reso riservato: le modifiche in volo non valgono piu' per chi le leggeva
+        var m = /^pazienti\/(.+)$/.exec(k);
+        if (m && stato.docs[k] && stato.docs[k] !== hash[k]) { cancellazioni.push('modifiche/' + m[1]); cancellazioni.push('buste/' + m[1]); }
+      });
+      Object.keys(stato.docs).forEach(function (k) { if (!docs[k]) cancellazioni.push(k); });
+      var totale = Object.keys(scritture).length + cancellazioni.length;
+      if (totale) {
+        var ks = Object.keys(scritture), i = 0, j = 0;
+        while (i < ks.length || j < cancellazioni.length) {
+          var parte = {};
+          ks.slice(i, i + 400).forEach(function (k) { parte[k] = scritture[k]; });
+          var canc = cancellazioni.slice(j, j + Math.max(0, 450 - Math.min(400, ks.length - i)));
+          i += 400; j += canc.length;
+          S.commit(fsCommit(S.progetto, parte, canc));
+          if (!canc.length && i >= ks.length) break;
+        }
+        A.scriviJSON(P.specchio, { schema: SCHEMA, docs: hash, aggiornato: amb.ora() });
+      }
+      cPutTtl(SPECCHIO_IMP, imp, TTL_STATO);
+      return totale;
+    }
+    function specchiaSicuro() {
+      specchioDaFare = false;
+      if (!amb.specchio || cGet(SPECCHIO_ERR)) return;
+      try { conLock(function () { specchia(false); }); specchioUltimoErrore = null; }
+      catch (e) {
+        specchioUltimoErrore = String(e && e.message || e).slice(0, 300);
+        // la prossima richiesta riprova, non prima di un minuto (se Firestore non risponde non si rallenta il custode)
+        if (C) { try { C.remove(SPECCHIO_IMP); } catch (x) { /* ok */ } cPutTtl(SPECCHIO_ERR, '1', 60); }
+      }
+    }
+    // Cancella le modifiche, le buste, le richieste e le consegne scadute (scade < adesso)
+    function pulisciFirestore() {
+      var S = amb.specchio, n = 0;
+      if (!S) return 0;
+      var adesso = amb.ora();
+      FS.pulizia.forEach(function (coll) {
+        for (var giro = 0; giro < 10; giro++) {
+          var r = S.interroga(fsScadute(coll, adesso, 200)) || [];
+          var nomi = r.filter(function (x) { return x && x.document; }).map(function (x) { return x.document.name; });
+          if (!nomi.length) break;
+          S.commit({ writes: nomi.map(function (nome) { return { 'delete': nome }; }) });
+          n += nomi.length;
+          if (nomi.length < 200) break;
+        }
+      });
+      return n;
+    }
+    /** Dal risveglio periodico o a mano: riallinea la copia e pulisce. */
+    function riallinea(tutto) {
+      if (!amb.specchio) return { copia: 0, pulite: 0, attivo: false };
+      var out = { attivo: true, copia: 0, pulite: 0 };
+      out.copia = conLock(function () { return specchia(!!tutto); });
+      try { out.pulite = pulisciFirestore(); } catch (e) { out.errorePulizia = String(e && e.message || e).slice(0, 200); }
+      return out;
     }
 
     // Lock rientrante: una ricostruzione di cache puo' partire sia da una
@@ -668,7 +853,7 @@ var QT = (function () {
       return {
         email: u.email, nome: u.nome, ruolo: u.ruolo, pazienti: u.pazienti,
         proprietario: u.proprietario, scadenza: u.scadenza, permessi: permessi(u),
-        aule: aule, cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati', 'aule', 'etichette', 'stato'],
+        aule: aule, cifratura: !!c, kid: (c || {}).kid || null, cfg: c || null, inAttesa: inAttesa, funzioni: ['riservati', 'aule', 'etichette', 'stato'].concat(amb.specchio ? ['veloce'] : []), veloce: amb.specchio ? { progetto: amb.specchio.progetto } : null,
       };
     };
 
@@ -1475,6 +1660,13 @@ var QT = (function () {
       return conLock(function () { return { ricostruiti: Object.keys(ricostruisciElenco().pazienti).length }; });
     };
 
+    // Corsia veloce: riscrive la copia degli accessi su Firestore (dopo aver svuotato il database, o per riparare)
+    azioni['manutenzione.specchio'] = function (u, d) {
+      soloProprietario(u);
+      if (!amb.specchio) throw err('non-trovato', 'La corsia veloce non è configurata su questo custode.');
+      return riallinea(d && d.tutto === true);
+    };
+
     // --- Ingresso -------------------------------------------------------------
     // Ogni risposta porta `ms`: i millisecondi passati dentro il custode (il resto,
     // per chi chiama, e' rete e avvio di Apps Script) e `fasi`: dove sono andati (attesa del
@@ -1524,7 +1716,10 @@ var QT = (function () {
           try { gia = amb.ricordo.leggi(chiave); } catch (e0) { gia = null; }
           if (gia) return JSON.parse(gia);
         }
+        specchioDaFare = false;
         var risposta = { ok: true, dati: fn(u, dati) };
+        // la copia degli accessi su Firestore, dopo ogni cambio di accessi o elenco (o alla prima richiesta con la cache vuota)
+        if (amb.specchio && (specchioDaFare || (C && !cGet(SPECCHIO_IMP) && !cGet(SPECCHIO_ERR)))) specchiaSicuro();
         if (chiave) {
           var testo = JSON.stringify(risposta);
           // la cache di Apps Script tiene valori fino a 100 KB
@@ -1571,13 +1766,15 @@ var QT = (function () {
       });
     }
 
-    return { gestisci: gestisci, azioni: Object.keys(azioni), ricostruisci: ricostruisci, revocaScaduti: revocaScaduti, scalda: scalda, smaltisci: smaltisci };
+    return { gestisci: gestisci, azioni: Object.keys(azioni), ricostruisci: ricostruisci, revocaScaduti: revocaScaduti, scalda: scalda, smaltisci: smaltisci,
+      riallinea: riallinea, erroreSpecchio: function () { return specchioUltimoErrore; } };
   }
 
   return {
     SCHEMA: SCHEMA, PERMESSI: PERMESSI, RUOLI: RUOLI, AULA_BASE: AULA_BASE, PERCORSI: P, RE: RE, VERSIONI: VERSIONI,
     CHIAVE_STATO_REV: QT_CHIAVE_STATO_REV,
     creaCustode: creaCustode, stabile: stabile, hashRiferiti: hashRiferiti, bustaV: bustaV,
+    copiaFirestore: copiaFirestore, fsCampi: fsCampi, fsCommit: fsCommit, fsScadute: fsScadute, fsNome: fsNome,
   };
 })();
 

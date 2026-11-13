@@ -9,3 +9,8 @@ www/
 import-*.json
 *.numbers
 __pycache__/
+
+# log degli emulatori di Firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

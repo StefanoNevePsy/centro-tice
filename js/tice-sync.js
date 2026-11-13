@@ -160,6 +160,12 @@
             if (cfgApp().dev) return token ? Promise.resolve(token) : Promise.reject(new ErroreAccesso('Serve l\'accesso.'));
             if (sessioneValida()) return Promise.resolve(sessione.token);
             if (valido()) { chiediSessione(token); return Promise.resolve(token); }
+            return rinnovaGoogle();
+        }
+        // Un ID token di Google nuovo (anche se la sessione lunga del custode è ancora valida): serve alla
+        // corsia veloce per collegare Firebase con lo stesso account, senza un secondo accesso visibile.
+        function rinnovaGoogle() {
+            if (cfgApp().dev) return Promise.resolve(token);
             if (nativo()) {
                 return window.ticeNativo.token(cfgNativo()).then((r) => {
                     if (r && imposta(r.idToken)) return token;
@@ -175,6 +181,8 @@
                 });
             }));
         }
+        // L'ID token di Google ancora valido (non quello della sessione del custode), o null
+        function idToken() { return !cfgApp().dev && valido() ? token : null; }
         function invalida() {
             token = null; scadenza = 0; sessione = null;
             try { localStorage.removeItem(K_SESS); } catch (e) { /* ok */ }
@@ -192,7 +200,7 @@
             sessione = null; try { localStorage.removeItem(K_SESS); } catch (e) { /* ok */ }
             return valido();
         }
-        return { inizia, pulsante, accessoDev, scartaSessione, token: prendi, utente: () => utente, haToken: () => cfgApp().dev ? !!token : (valido() || sessioneValida()), invalida, esci, alCambio: (f) => ascoltatori.push(f), ErroreAccesso };
+        return { inizia, pulsante, accessoDev, scartaSessione, token: prendi, idToken, rinnovaGoogle, utente: () => utente, haToken: () => cfgApp().dev ? !!token : (valido() || sessioneValida()), invalida, esci, alCambio: (f) => ascoltatori.push(f), ErroreAccesso };
     })();
 
     // =====================================================================
@@ -412,7 +420,7 @@
         await scriviMeta('coda', [...S.coda]);
         cambiato('coda');
         clearTimeout(timerCoda);
-        timerCoda = setTimeout(() => sincronizza({ soloCoda: true }), 2500);
+        timerCoda = setTimeout(() => sincronizza({ soloCoda: true }), corsiaVeloce() ? 800 : 2500);   // con la corsia veloce gli altri vedono la modifica quasi subito
     }
     function agganciaDB() {
         if (DB._ticeSync) return;
@@ -480,6 +488,8 @@
                     nuovaVersione = (await chiama('paziente.salva', Object.assign({ id: pid, versioneBase: r.version }, b))).version;
                 }
                 await scriviRec(pid, { version: nuovaVersione, base: JSON.parse(istantanea) });
+                // Corsia veloce: la stessa busta, subito, anche agli altri dispositivi (mai un errore per chi salva)
+                try { if (window.TiceVeloce && TiceVeloce.app && TiceVeloce.app.attiva()) TiceVeloce.app.pubblica({ pid, version: nuovaVersione, busta: b.busta }); } catch (e) { /* solo una corsia in più */ }
                 // Se intanto il bambino è stato modificato di nuovo, resta in coda
                 const ora = await leggiLocale(pid);
                 if (!ora || U.stabile(ora) === istantanea) S.coda.delete(pid);
@@ -585,6 +595,8 @@
 
     // ---------- ciclo ----------
     let incorso = null;
+    let ultimoGiro = 0;      // l'ultima sincronizzazione completa con il custode (ms)
+    const corsiaVeloce = () => { try { return !!(window.TiceVeloce && TiceVeloce.app && TiceVeloce.app.attiva()); } catch (e) { return false; } };
     let statoUnico = true;   // il custode conosce «sincronizza.stato» (se no si torna alle due richieste)
     let ultimiControlli = 0;
     function sincronizza(opz) {
@@ -629,6 +641,7 @@
                 }
                 S.errore = null;
                 S.ultimo = new Date().toISOString();
+                ultimoGiro = Date.now();
                 return true;
             } catch (e) {
                 if (e && e.custode && e.codice === 'chiave-cambiata') {
@@ -819,6 +832,7 @@
         S.negato = null;
         aggiornaFase();
         if (S.cfg && !S.chiave) { await ottieniChiave(); aggiornaFase(); }
+        if (S.chiave) notificaChiave();
         else if (S.cfg) C.dispositivo().then((d) => chiama('dispositivo.registra', { id: d.id, nome: nomeDispositivo(), pubblica: d.pubblica })).catch(() => {});
         cambiato('stato');
         if (S.fase === 'pronto' && !senzaSincronizzare) sincronizza();
@@ -830,6 +844,8 @@
             controllaScadenza();
             if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
             if (S.fase === 'attesa' || S.fase === 'chiave') return;   // la chiave si controlla più spesso, qui sotto
+            // con la corsia veloce le modifiche arrivano da sole: il custode si controlla ogni 5 minuti, come verifica
+            if (corsiaVeloce() && Date.now() - ultimoGiro < 280000 && !S.coda.size) return;
             sincronizza();
         }, 90000);
         // In attesa della chiave: si ricontrolla ogni 15 secondi (poi ogni minuto),
@@ -850,7 +866,7 @@
         setInterval(() => {
             if (!pronto() || incorso || document.visibilityState !== 'visible' || navigator.onLine === false) return;
             const v = window.TiceHome && TiceHome.attuale ? TiceHome.attuale().vista : '';
-            if (!['seduta', 'programma'].includes(v) || Date.now() - ultimoTira < 18000) return;
+            if (!['seduta', 'programma'].includes(v) || Date.now() - ultimoTira < (corsiaVeloce() ? 280000 : 18000)) return;
             sincronizza();
         }, 5000);
         window.addEventListener('online', () => sincronizza());
@@ -1131,7 +1147,66 @@
     async function versioni(pid) { return chiama('paziente.versioni', { id: pid }); }
     async function anteprimaVersione(pid, version) { return apri(await chiama('paziente.versione', { id: pid, version })); }
 
+    // ---------- per la corsia veloce (js/tice-veloce.js) ----------
+    // Tutto quello che la corsia veloce può chiedere alla sincronizzazione, e niente di più.
+    let tuttiLive = Promise.resolve();
+    async function versioneLocale(pid) { const r = await rec(pid); return (r && r.version) || 0; }
+    /**
+     * Una modifica arrivata in tempo reale (la busta è quella del custode, versione `versione`): si apre e si
+     * unisce come quando arriva dal custode. Il custode resta la verifica: al giro dopo si converge comunque.
+     */
+    function applicaLive(pid, versione, busta) {
+        const lavoro = tuttiLive.then(async () => {
+            if (!pronto()) return false;
+            if (incorso) { try { await incorso; } catch (e) { /* il giro ha avuto un problema suo */ } }
+            const r = await rec(pid);
+            if (r && r.version >= versione) return false;
+            const eraNuovo = !S.condivisi.has(pid);
+            const prima = S.coda.has(pid);
+            await applicaRemoto({ id: pid, version: versione, busta }, r);
+            if (S.coda.has(pid) && !prima) { await scriviMeta('coda', [...S.coda]); inCoda(pid); }
+            if (eraNuovo) sincronizza({ soloCoda: false });      // un bambino nuovo: l'elenco e le etichette dal custode
+            return true;
+        });
+        tuttiLive = lavoro.catch(() => {});
+        return lavoro.catch((e) => { console.warn('modifica in tempo reale', pid, e); return false; });
+    }
+    /** La chiave consegnata da un amministratore tramite la corsia veloce: la stessa cosa di ottieniChiave. */
+    async function chiaveRicevuta(bustaB64, kid) {
+        if (!S.cfg || S.cfg.kid !== kid || S.chiave) return false;
+        const d = await C.dispositivo();
+        const k = await C.riceviChiave(bustaB64, d.privata, eAdmin());
+        await C.ricordaChiave(S.cfg.kid, k, !eAdmin());
+        S.chiavi = await C.portachiavi();
+        aggiornaFase();
+        cambiato('stato');
+        if (S.fase === 'pronto') sincronizza();
+        return true;
+    }
+    const cifraChiaveA = (pubblica) => C.consegnaA(pubblica, S.chiave);
+    /** Allinea il custode a una consegna fatta con la corsia veloce (chi l'ha ricevuta e quando). */
+    async function abilitaSuCustode({ id, kid, busta, pubblica }) {
+        await chiama('dispositivi.abilita', { id, kid, chiave: busta, pubblica }, { tentativi: 1, attesaMax: 20000 });
+    }
+    // dopo che la chiave è arrivata per la strada del custode la richiesta su Firestore non serve più
+    function notificaChiave() { try { if (window.TiceVeloce && TiceVeloce.app) TiceVeloce.app.chiaveArrivata(); } catch (e) { /* ok */ } }
+    function contestoVeloce() {
+        return {
+            email: S.io ? S.io.email : null, io: S.io, pronto: pronto(), fase: S.fase, aulaDi: S.aulaDi, info: S.info,
+            condivisi: S.condivisi, eAdmin: eAdmin(), persone: persone.slice(), chiaveEsportabile: !!(S.chiave && S.chiave.extractable),
+            kid: S.cfg ? S.cfg.kid : null, cfgChiave: !!S.cfg
+        };
+    }
+    // L'ID token con cui collegare Firebase: quello vero di Google; in sviluppo (mock con emulatore) uno finto accettato solo dall'emulatore
+    function idTokenPerFirebase() {
+        const u = Auth.utente(), fb = cfgApp().firebase;
+        if (cfgApp().dev && fb && fb.emulatore && u) return JSON.stringify({ sub: 'dev-' + u.email, email: u.email, email_verified: true, name: u.nome });
+        return Auth.idToken();
+    }
+
     window.TiceSync = {
+        interno: { contesto: contestoVeloce, versioneLocale, applicaLive, chiaveRicevuta, cifraChiaveA, abilitaSuCustode, idTokenPerFirebase,
+            nomeDispositivo, notifica: (x) => cambiato(x) },
         S, Auth, chiama, ErroreRete, ErroreCustode,
         nomePersona, emailDiNome, emailOperatori, nomiSeduta, autoreNota, aggiornaPersone, impostaPersone: (l) => { persone = (l || []).slice(); cambiato('persone'); }, persone: () => persone.slice(),
         avvia, sincronizza, condividi, condivisione, esci,

@@ -191,6 +191,10 @@ L'app lavora sempre sul database locale. `tice-sync.js` cifra ogni bambino condi
 - Cache del custode: Apps Script `CacheService` per accessi, chiave, elenco, dispositivi, materiali; la «generazione» cambia con `svuotaCache()`; `ricostruisciCache()` la svuota e ricostruisce l'elenco; `attivaRisveglio`/`disattivaRisveglio` gestiscono l'attivatore che tiene sveglio lo script (vedi `docs/configurazione.md`, «Un custode più pronto»).
 - Limiti dimensionali e validazioni (`bustaV`, `MAX_PAZIENTE`, `MAX_TURNI`, `MAX_RISPOSTA`…) stanno in `core.js`: una risposta supera al massimo 8 MB e `pazienti.leggi` si ferma prima, l'app richiede il resto.
 
+### Corsia veloce (Firestore, facoltativa)
+
+Accanto al custode c'è una seconda strada in tempo reale su Firestore: `js/tice-veloce.js` (motore e backend, UMD), ganci in `tice-sync.js` (`TiceSync.interno`, `applicaLive`, pubblicazione dopo ogni invio riuscito, cicli diradati a 5 minuti), riga di stato e consegna chiave in `tice-centro.js`, regole in `firestore.rules`, copia degli accessi scritta dal custode (`copiaFirestore`, `specchia`, `riallinea` in `custode/core.js`; REST in `Code.gs`: `impostaFirebase`, `riallineaFirebase`, `disattivaFirebase`). Senza blocco `firebase` in `tice-config.js` (o con custode non aggiornato) non esiste e l'app è identica a prima. Dettagli e schema: `docs/firestore-progetto.md`; passi per l'utente: `docs/firebase.md`. Prove: `node tools/test-tice-veloce.js` (in `test-tutti.sh`, senza rete) e `sh tools/test-firebase.sh` (emulatori, serve Java; regole, custode vero e due browser; non è in `test-tutti.sh`).
+
 ### Come si aggiorna il custode
 
 Il codice del custode è in due file sorgente:

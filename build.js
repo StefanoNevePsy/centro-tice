@@ -99,6 +99,7 @@ itemsToCopy.forEach(item => {
         "font-src 'self' data:",
         "connect-src 'self' data: blob:" + (custode ? ' ' + custode : '') +
             " https://script.google.com https://script.googleusercontent.com https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com" +
+            " https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com" +
             " https://generativelanguage.googleapis.com https://*.nvidia.com" +
             " https://pixabay.com https://api.openverse.org https://api.arasaac.org https://static.arasaac.org" +
             " https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net" +

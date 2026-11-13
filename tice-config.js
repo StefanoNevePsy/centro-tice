@@ -11,6 +11,16 @@ window.TICE_CONFIG = Object.assign({
   // installate Google considera anche il "client secret" non segreto.
   googleDesktopClientId: '',
   googleDesktopClientSecret: '',
+  // Corsia veloce (Firestore, facoltativa): configurazione web del progetto Firebase. Non è segreta: a
+  // proteggere i dati sono le regole (firestore.rules) e la cifratura. Con i valori vuoti la corsia non esiste.
+  firebase: {
+    apiKey: 'AIzaSyDs9FUwPq6u7WrY_qU760CdB5cZbsy8m1Q',
+    authDomain: 'black-nucleus-510308-f9.firebaseapp.com',
+    projectId: 'black-nucleus-510308-f9',
+    storageBucket: 'black-nucleus-510308-f9.firebasestorage.app',
+    messagingSenderId: '829054606350',
+    appId: '1:829054606350:web:6e8d50ae34f52058dd305f',
+  },
   // Solo per sviluppo con tools/custode-mock.js --dev: accesso senza Google
   dev: false,
 }, window.TICE_CONFIG || {});

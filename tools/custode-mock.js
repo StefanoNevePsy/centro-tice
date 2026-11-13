@@ -15,6 +15,10 @@
  *
  * Prove di robustezza: --guasti 0.3 perde a caso il 30% delle risposte (come il 404 di Apps Script).
  * Opzioni: --porta 8787  --dati <cartella>  --statico <cartella app>  --proprietario <email>
+ *
+ * Corsia veloce: --firestore 127.0.0.1:8085 --progetto demo-tice  scrive la copia degli accessi
+ * nell'emulatore di Firestore (come fa il custode vero su Apps Script) e aggiunge a tice-config.js
+ * il blocco `firebase` che punta agli emulatori (Firestore e Auth, --auth 127.0.0.1:9099).
  */
 'use strict';
 
@@ -23,6 +27,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 const QT = require('../custode/core.js');
 
 // ---------------------------------------------------------------------------
@@ -37,6 +42,9 @@ function opzioni(argv) {
     else if (a === '--proprietario') o.proprietario = argv[++i];
     else if (a === '--client-id') o.clientId = argv[++i];
     else if (a === '--guasti') o.guasti = Number(argv[++i]);
+    else if (a === '--firestore') o.firestore = argv[++i];
+    else if (a === '--auth') o.authEmu = argv[++i];
+    else if (a === '--progetto') o.progetto = argv[++i];
   }
   return o;
 }
@@ -108,6 +116,21 @@ function cacheInMemoria() {
     svuota() { m.clear(); },
     _mappa: m,
   };
+}
+
+// Firestore (emulatore): il core e' sincrono, quindi la richiesta REST passa da curl.
+// «Authorization: Bearer owner» fa saltare le regole, come l'account del proprietario sul servizio vero.
+function firestoreEmulatore(host, progetto) {
+  const base = `http://${host}/v1/projects/${progetto}/databases/(default)/documents`;
+  function chiama(azione, corpo) {
+    const r = spawnSync('curl', ['-sS', '--noproxy', '*', '-X', 'POST', base + azione, '-H', 'Authorization: Bearer owner',
+      '-H', 'Content-Type: application/json', '--data-binary', '@-', '-w', '\n%{http_code}'], { input: JSON.stringify(corpo), maxBuffer: 64 * 1024 * 1024 });
+    if (r.error) throw r.error;
+    const t = r.stdout.toString(), i = t.lastIndexOf('\n'), codice = Number(t.slice(i + 1));
+    if (!(codice >= 200 && codice < 300)) throw new Error('Firestore ' + codice + ': ' + t.slice(0, 200));
+    return JSON.parse(t.slice(0, i) || 'null');
+  }
+  return { progetto, commit: (c) => chiama(':commit', c), interroga: (c) => chiama(':runQuery', c) };
 }
 
 function sha256Hex(b64) {
@@ -182,6 +205,7 @@ function creaServer(o) {
     proprietario: () => o.proprietario,
     ora: () => (o.ora ? o.ora() : new Date().toISOString()),
     sha256Hex,
+    specchio: o.specchio || (o.firestore ? firestoreEmulatore(o.firestore, o.progetto || 'demo-tice') : undefined),
     cache: o.cache || cacheInMemoria(),
     ricordo: (() => { const m = new Map(); return { leggi: (k) => m.get(k) || null, scrivi: (k, v) => m.set(k, v) }; })(),
   });
@@ -189,6 +213,8 @@ function creaServer(o) {
   const configJs = () =>
     `window.TICE_CONFIG = Object.assign(window.TICE_CONFIG || {}, ${JSON.stringify({
       custodeUrl: '/api', googleClientId: String(o.clientId || '').split(',')[0], dev: !!o.dev, ambiente: 'locale',
+      firebase: o.firestore ? { projectId: o.progetto || 'demo-tice', apiKey: 'demo', authDomain: 'localhost', appId: 'demo',
+        emulatore: { firestore: o.firestore, auth: 'http://' + (o.authEmu || '127.0.0.1:9099') } } : undefined,
     })});\n`;
 
   return http.createServer((req, res) => {
@@ -242,7 +268,7 @@ function creaServer(o) {
   });
 }
 
-module.exports = { creaServer, archivioSuDisco, cacheInMemoria, sha256Hex };
+module.exports = { creaServer, archivioSuDisco, cacheInMemoria, sha256Hex, firestoreEmulatore };
 
 if (require.main === module) {
   const o = opzioni(process.argv);

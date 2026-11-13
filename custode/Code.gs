@@ -43,6 +43,7 @@ function doGet() {
   return ContentService.createTextOutput(JSON.stringify({
     ok: true, servizio: 'custode Quaderno TICE', versione: VERSIONE_CUSTODE,
     configurato: !!(PROP.getProperty('CARTELLA_RADICE') && PROP.getProperty('GOOGLE_CLIENT_ID')),
+    corsiaVeloce: !!PROP.getProperty('FIREBASE_PROJECT_ID'),
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -80,6 +81,9 @@ function custode_() {
         remove: function (k) { c.remove(k); },
       };
     })(),
+    // Corsia veloce (facoltativa): copia degli accessi su Firestore. Esiste solo se e' impostata la
+    // proprieta' FIREBASE_PROJECT_ID (vedi docs/firebase.md); senza, il custode e' quello di sempre.
+    specchio: firestore_(),
     // Risposte alle scritture gia' fatte, per i reinvii dell'app (10 minuti)
     ricordo: {
       leggi: function (k) { return CacheService.getScriptCache().get(chiaveCache_(k)); },
@@ -87,6 +91,31 @@ function custode_() {
     },
   });
   return _custode;
+}
+
+// ---------------------------------------------------------------------------
+// Firestore (corsia veloce): solo la copia degli accessi, scritta da qui e da nessun altro.
+// Usa l'account del proprietario (ScriptApp.getOAuthToken, scope datastore): per questo il progetto
+// Apps Script va collegato allo STESSO progetto Google Cloud di Firebase (docs/firebase.md).
+// ---------------------------------------------------------------------------
+function firestore_() {
+  var progetto = PROP.getProperty('FIREBASE_PROJECT_ID');
+  if (!progetto) return null;
+  var base = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(progetto) + '/databases/(default)/documents';
+  function chiama(azione, corpo) {
+    var r = UrlFetchApp.fetch(base + azione, {
+      method: 'post', contentType: 'application/json', payload: JSON.stringify(corpo), muteHttpExceptions: true,
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    });
+    var codice = r.getResponseCode();
+    if (codice < 200 || codice >= 300) throw new Error('Firestore ' + codice + ': ' + String(r.getContentText()).slice(0, 200));
+    return JSON.parse(r.getContentText() || 'null');
+  }
+  return {
+    progetto: progetto,
+    commit: function (corpo) { return chiama(':commit', corpo); },
+    interroga: function (corpo) { return chiama(':runQuery', corpo); },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +576,34 @@ function risveglio() {
   try { custode_().revocaScaduti(); } catch (e) { /* al prossimo giro */ }
   // la corsia rapida dello stato (se la cache e' scaduta si rinnova la revisione)
   try { custode_().scalda(); } catch (e) { /* al prossimo giro */ }
+  // corsia veloce: la copia degli accessi su Firestore si riallinea e le modifiche vecchie si cancellano
+  try { custode_().riallinea(false); } catch (e) { /* al prossimo giro */ }
+}
+
+/**
+ * Corsia veloce (Firestore): da eseguire una volta dall'editor dopo aver scritto l'id del progetto Firebase.
+ *   impostaFirebase('nome-del-progetto')
+ * Scrive la proprieta' FIREBASE_PROJECT_ID, copia su Firestore accessi e bambini e chiede il permesso
+ * «Google Cloud Datastore» alla prima esecuzione. Per spegnere la corsia: disattivaFirebase().
+ */
+function impostaFirebase(idProgetto) {
+  if (!idProgetto) throw new Error('Scrivi l\'id del progetto Firebase: impostaFirebase(\'nome-del-progetto\')');
+  PROP.setProperty('FIREBASE_PROJECT_ID', String(idProgetto).trim());
+  _custode = null;
+  var r = custode_().riallinea(true);
+  Logger.log('Corsia veloce attiva sul progetto ' + idProgetto + ': ' + r.copia + ' documenti scritti, ' + r.pulite + ' modifiche vecchie cancellate.');
+}
+/** Dopo aver svuotato Firestore, o per riparare: riscrive tutta la copia degli accessi. */
+function riallineaFirebase() {
+  _custode = null;
+  var r = custode_().riallinea(true);
+  Logger.log(r.attivo ? 'Copia riscritta: ' + r.copia + ' documenti.' : 'La corsia veloce non e\' impostata (impostaFirebase).');
+}
+function disattivaFirebase() {
+  PROP.deleteProperty('FIREBASE_PROJECT_ID');
+  _custode = null;
+  try { CacheService.getScriptCache().remove('qt:specchio:imp'); } catch (e) { /* ok */ }
+  Logger.log('Corsia veloce spenta: le app tornano a usare solo il custode.');
 }
 
 // Dopo una modifica fatta a mano sui file in Drive (da evitare: es. un file

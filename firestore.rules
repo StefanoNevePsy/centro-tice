@@ -1,0 +1,168 @@
+rules_version = '2';
+
+// Centro TICE — regole di Firestore per la «corsia veloce».
+//
+// Qui non c'è nessun dato in chiaro: Firestore vede solo buste cifrate con la chiave del centro,
+// che il custode (Apps Script) non conosce e Google nemmeno. Le regole servono a far arrivare
+// ogni busta SOLO alle persone che il custode stesso farebbe vedere, con gli stessi permessi.
+//
+// Fonte di verità dei permessi: due raccolte che SOLO il custode scrive (via REST, con l'account
+// del proprietario, che non passa dalle regole). Nessun client le può scrivere:
+//   accessi/{email}   chi è abilitato, in quali aule e con quale ruolo, a quali bambini
+//   pazienti/{pid}    di quale aula è un bambino, se è riservato, chi lo ha creato e con chi è condiviso
+// Le persone disattivate non hanno il documento; la scadenza è controllata qui con l'ora del server.
+//
+// Raccolte che scrivono i client (sempre e solo con busta cifrata):
+//   modifiche/{pid}   «il bambino pid è cambiato»: versione, aula, autore, quando (piccolo, si ascolta)
+//   buste/{pid}       la busta cifrata identica a quella del custode (si legge solo se serve)
+//   richieste/{dispositivo}  un dispositivo nuovo chiede la chiave del centro (solo a proprio nome)
+//   consegne/{dispositivo}   la chiave, cifrata per quel dispositivo, leggibile solo dal richiedente
+// Tutti i documenti dei client hanno `scade`: il custode (o il TTL di Firestore) li cancella.
+//
+// Attenzione: le regole non sono filtri. Le richieste dell'app sono scritte perché siano
+// dimostrabili dalle regole: per aula (`aula ==`), per bambini (`pid in [...]`, al massimo 30 per volta)
+// e, per i riservati, un bambino alla volta. Vedi docs/firestore-progetto.md.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function radice() { return /databases/$(database)/documents; }
+
+    // ---- chi sono ----------------------------------------------------------------------
+    function entrato() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+    function mail() { return request.auth.token.email.lower(); }
+    function accessiDi(e) { return get(/databases/$(database)/documents/accessi/$(e)).data; }
+    function abilitata(a) { return a.attivo == true && request.time < a.scadeIl; }
+    // true solo se la persona è abilitata adesso (la copia degli accessi esiste, attiva e non scaduta)
+    function io() { return entrato() && abilitata(accessiDi(mail())); }
+
+    // ---- chi vede quale bambino (stesso modello del custode: vede()) --------------------
+    // d = un documento di modifiche/buste con aula, riservato, pid (convalidati in scrittura)
+    function riservatoMio(pid) {
+      return get(/databases/$(database)/documents/pazienti/$(pid)).data.creatoDa == mail()
+        || mail() in get(/databases/$(database)/documents/pazienti/$(pid)).data.condivisi;
+    }
+    function legge(d) {
+      let a = accessiDi(mail());
+      return d.aula in a.aule
+        && (d.riservato == true
+            ? riservatoMio(d.pid)
+            : (d.aula in a.vedeTutte || a.tutti == true || d.pid in a.pazienti));
+    }
+    // dalla copia del bambino (per chi scrive: aula e riservato non si dichiarano, si copiano da lì)
+    function vedeCopia(a, p, pid) {
+      return p.aula in a.aule
+        && (p.riservato == true
+            ? (p.creatoDa == mail() || mail() in p.condivisi)
+            : (p.aula in a.vedeTutte || a.tutti == true || pid in a.pazienti));
+    }
+
+    // ---- la copia degli accessi: solo il custode scrive, ognuno può leggere la propria ----
+    match /accessi/{e} {
+      allow read: if entrato() && e == mail();
+      allow write: if false;
+    }
+    match /pazienti/{pid} {
+      allow read, write: if false;
+    }
+
+    // ---- modifiche: «il bambino è cambiato» -----------------------------------------------
+    function formaComune(pid, p) {
+      let d = request.resource.data;
+      return d.pid == pid
+        && d.aula == p.aula
+        && d.riservato == (p.riservato == true)
+        && d.da == mail()
+        && d.v is int && d.v > 0
+        && d.ts == request.time
+        && d.scade is timestamp && d.scade > request.time && d.scade <= request.time + duration.value(8, 'd');
+    }
+    function puoPubblicare(pid) {
+      let a = accessiDi(mail());
+      let p = get(/databases/$(database)/documents/pazienti/$(pid)).data;
+      return entrato() && abilitata(a) && p.aula in a.scrivono && vedeCopia(a, p, pid);
+    }
+
+    match /modifiche/{pid} {
+      allow read: if io() && legge(resource.data);
+      allow create, update: if puoPubblicare(pid)
+        && request.resource.data.keys().hasOnly(['pid', 'aula', 'riservato', 'v', 'da', 'disp', 'ts', 'scade', 'n'])
+        && request.resource.data.keys().hasAll(['pid', 'aula', 'riservato', 'v', 'da', 'disp', 'ts', 'scade'])
+        && formaComune(pid, get(/databases/$(database)/documents/pazienti/$(pid)).data)
+        && request.resource.data.disp is string && request.resource.data.disp.size() <= 40;
+      allow delete: if false;
+    }
+
+    match /buste/{pid} {
+      allow read: if io() && legge(resource.data);
+      allow create, update: if puoPubblicare(pid)
+        && request.resource.data.keys().hasOnly(['pid', 'aula', 'riservato', 'v', 'da', 'ts', 'scade', 'busta'])
+        && request.resource.data.keys().hasAll(['pid', 'aula', 'riservato', 'v', 'da', 'ts', 'scade', 'busta'])
+        && formaComune(pid, get(/databases/$(database)/documents/pazienti/$(pid)).data)
+        && request.resource.data.busta is map;
+      allow delete: if false;
+    }
+
+    // ---- la chiave del centro ---------------------------------------------------------------
+    // Un dispositivo nuovo scrive la richiesta con la propria chiave pubblica (solo a proprio nome).
+    // Un amministratore dell'aula la vede, controlla che la persona sia abilitata e consegna la chiave
+    // cifrata per quel dispositivo: la consegna la legge soltanto il richiedente. In ogni caso
+    // la chiave viaggia cifrata con la chiave pubblica del dispositivo e non si apre altrove.
+    match /richieste/{id} {
+      allow read: if io() && (resource.data.email == mail() || resource.data.aula in accessiDi(mail()).gestisce);
+      allow create: if io()
+        && id.matches('[a-z0-9]{8,40}')
+        && request.resource.data.keys().hasOnly(['email', 'aula', 'nome', 'pubblica', 'ts', 'scade'])
+        && request.resource.data.keys().hasAll(['email', 'aula', 'nome', 'pubblica', 'ts', 'scade'])
+        && request.resource.data.email == mail()
+        && request.resource.data.aula in accessiDi(mail()).aule
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 80
+        && request.resource.data.pubblica is string && request.resource.data.pubblica.size() <= 2000
+        && request.resource.data.ts == request.time
+        && request.resource.data.scade is timestamp && request.resource.data.scade > request.time
+        && request.resource.data.scade <= request.time + duration.value(3, 'd');
+      allow update: if io() && resource.data.email == mail()
+        && request.resource.data.keys().hasOnly(['email', 'aula', 'nome', 'pubblica', 'ts', 'scade'])
+        && request.resource.data.email == mail()
+        && request.resource.data.aula in accessiDi(mail()).aule
+        && request.resource.data.pubblica is string && request.resource.data.pubblica.size() <= 2000
+        && request.resource.data.ts == request.time
+        && request.resource.data.scade is timestamp && request.resource.data.scade > request.time
+        && request.resource.data.scade <= request.time + duration.value(3, 'd');
+      // la toglie chi l'ha fatta, o chi la può consegnare (dopo averla soddisfatta)
+      allow delete: if entrato() && (resource.data.email == mail() || resource.data.aula in accessiDi(mail()).gestisce);
+    }
+
+    function puoConsegnare(id) {
+      let a = accessiDi(mail());
+      let r = get(/databases/$(database)/documents/richieste/$(id)).data;
+      return entrato() && abilitata(a)
+        && r.aula in a.gestisce
+        && request.resource.data.email == r.email
+        && abilitata(accessiDi(r.email))
+        && r.aula in accessiDi(r.email).aule;
+    }
+    match /consegne/{id} {
+      allow read: if entrato() && resource.data.email == mail();
+      allow create, update: if puoConsegnare(id)
+        && id.matches('[a-z0-9]{8,40}')
+        && request.resource.data.keys().hasOnly(['email', 'kid', 'busta', 'da', 'ts', 'scade'])
+        && request.resource.data.keys().hasAll(['email', 'kid', 'busta', 'da', 'ts', 'scade'])
+        && request.resource.data.da == mail()
+        && request.resource.data.kid is string && request.resource.data.kid.size() <= 40
+        && request.resource.data.busta is string && request.resource.data.busta.size() <= 3000
+        && request.resource.data.ts == request.time
+        && request.resource.data.scade is timestamp && request.resource.data.scade > request.time
+        && request.resource.data.scade <= request.time + duration.value(3, 'd');
+      allow delete: if entrato() && (resource.data.email == mail() || resource.data.da == mail());
+    }
+
+    // tutto il resto è chiuso
+    match /{altro=**} {
+      allow read, write: if false;
+    }
+  }
+}

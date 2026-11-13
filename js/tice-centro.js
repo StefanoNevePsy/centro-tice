@@ -18,6 +18,31 @@
     const RUOLI = { admin: 'Amministratore', professionista: 'Professionista', tirocinante: 'Tirocinante' };
     const dataOra = (iso) => iso ? new Date(iso).toLocaleString('it-IT', Orario.opzioniOra({ day: 'numeric', month: 'short', year: 'numeric' })) : '';
 
+    // Corsia veloce (Firestore): esiste solo se configurata
+    const veloce = () => (window.TiceVeloce && TiceVeloce.app) || null;
+    function rigaVeloce() {
+        const v = veloce();
+        if (!v) return '';
+        const s = v.stato();
+        return h`<div class="scheda imbottita" style="margin-top:10px">
+            <b>${icona('bolt')} Corsia veloce: ${s.attiva ? 'attiva' : 'spenta'}${!s.attiva && s.motivo ? ` (${s.motivo})` : ''}</b>
+            <p class="sotto piccolo">${s.attiva ? 'Le modifiche dei colleghi arrivano in tempo reale. Il custode resta la copia sicura e controlla tutto.' : 'L\'app funziona come sempre, attraverso il custode.'}</p>
+            ${!s.attiva && (s.serveAccesso || s.rete || /riprova|limite/.test(s.motivo || '')) ? h`<button class="bt piccolo" data-a="attiva-veloce">${icona('bolt')} ${s.serveAccesso ? 'Attiva la corsia veloce' : 'Riprova'}</button>` : ''}
+        </div>`;
+    }
+    function richiesteVeloci() {
+        const v = veloce();
+        const l = v ? v.richieste() : [];
+        if (!l.length) return '';
+        return h`<h3>Richieste di chiave in arrivo</h3><div class="scheda">${l.map((r) => h`<div class="riga" style="cursor:default">
+            <span class="corpo"><span class="t1">${r.email} · ${r.nome}</span><span class="t2">Codice di verifica: <b>${v.formatoCodice(r.codice)}</b> (deve essere uguale a quello sul dispositivo nuovo)</span></span>
+            <button class="bt piccolo primario" data-a="consegna-veloce" data-id="${r.id}">Consegna</button></div>`)}</div>`;
+    }
+    function codiceAttesa() {
+        const v = veloce(), s = v && v.stato();
+        return s && s.codice ? h`<p class="sotto">Codice di verifica: <b>${v.formatoCodice(s.codice)}</b>. Se l'amministratore te lo chiede, leggiglielo.</p>` : '';
+    }
+
     // =====================================================================
     // Agganci nella presa dati
     // =====================================================================
@@ -79,6 +104,7 @@
                 <p class="sotto">${io().cifratura
                     ? 'Non devi inserire niente: la riceve da solo appena un amministratore apre l\'app. Intanto puoi lavorare sui bambini di questo dispositivo.'
                     : 'Un amministratore deve ancora creare la chiave del centro.'}</p>
+                ${codiceAttesa()}
                 <button class="bt piccolo" data-a="controlla-chiave">${icona('rotate')} Controlla adesso</button>
             </div>`;
         }
@@ -430,6 +456,7 @@
                     ${S.errore ? h`<p class="sotto">${icona('triangle-exclamation')} ${S.errore}</p>` : ''}
                     <button class="bt primario largo" style="margin-top:10px" data-a="sincronizza" ${S.lavoro ? grezzo('disabled') : ''}>${icona('rotate')} ${S.lavoro ? 'Sincronizzazione…' : 'Sincronizza ora'}</button>
                 </div>` : ''}
+                ${u ? rigaVeloce() : ''}
                 ${Y.pronto() ? riquadroVelocita() : ''}
                 ${!u ? '' : admin() ? h`<div class="scheda imbottita" style="margin-top:10px">
                     <b>${icona('key')} Chiave del centro</b> <span class="sotto piccolo">${S.cfg ? S.cfg.kid : ''}</span>
@@ -740,6 +767,8 @@
         T.elencoDisp.forEach((d) => { (perPersona[d.email] = perPersona[d.email] || []).push(d); });
         return h`${barra({ indietro: 'vai-account', titolo: 'Dispositivi' })}
             <main class="tice-main">
+                ${richiesteVeloci()}
+                ${veloce() ? h`<label class="sotto" style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" data-a="consegna-manuale" ${localStorage.getItem('tice_consegna_manuale') === '1' ? grezzo('checked') : ''}> Consegna la chiave solo quando tocco «Consegna» (con il codice di verifica)</label>` : ''}
                 <p class="sotto">Ogni dispositivo che accede riceve la chiave del centro dall'app di un amministratore, senza vederla. Qui controlli quali sono: se ne vedi uno che non riconosci, toglilo e valuta di cambiare la chiave.</p>
                 ${T.elencoDisp.some((d) => !d.abilitato && d.personaAbilitata) ? h`<button class="bt primario largo" data-a="consegna-chiavi" ${T.consegnando ? grezzo('disabled') : ''}>${icona('paper-plane')} Consegna la chiave a chi la aspetta</button>` : ''}
                 ${Object.keys(perPersona).sort().map((em) => h`<h3>${em}</h3><div class="scheda">
@@ -1122,6 +1151,13 @@
         azioni: {
             'vai-account': () => vai('account'),
             'vai-persone': () => { T.accessi = null; vai('persone'); },
+            'attiva-veloce': () => veloce().attivaConAccesso().then(() => TiceHome.ridisegna(), (e) => { avviso((e && e.message) || 'Non riesco ad attivare la corsia veloce.', 'errore'); }),
+            'consegna-veloce': async (b) => {
+                try { const ok = await veloce().consegna(b.dataset.id); avviso(ok ? 'Chiave consegnata' : 'Persona non riconosciuta come abilitata: usa «Consegna la chiave a chi la aspetta».', ok ? undefined : 'errore'); }
+                catch (e) { avviso(e.message || 'Consegna non riuscita', 'errore'); }
+                TiceHome.ridisegna();
+            },
+            'consegna-manuale': (el) => { try { localStorage.setItem('tice_consegna_manuale', el.checked ? '1' : '0'); } catch (e) { /* ok */ } },
             'scegli-aula': () => scegliAula(),
             'consegna-chiavi': async () => {
                 T.consegnando = true; TiceHome.ridisegna();
