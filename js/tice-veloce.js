@@ -121,6 +121,66 @@
   }
   var fineGiorno = function (ms) { var d = new Date(ms); d.setHours(24, 0, 0, 0); return d.getTime(); };
 
+  // ---------- accesso silenzioso (One Tap / FedCM) ----------
+  var SILENZIOSO_ATTESA_MS = 86400000;   // dopo un tentativo fallito si riprova al massimo una volta al giorno (raffreddamento di One Tap)
+
+  /**
+   * Conviene tentare ora l'accesso silenzioso? Solo se la corsia è configurata e spenta perché manca un accesso
+   * Firebase fresco (non per quota, rete, configurazione o custode da aggiornare), il dispositivo è online,
+   * l'ambiente supporta Google Identity Services, non si è già provato in questa sessione e l'ultimo tentativo
+   * fallito risale a più di un giorno fa.
+   * o = { configurata, stato: {attiva, serveAccesso, fisso}, email, online, disponibile, giaProvato, ultimoFallimento, ora }
+   */
+  function decidiSilenzioso(o) {
+    o = o || {};
+    var s = o.stato || {};
+    if (!o.configurata) return { tenta: false, perche: 'non-configurata' };
+    if (!o.email) return { tenta: false, perche: 'senza-email' };
+    if (s.attiva) return { tenta: false, perche: 'gia-attiva' };
+    if (s.fisso || !s.serveAccesso) return { tenta: false, perche: 'non-serve' };
+    if (!o.disponibile) return { tenta: false, perche: 'ambiente' };
+    if (!o.online) return { tenta: false, perche: 'offline' };
+    if (o.giaProvato) return { tenta: false, perche: 'gia-provato' };
+    var u = Number(o.ultimoFallimento || 0);
+    if (u && o.ora - u < SILENZIOSO_ATTESA_MS && o.ora >= u) return { tenta: false, perche: 'raffreddamento' };
+    return { tenta: true, perche: 'ok' };
+  }
+  /** L'email del token è quella della persona collegata? (altrimenti il token si scarta: l'identità non cambia) */
+  function stessaEmail(a, b) {
+    a = String(a || '').trim().toLowerCase(); b = String(b || '').trim().toLowerCase();
+    return !!a && a === b;
+  }
+  /**
+   * Tentativo silenzioso, una volta per sessione. dep = {
+   *   configurata, stato(), email(), online(), disponibile(), ora(), memoria: {leggi, scrivi},
+   *   tenta(email) -> Promise<{esito, email}>   (il lavoro con Google Identity Services),
+   *   avvia() -> Promise<bool>                  (motore.avvia), avviso(testo) }
+   * Restituisce una stringa col risultato (serve ai test): 'attivata' | 'ok-ma-spenta' | l'esito del tentativo | il motivo per cui non si prova.
+   */
+  function creaSilenzioso(dep) {
+    var provato = false;
+    return {
+      prova: async function () {
+        var email = dep.email();
+        var d = decidiSilenzioso({ configurata: dep.configurata, stato: dep.stato(), email: email, online: dep.online(), disponibile: dep.disponibile(),
+          giaProvato: provato, ultimoFallimento: dep.memoria.leggi('silenzioso'), ora: dep.ora() });
+        if (!d.tenta) return d.perche;
+        provato = true;
+        var r;
+        try { r = await dep.tenta(email); } catch (e) { r = { esito: 'errore' }; }
+        r = r || { esito: 'errore' };
+        if (r.esito === 'ok' && !stessaEmail(r.email, email)) r = { esito: 'diversa' };
+        if (r.esito === 'non-disponibile') return r.esito;
+        if (r.esito !== 'ok') { try { dep.memoria.scrivi('silenzioso', String(dep.ora())); } catch (e) { /* ok */ } return r.esito; }
+        try { dep.memoria.scrivi('silenzioso', ''); } catch (e) { /* ok */ }
+        var attiva = false;
+        try { attiva = await dep.avvia(); } catch (e) { attiva = false; }
+        if (attiva) { try { dep.avviso('Corsia veloce attivata'); } catch (e) { /* ok */ } return 'attivata'; }
+        return 'ok-ma-spenta';
+      }
+    };
+  }
+
   // ======================================================================
   // 2. Il motore
   // ======================================================================
@@ -492,6 +552,20 @@
         scrivi: function (k, v) { try { localStorage.setItem('tice_veloce_' + k, v); } catch (e) { /* ok */ } } },
       log: function (m) { try { console.info('[corsia veloce] ' + m); } catch (e) { /* ok */ } }
     });
+    var silenzioso = creaSilenzioso({
+      configurata: true,
+      stato: function () { return motore.stato(); },
+      email: function () { var u = Y.Auth.utente(); var c = X.contesto(); return (c && c.email) || (u && u.email) || null; },
+      online: function () { return typeof navigator === 'undefined' || navigator.onLine !== false; },
+      disponibile: function () { return !!(Y.Auth.silenziosoDisponibile && Y.Auth.silenziosoDisponibile()); },
+      ora: Date.now,
+      memoria: { leggi: function (k) { try { return localStorage.getItem('tice_veloce_' + k); } catch (e) { return null; } },
+        scrivi: function (k, v) { try { localStorage.setItem('tice_veloce_' + k, v); } catch (e) { /* ok */ } } },
+      tenta: function (email) { return Y.Auth.accessoSilenzioso(email); },
+      avvia: function () { return motore.avvia(); },
+      avviso: function (t) { try { var T = w.TiceHome && w.TiceHome.strumenti; if (T && T.avviso) T.avviso(t); } catch (e) { /* ok */ } }
+    });
+    function provaSilenzioso() { return silenzioso.prova().catch(function () { return 'errore'; }); }
     var timer = null;
     function aggiorna() {
       clearTimeout(timer);
@@ -499,11 +573,11 @@
         var c = X.contesto();
         if (!c.io || c.fase === 'fuori' || c.fase === 'spento') { if (motore.stato().stato !== 'spenta' || motore.stato().motivo !== 'uscito dal centro') motore.ferma('uscito dal centro'); return; }
         if (motore.attiva()) { motore.ricalcola(); if (c.fase === 'pronto') motore.chiaveArrivata(); else motore.avviaChiave(); }
-        else motore.avvia();
+        else Promise.resolve(motore.avvia()).then(provaSilenzioso, function () {});
       }, 250);
     }
     Y.alCambio(function (cosa) { if (cosa !== 'veloce') aggiorna(); });
-    w.addEventListener('online', function () { var s = motore.stato(); if (!s.attiva && s.rete) motore.avvia({ forza: true }); });
+    w.addEventListener('online', function () { var s = motore.stato(); if (!s.attiva && s.rete) Promise.resolve(motore.avvia({ forza: true })).then(provaSilenzioso, function () {}); else provaSilenzioso(); });
     var api = {
       attiva: motore.attiva, stato: motore.stato, richieste: motore.richieste, consegna: motore.consegna,
       pubblica: motore.pubblica, chiaveArrivata: motore.chiaveArrivata,
@@ -522,7 +596,7 @@
 
   var api = {
     SDK_VERSIONE: SDK_VERSIONE, SDK_BASE: SDK_BASE, RITENZIONE_MS: RITENZIONE_MS, RICHIESTA_MS: RICHIESTA_MS, MAX_BUSTA: MAX_BUSTA, MAX_IN: MAX_IN, ORA: ORA,
-    configurata: configurata, codiceVerifica: codiceVerifica, formatoCodice: formatoCodice, pianoAscolto: pianoAscolto,
+    configurata: configurata, decidiSilenzioso: decidiSilenzioso, stessaEmail: stessaEmail, creaSilenzioso: creaSilenzioso, SILENZIOSO_ATTESA_MS: SILENZIOSO_ATTESA_MS, codiceVerifica: codiceVerifica, formatoCodice: formatoCodice, pianoAscolto: pianoAscolto,
     costruisciModifica: costruisciModifica, classificaErrore: classificaErrore, creaMotore: creaMotore,
     creaBackendFirebase: creaBackendFirebase, caricaSdk: caricaSdk, avviaNelBrowser: avviaNelBrowser
   };

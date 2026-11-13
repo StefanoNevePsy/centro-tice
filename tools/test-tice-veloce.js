@@ -285,6 +285,158 @@ const nuovo = (opzSync, opzMot) => {
     assert.strictEqual(w[0].update.name, 'projects/p/databases/(default)/documents/a/b'); assert.strictEqual(w[1]['delete'], 'projects/p/databases/(default)/documents/c/d');
   });
 
+  // ---------------------------------------------------------------- accesso silenzioso (One Tap / FedCM)
+  const DAY = 86400000, T0 = 1700000000000;
+  const base = { configurata: true, stato: { attiva: false, serveAccesso: true, fisso: false }, email: 'ann@c.test', online: true, disponibile: true, giaProvato: false, ultimoFallimento: 0, ora: T0 };
+  await prova('silenzioso: decide di tentare solo se manca soltanto l\'accesso Firebase', () => {
+    assert.strictEqual(V.decidiSilenzioso(base).tenta, true);
+    const no = (m, perche) => assert.deepStrictEqual([V.decidiSilenzioso(Object.assign({}, base, m)).tenta, V.decidiSilenzioso(Object.assign({}, base, m)).perche], [false, perche]);
+    no({ configurata: false }, 'non-configurata');
+    no({ email: '' }, 'senza-email');
+    no({ stato: { attiva: true, serveAccesso: false } }, 'gia-attiva');
+    no({ stato: { attiva: false, serveAccesso: false } }, 'non-serve');      // quota, rete, permessi...
+    no({ stato: { attiva: false, serveAccesso: true, fisso: true } }, 'non-serve');
+    no({ disponibile: false }, 'ambiente');                                   // desktop, APK, sviluppo
+    no({ online: false }, 'offline');
+    no({ giaProvato: true }, 'gia-provato');
+  });
+  await prova('silenzioso: raffreddamento di un giorno dopo un tentativo fallito', () => {
+    assert.strictEqual(V.decidiSilenzioso(Object.assign({}, base, { ultimoFallimento: T0 - 3600000 })).perche, 'raffreddamento');
+    assert.strictEqual(V.decidiSilenzioso(Object.assign({}, base, { ultimoFallimento: T0 - DAY + 1 })).tenta, false);
+    assert.strictEqual(V.decidiSilenzioso(Object.assign({}, base, { ultimoFallimento: T0 - DAY })).tenta, true);
+    assert.strictEqual(V.decidiSilenzioso(Object.assign({}, base, { ultimoFallimento: String(T0 - 2 * DAY) })).tenta, true);   // da localStorage è una stringa
+    assert.strictEqual(V.decidiSilenzioso(Object.assign({}, base, { ultimoFallimento: T0 + 5 * DAY })).tenta, true);          // orologio spostato: non resta bloccato
+  });
+  await prova('silenzioso: stessa email (maiuscole e spazi ininfluenti), vuota mai', () => {
+    assert.ok(V.stessaEmail(' Ann@C.test', 'ann@c.test'));
+    assert.ok(!V.stessaEmail('bea@c.test', 'ann@c.test'));
+    assert.ok(!V.stessaEmail('', ''));
+  });
+  const silenzioso = (opz) => {
+    const mem = {}; let t = T0, chiamate = 0, avvisi = [], avviate = 0;
+    const o = Object.assign({
+      stato: { attiva: false, serveAccesso: true }, esito: { esito: 'ok', email: 'ann@c.test' }, avviaOk: true, mem,
+    }, opz || {});
+    const s = V.creaSilenzioso({
+      configurata: true, stato: () => o.stato, email: () => 'ann@c.test', online: () => true, disponibile: () => o.disponibile !== false, ora: () => t,
+      memoria: { leggi: (k) => mem[k] || null, scrivi: (k, v) => { mem[k] = v; } },
+      tenta: async () => { chiamate++; if (o.lancia) throw new Error('x'); return o.esito; },
+      avvia: async () => { avviate++; return o.avviaOk; }, avviso: (m) => avvisi.push(m),
+    });
+    return { s, mem, avvisi, avanza: (ms) => { t += ms; }, chiamate: () => chiamate, avviate: () => avviate };
+  };
+  await prova('silenzioso: riesce -> avvia la corsia, avviso discreto, nessun raffreddamento', async () => {
+    const x = silenzioso();
+    assert.strictEqual(await x.s.prova(), 'attivata');
+    assert.deepStrictEqual(x.avvisi, ['Corsia veloce attivata']);
+    assert.ok(!x.mem.silenzioso);
+    assert.strictEqual(x.avviate(), 1);
+  });
+  await prova('silenzioso: token di un\'altra email scartato, la corsia non parte, si ricorda il fallimento', async () => {
+    const x = silenzioso({ esito: { esito: 'ok', email: 'bea@c.test' } });
+    assert.strictEqual(await x.s.prova(), 'diversa');
+    assert.strictEqual(x.avviate(), 0); assert.deepStrictEqual(x.avvisi, []);
+    assert.strictEqual(x.mem.silenzioso, String(T0));
+  });
+  await prova('silenzioso: non mostrato / annullato / scaduto / errore: nessun avviso, ricorda il fallimento, una volta per sessione', async () => {
+    for (const e of ['non-mostrato', 'annullato', 'scaduto', 'errore']) {
+      const x = silenzioso({ esito: { esito: e } });
+      assert.strictEqual(await x.s.prova(), e);
+      assert.strictEqual(x.mem.silenzioso, String(T0)); assert.deepStrictEqual(x.avvisi, []); assert.strictEqual(x.avviate(), 0);
+      assert.strictEqual(await x.s.prova(), 'gia-provato'); assert.strictEqual(x.chiamate(), 1);
+    }
+    const y = silenzioso({ lancia: true });
+    assert.strictEqual(await y.s.prova(), 'errore');
+  });
+  await prova('silenzioso: ambiente senza Google (desktop, APK) non tenta e non scrive nulla', async () => {
+    const x = silenzioso({ disponibile: false });
+    assert.strictEqual(await x.s.prova(), 'ambiente'); assert.strictEqual(x.chiamate(), 0); assert.ok(!x.mem.silenzioso);
+    const y = silenzioso({ esito: { esito: 'non-disponibile' } });
+    assert.strictEqual(await y.s.prova(), 'non-disponibile'); assert.ok(!y.mem.silenzioso);
+  });
+  await prova('silenzioso: token ottenuto ma corsia ancora spenta -> nessun avviso; già attiva o non serve -> niente', async () => {
+    const x = silenzioso({ avviaOk: false });
+    assert.strictEqual(await x.s.prova(), 'ok-ma-spenta'); assert.deepStrictEqual(x.avvisi, []);
+    const y = silenzioso({ stato: { attiva: true } });
+    assert.strictEqual(await y.s.prova(), 'gia-attiva'); assert.strictEqual(y.chiamate(), 0);
+    const z = silenzioso({ stato: { attiva: false, serveAccesso: false } });
+    assert.strictEqual(await z.s.prova(), 'non-serve'); assert.strictEqual(z.chiamate(), 0);
+  });
+  await prova('silenzioso: dopo un fallimento in una sessione nuova si riprova solo dopo un giorno', async () => {
+    const x = silenzioso({ esito: { esito: 'annullato' } });
+    await x.s.prova();
+    const mem = x.mem;
+    const nuova = (ms) => V.creaSilenzioso({ configurata: true, stato: () => ({ serveAccesso: true }), email: () => 'ann@c.test', online: () => true, disponibile: () => true, ora: () => T0 + ms,
+      memoria: { leggi: (k) => mem[k] || null, scrivi: (k, v) => { mem[k] = v; } }, tenta: async () => ({ esito: 'ok', email: 'ann@c.test' }), avvia: async () => true, avviso: () => {} });
+    assert.strictEqual(await nuova(3600000).prova(), 'raffreddamento');
+    assert.strictEqual(await nuova(DAY + 1).prova(), 'attivata');
+  });
+
+  // ---------------------------------------------------------------- Auth.accessoSilenzioso con un GIS finto
+  {
+    const vm = require('vm'), fs = require('fs'), path = require('path');
+    const jwt = (email, exp) => 'e30.' + Buffer.from(JSON.stringify({ email, exp: exp || Math.floor(Date.now() / 1000) + 3600, given_name: 'X' })).toString('base64url') + '.f';
+    const ambiente = (extra) => {
+      const mem = () => { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, removeItem: (k) => { delete m[k]; }, m }; };
+      const gis = { init: null, prompt: null, chiamate: 0 };
+      const w = Object.assign({ console, setTimeout, clearTimeout, atob, decodeURIComponent, localStorage: mem(), sessionStorage: mem(), navigator: { onLine: true }, isSecureContext: true,
+        document: { head: { appendChild() {} }, createElement: () => ({}), addEventListener() {} }, addEventListener() {}, matchMedia: () => ({ matches: false }),
+        location: { hash: '', origin: 'http://x', pathname: '/' }, history: {}, crypto: require('crypto').webcrypto,
+        TICE_CONFIG: { googleClientId: 'cid', custodeUrl: 'https://x/exec' }, TiceCifra: {}, TiceUnisci: {},
+        google: { accounts: { id: { initialize: (c) => { gis.init = c; }, prompt: (cb) => { gis.chiamate++; gis.prompt = cb; }, renderButton() {}, disableAutoSelect() {} } } } }, extra || {});
+      w.window = w; vm.createContext(w);
+      w.localStorage.setItem('tice:utente', JSON.stringify({ email: 'ann@c.test', nome: 'Ann' }));
+      vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'tice-sync.js'), 'utf8'), w);
+      w.TiceSync.Auth.inizia();
+      return { w, gis, Auth: w.TiceSync.Auth };
+    };
+    const momento = (o) => Object.assign({ isNotDisplayed: () => false, isSkippedMoment: () => false, isDismissedMoment: () => false }, o);
+    await prova('GIS: initialize con auto_select, FedCM, itp, login_hint e cancel_on_tap_outside', async () => {
+      const { gis } = ambiente(); await attendi(20);
+      assert.deepStrictEqual([gis.init.auto_select, gis.init.use_fedcm_for_prompt, gis.init.itp_support, gis.init.cancel_on_tap_outside, gis.init.login_hint, gis.init.client_id],
+        [true, true, true, true, 'ann@c.test', 'cid']);
+    });
+    await prova('GIS: stessa email -> ok, il token vale ma la sessione lunga del custode resta', async () => {
+      const { w, gis, Auth } = ambiente();
+      w.localStorage.setItem('tice:sessione', JSON.stringify({ token: 'S', scade: 9999999999 }));
+      assert.ok(Auth.silenziosoDisponibile());
+      const p = Auth.accessoSilenzioso('Ann@C.test'); await attendi(20);
+      assert.strictEqual(gis.chiamate, 1);
+      gis.init.callback({ credential: jwt('ann@c.test') });
+      const r = await p; assert.deepStrictEqual([r.esito, r.email], ['ok', 'ann@c.test']);
+      assert.ok(Auth.idToken()); assert.ok(w.localStorage.getItem('tice:sessione'));
+    });
+    await prova('GIS: email diversa -> scartata, identità e token invariati', async () => {
+      const { gis, Auth } = ambiente();
+      const p = Auth.accessoSilenzioso('ann@c.test'); await attendi(20);
+      gis.init.callback({ credential: jwt('bea@c.test') });
+      assert.strictEqual((await p).esito, 'diversa');
+      assert.strictEqual(Auth.idToken(), null); assert.strictEqual(Auth.utente().email, 'ann@c.test');
+    });
+    await prova('GIS: non mostrato / saltato / chiuso senza credenziale -> esito senza errori; credential_returned aspetta la callback', async () => {
+      for (const [n, atteso] of [[momento({ isNotDisplayed: () => true, getNotDisplayedReason: () => 'browser_not_supported' }), 'non-mostrato'], [momento({ isSkippedMoment: () => true }), 'annullato'],
+        [momento({ isDismissedMoment: () => true, getDismissedReason: () => 'cancel_called' }), 'annullato']]) {
+        const { gis, Auth } = ambiente();
+        const p = Auth.accessoSilenzioso('ann@c.test'); await attendi(20);
+        gis.prompt(n);
+        assert.strictEqual((await p).esito, atteso);
+      }
+      const { gis, Auth } = ambiente();
+      const p = Auth.accessoSilenzioso('ann@c.test'); await attendi(20);
+      gis.prompt(momento({ isDismissedMoment: () => true, getDismissedReason: () => 'credential_returned' }));
+      gis.init.callback({ credential: jwt('ann@c.test') });
+      assert.strictEqual((await p).esito, 'ok');
+    });
+    await prova('GIS: non disponibile in sviluppo, nell\'app desktop e nell\'APK (Capacitor)', async () => {
+      for (const extra of [{ TICE_CONFIG: { googleClientId: 'cid', dev: true } }, { ticeNativo: {}, TICE_CONFIG: { googleClientId: 'cid', googleDesktopClientId: 'd' } },
+        { Capacitor: { isNativePlatform: () => true } }, { TICE_CONFIG: { googleClientId: '' } }, { isSecureContext: false }]) {
+        const { gis, Auth } = ambiente(extra);
+        assert.ok(!Auth.silenziosoDisponibile());
+        assert.strictEqual((await Auth.accessoSilenzioso('ann@c.test')).esito, 'non-disponibile'); assert.strictEqual(gis.chiamate, 0);
+      }
+    });
+  }
+
   console.log(`\n${passati} prove superate, ${falliti.length} fallite`);
   if (falliti.length) { console.log('Fallite:\n - ' + falliti.join('\n - ')); process.exit(1); }
 })();

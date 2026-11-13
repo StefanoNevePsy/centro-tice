@@ -38,7 +38,7 @@
                 if (r && r.token) { sessione = { token: r.token, scade: r.scade }; try { localStorage.setItem(K_SESS, JSON.stringify(sessione)); } catch (e) { /* ok */ } }
             }, () => { /* custode senza sessioni: si resta con il token di Google */ }).then(() => { chiedendoSessione = null; });
         }
-        let token = null, scadenza = 0, utente = null, gis = null, attesa = null;
+        let token = null, scadenza = 0, utente = null, gis = null, attesa = null, tentativo = null;
         const ascoltatori = [];
         function ErroreAccesso(m) { this.message = m; this.accesso = true; }
         function payload(jwt) {
@@ -82,8 +82,21 @@
             }).then(() => {
                 google.accounts.id.initialize({
                     client_id: cfgApp().googleClientId,
-                    callback: (r) => { if (r && r.credential && imposta(r.credential) && attesa) { attesa.ok(token); attesa = null; } },
-                    auto_select: true, cancel_on_tap_outside: false, use_fedcm_for_prompt: true, itp_support: true
+                    callback: (r) => {
+                        if (!r || !r.credential) return;
+                        // tentativo silenzioso (corsia veloce): vale solo il token della persona già collegata, e senza
+                        // toccare la sessione lunga del custode; un'altra email si scarta senza cambiare identità
+                        if (tentativo) {
+                            const t = tentativo; tentativo = null;
+                            const d = payload(r.credential), em = d && d.email ? String(d.email).toLowerCase() : '';
+                            if (em && em === t.email && imposta(r.credential, true)) t.fine({ esito: 'ok', email: em });
+                            else t.fine({ esito: 'diversa', email: em });
+                            return;
+                        }
+                        if (imposta(r.credential) && attesa) { attesa.ok(token); attesa = null; }
+                    },
+                    auto_select: true, cancel_on_tap_outside: true, use_fedcm_for_prompt: true, itp_support: true,
+                    ...(utente && utente.email ? { login_hint: utente.email } : {})
                 });
             });
             return gis;
@@ -181,6 +194,33 @@
                 });
             }));
         }
+        // Un tentativo silenzioso (One Tap con FedCM e auto_select: di solito compare solo «Accesso come …», senza click)
+        // di ottenere un ID token Google per la persona già collegata. Non lancia mai errori e non mostra niente di suo.
+        // Esiti: ok | diversa (email diversa: token scartato) | non-mostrato | annullato | scaduto | non-disponibile | errore
+        const ambienteNativo = () => { try { return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); } catch (e) { return false; } };
+        const silenziosoDisponibile = () => !cfgApp().dev && !!cfgApp().googleClientId && !nativo() && !ambienteNativo() && !!window.isSecureContext;
+        function accessoSilenzioso(email) {
+            email = String(email || '').toLowerCase();
+            if (!email || !silenziosoDisponibile()) return Promise.resolve({ esito: 'non-disponibile' });
+            return caricaGIS().then(() => new Promise((ok) => {
+                let chiuso = false, timer = null;
+                const t = { email, fine: (r) => {
+                    if (chiuso) return; chiuso = true; clearTimeout(timer);
+                    if (tentativo === t) tentativo = null;
+                    ok(r);
+                } };
+                if (tentativo) tentativo.fine({ esito: 'annullato' });
+                tentativo = t;
+                timer = setTimeout(() => t.fine({ esito: 'scaduto' }), 45000);
+                try {
+                    google.accounts.id.prompt((n) => {
+                        if (n.isNotDisplayed && n.isNotDisplayed()) t.fine({ esito: 'non-mostrato', motivo: n.getNotDisplayedReason && n.getNotDisplayedReason() });
+                        else if (n.isSkippedMoment && n.isSkippedMoment()) t.fine({ esito: 'annullato', motivo: n.getSkippedReason && n.getSkippedReason() });
+                        else if (n.isDismissedMoment && n.isDismissedMoment() && n.getDismissedReason && n.getDismissedReason() !== 'credential_returned') t.fine({ esito: 'annullato', motivo: n.getDismissedReason() });
+                    });
+                } catch (e) { t.fine({ esito: 'errore' }); }
+            }), () => ({ esito: 'errore' }));
+        }
         // L'ID token di Google ancora valido (non quello della sessione del custode), o null
         function idToken() { return !cfgApp().dev && valido() ? token : null; }
         function invalida() {
@@ -200,7 +240,7 @@
             sessione = null; try { localStorage.removeItem(K_SESS); } catch (e) { /* ok */ }
             return valido();
         }
-        return { inizia, pulsante, accessoDev, scartaSessione, token: prendi, idToken, rinnovaGoogle, utente: () => utente, haToken: () => cfgApp().dev ? !!token : (valido() || sessioneValida()), invalida, esci, alCambio: (f) => ascoltatori.push(f), ErroreAccesso };
+        return { inizia, pulsante, accessoDev, scartaSessione, token: prendi, idToken, rinnovaGoogle, accessoSilenzioso, silenziosoDisponibile, utente: () => utente, haToken: () => cfgApp().dev ? !!token : (valido() || sessioneValida()), invalida, esci, alCambio: (f) => ascoltatori.push(f), ErroreAccesso };
     })();
 
     // =====================================================================
