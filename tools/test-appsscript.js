@@ -22,6 +22,12 @@ let contatore = 0;
 const nuovoId = () => 'id' + (++contatore);
 const tutti = {};           // id -> nodo
 const statistiche = { letture: 0, scritture: 0, ricerche: 0 };
+// Operazioni Drive per tipo (ognuna su Apps Script costa da 0,3 a 1,5 secondi)
+const op = {};
+const conta = (k) => { op[k] = (op[k] || 0) + 1; };
+const azzeraOp = () => { Object.keys(op).forEach((k) => delete op[k]); };
+const totaleOp = () => Object.keys(op).filter((k) => k !== 'lucchetto').reduce((a, k) => a + op[k], 0);
+const descriviOp = () => Object.keys(op).sort().map((k) => k + '=' + op[k]).join(' ');
 
 function iteratore(lista) {
   let i = 0;
@@ -44,10 +50,10 @@ function nuovoBlob(bytes, mime, nome) {
 function nuovoFile(nome, contenuto, mime) {
   const f = {
     _tipo: 'file', _id: nuovoId(), _nome: nome, _buf: Buffer.from(contenuto), _mime: mime, _cestino: false,
-    getId: () => f._id, getName: () => f._nome, isTrashed: () => f._cestino,
-    setTrashed: (v) => { f._cestino = v; },
-    getBlob: () => { statistiche.letture++; return nuovoBlob(f._buf, f._mime, f._nome); },
-    setContent: (t) => { statistiche.scritture++; f._buf = Buffer.from(t, 'utf8'); return f; },
+    getId: () => f._id, getName: () => f._nome, isTrashed: () => { conta('isTrashed'); return f._cestino; },
+    setTrashed: (v) => { conta('setTrashed'); f._cestino = v; },
+    getBlob: () => { conta('getBlob'); statistiche.letture++; return nuovoBlob(f._buf, f._mime, f._nome); },
+    setContent: (t) => { conta('setContent'); statistiche.scritture++; f._buf = Buffer.from(t, 'utf8'); return f; },
   };
   tutti[f._id] = f;
   return f;
@@ -57,13 +63,13 @@ function nuovaCartella(nome) {
   const d = {
     _tipo: 'cartella', _id: nuovoId(), _nome: nome, _file: [], _cartelle: [], _cestino: false,
     getId: () => d._id, getName: () => d._nome, isTrashed: () => d._cestino,
-    getFoldersByName: (n) => { statistiche.ricerche++; return iteratore(d._cartelle.filter((c) => c._nome === n)); },
-    getFilesByName: (n) => { statistiche.ricerche++; return iteratore(d._file.filter((c) => c._nome === n)); },
-    getFiles: () => iteratore(d._file.slice()),
-    getFolders: () => iteratore(d._cartelle.slice()),
-    createFolder: (n) => { const c = nuovaCartella(n); d._cartelle.push(c); return c; },
+    getFoldersByName: (n) => { conta('getFoldersByName'); statistiche.ricerche++; return iteratore(d._cartelle.filter((c) => c._nome === n)); },
+    getFilesByName: (n) => { conta('getFilesByName'); statistiche.ricerche++; return iteratore(d._file.filter((c) => c._nome === n)); },
+    getFiles: () => { conta('elenco'); return iteratore(d._file.slice()); },
+    getFolders: () => { conta('elenco'); return iteratore(d._cartelle.slice()); },
+    createFolder: (n) => { conta('createFolder'); const c = nuovaCartella(n); d._cartelle.push(c); return c; },
     createFile: (a, contenuto, mime) => {
-      statistiche.scritture++;
+      conta('createFile'); statistiche.scritture++;
       const f = typeof a === 'string' ? nuovoFile(a, contenuto, mime) : nuovoFile(a._nome, a._buf, a._mime);
       d._file.push(f);
       return f;
@@ -98,10 +104,10 @@ let lucchettoAltrui = false;   // un'altra persona sta salvando
 const contesto = {
   console,
   DriveApp: {
-    getFolderById: (id) => { const n = tutti[id]; if (!n || n._tipo !== 'cartella') throw new Error('non trovato'); return n; },
-    getFileById: (id) => { const n = tutti[id]; if (!n || n._tipo !== 'file') throw new Error('non trovato'); return n; },
+    getFolderById: (id) => { conta('getFolderById'); const n = tutti[id]; if (!n || n._tipo !== 'cartella') throw new Error('non trovato'); return n; },
+    getFileById: (id) => { conta('getFileById'); const n = tutti[id]; if (!n || n._tipo !== 'file') throw new Error('non trovato'); return n; },
   },
-  PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => proprieta[k] || null, setProperty: (k, v) => { proprieta[k] = v; } }) },
+  PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => proprieta[k] || null, setProperty: (k, v) => { proprieta[k] = v; }, deleteProperty: (k) => { delete proprieta[k]; } }) },
   CacheService: { getScriptCache: () => ({
     get: (k) => (k in cacheDati ? cacheDati[k] : null),
     put: (k, v) => { if (String(v).length > 100000) throw new Error('valore troppo grande'); cacheDati[k] = v; },
@@ -109,7 +115,7 @@ const contesto = {
     getAll: (ks) => { const o = {}; ks.forEach((k) => { if (k in cacheDati) o[k] = cacheDati[k]; }); return o; },
     putAll: (o) => { Object.entries(o).forEach(([k, v]) => { if (String(v).length > 100000) throw new Error('valore troppo grande'); cacheDati[k] = v; }); },
   }) },
-  LockService: { getScriptLock: () => ({ tryLock: () => !lucchettoAltrui, releaseLock: () => {} }) },
+  LockService: { getScriptLock: () => ({ tryLock: () => { conta('lucchetto'); return !lucchettoAltrui; }, releaseLock: () => {} }) },
   UrlFetchApp: { fetch: (url) => {
     chiamateTokeninfo++;
     const tok = decodeURIComponent(url.split('id_token=')[1]);
@@ -192,6 +198,7 @@ prova('crea un paziente: i file finiscono nelle cartelle giuste', () => {
 });
 prova('un salvataggio aggiorna il file e mette la versione prima in versioni/', () => {
   ok(post('tok-' + PROPRIETARIO, 'paziente.salva', { id: PID, versioneBase: 1, busta: busta('due') }));
+  vm.runInContext('_custode = null; custode_().smaltisci()', contesto);   // l'indice delle versioni si scrive su Drive poco dopo
   const cart = radice._cartelle.find((c) => c._nome === 'Pazienti')._cartelle.find((c) => c._nome === PID);
   assert.deepStrictEqual(cart._file.map((f) => f._nome).sort(), ['paziente.json', 'versioni.json'], 'il paziente e l\'indice delle sue versioni');
   assert.strictEqual(JSON.parse(cart._file.find((f) => f._nome === 'paziente.json')._buf.toString()).version, 2);
@@ -299,6 +306,95 @@ prova('mentre un\'altra persona salva, una lettura da Drive non entra in cache',
   } finally { lucchettoAltrui = false; }
   A().leggiJSON('_config/prova.json');
   assert.ok(Object.keys(cacheDati).some((k) => /^c[^:]*:/.test(k)), 'con il lucchetto libero sì');
+});
+
+// ---- operazioni Drive per richiesta: su Apps Script ognuna costa da 0,3 a 1,5 secondi ----
+// «Adesso» del custode si sposta a piacere: i salvataggi a raffica e quelli distanziati
+let spostamentoOra = 0;
+contesto.Date = class extends Date {
+  constructor(...a) { if (a.length) super(...a); else super(Date.now() + spostamentoOra); }
+  static now() { return Date.now() + spostamentoOra; }
+};
+const TP = 'tok-' + PROPRIETARIO;
+function conteggio(fn) { azzeraOp(); const r = fn(); return { r, tot: totaleOp(), op: Object.assign({}, op), testo: descriviOp() }; }
+const PIDO = '1727000000999';
+let versioneO = 0;
+const salvaO = (t) => {
+  const c = conteggio(() => post(TP, 'paziente.salva', { id: PIDO, versioneBase: versioneO, busta: busta(t + 'x'.repeat(40000)) }));
+  const d = ok(c.r); versioneO = d.version;
+  return c;
+};
+// Limiti massimi di operazioni Drive per richiesta (a cache calda; prima di questo lavoro: crea 14,
+// salvataggio con versione 15, a raffica 6)
+const MAX_OP = process.env.SENZA_LIMITI ? { crea: 99, primo: 99, salvaNormale: 99, salvaRaffica: 99, ritardo: 99, controllo: 99 }
+  : { crea: 7, primo: 8, salvaNormale: 6, salvaRaffica: 2, ritardo: 8, controllo: 0 };
+prova('operazioni Drive: crea un bambino', () => {
+  ok(post(TP, 'pazienti.elenco')); ok(post(TP, 'io')); ok(post(TP, 'dispositivi.elenco'));   // cache calda, come nell'uso normale
+  const c = conteggio(() => post(TP, 'paziente.crea', { id: PIDO, busta: busta('o'), etichetta: busta('e') }));
+  ok(c.r); versioneO = 1;
+  console.log('      crea: ' + c.tot + ' operazioni (' + c.testo + ')');
+  assert.ok(c.tot <= MAX_OP.crea, 'troppe operazioni Drive: ' + c.tot);
+});
+prova('operazioni Drive: salvataggi normali, a raffica e dopo un\'ora', () => {
+  // La raffica si decide confrontando il salvataggio che si sta archiviando (quello di prima) con
+  // l'ultima versione archiviata: entro 3 minuti non si scrive niente. (minuti dal salvataggio
+  // prima, etichetta, massimo di operazioni Drive)
+  const passi = [[1, 'primo salvataggio (nasce la prima versione)', MAX_OP.primo], [1, 'raffica', MAX_OP.salvaRaffica],
+    [1, 'raffica', MAX_OP.salvaRaffica], [1, 'salvataggio con nuova versione (sostituisce la precedente)', MAX_OP.salvaNormale],
+    [0.5, 'raffica', MAX_OP.salvaRaffica], [0.5, 'raffica', MAX_OP.salvaRaffica],
+    [60, 'raffica dopo un\'ora (elenco e indice indietro da piu\' di 10 minuti: si scrivono)', MAX_OP.ritardo],
+    [1, 'salvataggio con nuova versione (un\'ora dopo: si aggiunge; l\'indice nasce su Drive)', MAX_OP.ritardo], [0.5, 'raffica', MAX_OP.salvaRaffica]];
+  passi.forEach(([min, nome, max], i) => {
+    spostamentoOra += min * 60000;
+    const c = salvaO('s' + i);
+    console.log('      ' + nome + ': ' + c.tot + ' operazioni (' + c.testo + ')');
+    assert.ok(c.tot <= max, nome + ': troppe operazioni Drive: ' + c.tot + ' (massimo ' + max + ')');
+  });
+});
+prova('rinvio: elenco e indice indietro su Drive, aggiornati nella cache; il risveglio li scrive; se la cache si perde si ricostruiscono', () => {
+  const cart = () => radice._cartelle.find((c) => c._nome === 'Pazienti')._cartelle.find((c) => c._nome === PIDO);
+  const elencoDrive = () => JSON.parse(radice._cartelle.find((c) => c._nome === 'Pazienti')._file.find((f) => f._nome === '_elenco.json' && !f._cestino)._buf.toString()).pazienti[PIDO];
+  const indiceDrive = () => JSON.parse(cart()._file.find((f) => f._nome === 'versioni.json')._buf.toString());
+  spostamentoOra += 60000;
+  salvaO('r1'); salvaO('r2');
+  // la persona che chiede vede subito la versione nuova (dalla cache), mentre su Drive l'elenco e' piu' vecchio
+  const elenco = ok(post(TP, 'pazienti.elenco')).find((v) => v.id === PIDO);
+  assert.strictEqual(elenco.version, versioneO);
+  assert.ok((elencoDrive() || { version: 0 }).version < versioneO, 'su Drive l\'elenco e\' indietro');
+  assert.ok(JSON.parse(proprieta.RINVIATI).s['Pazienti/_elenco.json'], 'e le proprieta\' dello script lo ricordano');
+  // la cache si perde: Drive e' indietro, quindi l'elenco si ricostruisce dai file dei bambini
+  Object.keys(cacheDati).filter((k) => /^c[^:]*:/.test(k)).forEach((k) => delete cacheDati[k]);
+  assert.strictEqual(ok(post(TP, 'pazienti.elenco')).find((v) => v.id === PIDO).version, versioneO, 'dopo la perdita della cache');
+  assert.strictEqual((elencoDrive() || {}).version, versioneO, 'ricostruito e scritto');
+  assert.ok(!proprieta.RINVIATI || !JSON.parse(proprieta.RINVIATI).s['Pazienti/_elenco.json']);
+  // lo stesso per l'indice delle versioni: il risveglio scrive su Drive quello che la cache ha
+  salvaO('r3');
+  assert.ok(!proprieta.RINVIATI || Object.keys(JSON.parse(proprieta.RINVIATI).s).length > 0);
+  vm.runInContext('_custode = null;', contesto);
+  vm.runInContext('custode_().smaltisci()', contesto);
+  assert.strictEqual((elencoDrive() || {}).version, versioneO, 'il risveglio scrive l\'elenco');
+  assert.ok(indiceDrive().versioni.length >= 1);
+  assert.ok(!proprieta.RINVIATI, 'niente piu\' in sospeso: ' + proprieta.RINVIATI);
+  // le versioni superate sono finite nel cestino solo al risveglio
+  const nelCestino = Object.values(tutti).filter((n) => n._tipo === 'file' && n._cestino && /^v\d{8}\.json$/.test(n._nome)).length;
+  assert.ok(nelCestino >= 1, 'versioni superate eliminate');
+});
+prova('rinvio: dopo un cambio della cache (svuotaCache) niente si perde', () => {
+  spostamentoOra += 60000;
+  salvaO('q1');
+  contesto.svuotaCache();
+  const elenco = ok(post(TP, 'pazienti.elenco')).find((v) => v.id === PIDO);
+  assert.strictEqual(elenco.version, versioneO);
+  const idx = ok(post(TP, 'paziente.versioni', { id: PIDO }));
+  assert.ok(idx.length >= 1);
+});
+prova('operazioni Drive: il controllo novità a cache calda non apre file', () => {
+  const imp = ok(post(TP, 'sincronizza.stato', {})).impronta;
+  post(TP, 'sincronizza.stato', { impronta: imp });
+  const c = conteggio(() => post(TP, 'sincronizza.stato', { impronta: imp }));
+  ok(c.r);
+  console.log('      controllo: ' + c.tot + ' (' + c.testo + ')');
+  assert.ok(c.tot <= MAX_OP.controllo, 'operazioni Drive: ' + c.tot);
 });
 
 console.log(`\n${passati} test passati, ${falliti} falliti`);

@@ -238,10 +238,21 @@
         };
         const media = (l) => l.reduce((a, b) => a + b, 0) / l.length;
         const mediana = (l) => { const o = l.slice().sort((a, b) => a - b), k = o.length >> 1; return o.length % 2 ? o[k] : (o[k - 1] + o[k]) / 2; };
-        function registra(azione, tot, interno, opz) {
+        // le fasi del lavoro del custode (attesa del lucchetto, letture, scritture, cache…) si tengono in forma compatta
+        const NUM = ['attesaLock', 'letture', 'scritture', 'cache', 'altro', 'nLetture', 'nScritture', 'nDrive'];
+        function compatta(f) {
+            if (!f || typeof f !== 'object') return null;
+            const o = {};
+            NUM.forEach((k) => { o[k] = Number.isFinite(f[k]) ? Math.round(f[k]) : 0; });
+            o.file = Array.isArray(f.file) ? f.file.filter((x) => typeof x === 'string').slice(0, 6).map((x) => x.slice(0, 60)) : [];
+            return o;
+        }
+        function registra(azione, tot, interno, opz, fasi) {
             const tipo = (opz && opz.tipo) || TIPO[azione];
             if (!tipo || !Number.isFinite(tot) || (opz && opz.misura === false)) return;
             const e = { t: Date.now(), tot: Math.round(tot), int: Number.isFinite(interno) ? Math.round(interno) : null };
+            const fc = compatta(fasi);
+            if (fc) { e.fasi = fc; e.az = azione; }
             const l = carica()[tipo];
             l.push(e); if (l.length > MAX) l.splice(0, l.length - MAX);
             try { localStorage.setItem(K, JSON.stringify(m)); } catch (x) { /* solo una comodita' */ }
@@ -259,8 +270,10 @@
             }
             return r;
         }
+        // le ultime `n` misure di un tipo (le piu' recenti prima), con le fasi se il custode le ha date
+        const ultime = (tipo, n) => (carica()[tipo] || []).slice(-n).reverse();
         const azzera = () => { m = { controllo: [], salvataggio: [] }; try { localStorage.removeItem(K); } catch (e) { /* ok */ } };
-        return { registra, riepilogo, azzera };
+        return { registra, riepilogo, azzera, ultime };
     })();
     const adesso = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
@@ -318,7 +331,7 @@
         }
         // la risposta di "sono attivo" (GET): la richiesta non è arrivata, si riprova
         if (!('dati' in j)) throw new ErroreRete('Il custode non ha ricevuto la richiesta: riprovo.');
-        Velocita.registra(azione, adesso() - t0, typeof j.ms === 'number' ? j.ms : null, opzMisura);
+        Velocita.registra(azione, adesso() - t0, typeof j.ms === 'number' ? j.ms : null, opzMisura, j.fasi);
         return j.dati;
     }
 
@@ -1131,7 +1144,7 @@
         ruolo: () => (conAule() ? (auleMie()[aulaAttiva()] || {}).ruolo || S.io.ruolo : (S.io && S.io.ruolo)) || null,
         conAule, aule: auleMie, aulaAttiva, impostaAula, aulaDi, puoIn, spostaAula, spostaAule, AULA_BASE,
         attivo: () => !!cfgApp().custodeUrl,
-        velocita: { riepilogo: Velocita.riepilogo, azzera: Velocita.azzera, misuraOra: misuraControlli },
+        velocita: { riepilogo: Velocita.riepilogo, azzera: Velocita.azzera, ultime: Velocita.ultime, misuraOra: misuraControlli },
         pronto, condiviso: (pid) => S.condivisi.has(pid), inAttesa: (pid) => S.coda.has(pid),
         // nell'aula su cui si lavora
         puo: (cosa) => { if (!S.io) return true; if (!conAule()) return !S.io.permessi || !!S.io.permessi[cosa]; const x = auleMie()[aulaAttiva()]; return !!(x && x.permessi && x.permessi[cosa]); },

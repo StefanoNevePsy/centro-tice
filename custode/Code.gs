@@ -71,12 +71,15 @@ function custode_() {
     ora: function () { return new Date().toISOString(); },
     sha256Hex: function (b64) { return hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.base64Decode(b64))); },
     // Corsia rapida dello «stato del centro» (vedi core.js): chiavi gia' corte, valori < 100 KB, TTL max 6 ore
-    cache: {
-      get: function (k) { return CacheService.getScriptCache().get(k); },
-      getAll: function (chiavi) { return CacheService.getScriptCache().getAll(chiavi); },
-      put: function (k, v, secondi) { CacheService.getScriptCache().put(k, v, Math.min(secondi || 600, 21600)); },
-      remove: function (k) { CacheService.getScriptCache().remove(k); },
-    },
+    cache: (function () {
+      var c = cronoCache_(CacheService.getScriptCache());
+      return {
+        get: function (k) { return c.get(k); },
+        getAll: function (chiavi) { return c.getAll(chiavi); },
+        put: function (k, v, secondi) { c.put(k, v, Math.min(secondi || 600, 21600)); },
+        remove: function (k) { c.remove(k); },
+      };
+    })(),
     // Risposte alle scritture gia' fatte, per i reinvii dell'app (10 minuti)
     ricordo: {
       leggi: function (k) { return CacheService.getScriptCache().get(chiaveCache_(k)); },
@@ -146,6 +149,20 @@ function verificaToken_(token) {
   return identita;
 }
 
+// Misure della richiesta in corso (per `fasi` nella risposta): millisecondi passati nella cache di
+// Apps Script e numero di operazioni sui servizi Drive (ognuna costa da 0,3 a 1,5 secondi).
+var _mCache = 0, _nDrive = 0;
+function cronoCache_(c) {
+  function t(fn) { var t0 = Date.now(); try { return fn(); } finally { _mCache += Date.now() - t0; } }
+  return {
+    get: function (k) { return t(function () { return c.get(k); }); },
+    getAll: function (ks) { return t(function () { return c.getAll(ks); }); },
+    put: function (k, v, s) { return t(function () { return c.put(k, v, s); }); },
+    putAll: function (o, s) { return t(function () { return c.putAll(o, s); }); },
+    remove: function (k) { return t(function () { return c.remove(k); }); },
+  };
+}
+
 // Le chiavi della cache di Apps Script hanno un limite di lunghezza
 function chiaveCache_(k) {
   return 'r:' + hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, k));
@@ -161,58 +178,77 @@ function hex_(bytes) {
 function archivioDrive_() {
   var radiceId = PROP.getProperty('CARTELLA_RADICE');
   if (!radiceId) throw new Error('CARTELLA_RADICE non configurata');
-  var cache = CacheService.getScriptCache();
+  var cache = cronoCache_(CacheService.getScriptCache());
   var memoria = {};   // cache della singola richiesta
+  var gen = generazioneCache_();
 
-  function radice() { return DriveApp.getFolderById(radiceId); }
+  // Ogni chiamata ai servizi Drive passa di qui: serve solo a contarle
+  function D(fn) { _nDrive++; return fn(); }
+
+  function radice() { return memoria.radice || (memoria.radice = D(function () { return DriveApp.getFolderById(radiceId); })); }
+
+  // Gli id di file e cartelle si ricordano 6 ore. Quelli dei file cambiano generazione con
+  // svuotaCache(): un file spostato a mano nel cestino non resta mai in uso.
+  function chiaveF(p) { return 'f' + gen + ':' + p; }
 
   // Cartella di un percorso ("Pazienti/pz_x"), creandola se serve.
   function cartella(percorso, crea) {
     if (!percorso) return radice();
-    if (memoria['d:' + percorso]) return memoria['d:' + percorso];
-    var id = cache.get('d:' + percorso);
-    if (id) {
-      try {
-        var f = DriveApp.getFolderById(id);
-        memoria['d:' + percorso] = f;
-        return f;
-      } catch (e) { cache.remove('d:' + percorso); }
-    }
+    var m = memoria['d:' + percorso];
+    if (m) return m;
+    if (m === null && !crea) return null;   // gia' cercata in questa richiesta: non c'e'
     var parti = percorso.split('/');
     var nome = parti.pop();
+    if (m === undefined) {
+      var id = cache.get('d:' + percorso);
+      if (id) {
+        try {
+          var f = D(function () { return DriveApp.getFolderById(id); });
+          memoria['d:' + percorso] = f;
+          return f;
+        } catch (e) { cache.remove('d:' + percorso); }
+      }
+    }
     var genitore = cartella(parti.join('/'), crea);
-    if (!genitore) return null;
-    var it = genitore.getFoldersByName(nome);
-    var trovata = it.hasNext() ? it.next() : (crea ? genitore.createFolder(nome) : null);
+    if (!genitore) { memoria['d:' + percorso] = null; return null; }
+    var trovata = null;
+    if (m !== null) {   // (se gia' cercata e assente, per crearla non si cerca di nuovo)
+      var it = D(function () { return genitore.getFoldersByName(nome); });
+      trovata = D(function () { return it.hasNext() ? it.next() : null; });
+    }
+    if (!trovata && crea) trovata = D(function () { return genitore.createFolder(nome); });
     if (trovata) {
       cache.put('d:' + percorso, trovata.getId(), 21600);
       memoria['d:' + percorso] = trovata;
-    }
+    } else memoria['d:' + percorso] = null;
     return trovata;
   }
 
   function file(percorso) {
     if (memoria['f:' + percorso] !== undefined) return memoria['f:' + percorso];
-    var id = cache.get('f:' + percorso);
+    var id = cache.get(chiaveF(percorso));
     if (id) {
+      // l'id e' stato scritto da noi o trovato in una ricerca per nome: se il file e' stato tolto dal
+      // custode (elimina) l'id non c'e' piu'; un file tolto a mano si ritrova con svuotaCache()
       try {
-        var f = DriveApp.getFileById(id);
-        if (!f.isTrashed()) { memoria['f:' + percorso] = f; return f; }
+        var f = D(function () { return DriveApp.getFileById(id); });
+        memoria['f:' + percorso] = f;
+        return f;
       } catch (e) { /* rimosso: si cerca per nome */ }
-      cache.remove('f:' + percorso);
+      cache.remove(chiaveF(percorso));
     }
     var parti = percorso.split('/');
     var nome = parti.pop();
     var dir = cartella(parti.join('/'), false);
     var trovato = null;
     if (dir) {
-      var it = dir.getFilesByName(nome);
-      while (it.hasNext()) {
-        var cand = it.next();
-        if (!cand.isTrashed()) { trovato = cand; break; }
+      var it = D(function () { return dir.getFilesByName(nome); });
+      while (D(function () { return it.hasNext(); })) {
+        var cand = D(function () { return it.next(); });
+        if (!D(function () { return cand.isTrashed(); })) { trovato = cand; break; }
       }
     }
-    if (trovato) cache.put('f:' + percorso, trovato.getId(), 21600);
+    if (trovato) cache.put(chiaveF(percorso), trovato.getId(), 21600);
     memoria['f:' + percorso] = trovato;
     return trovato;
   }
@@ -225,7 +261,7 @@ function archivioDrive_() {
   var PEZZO = 90000, MAX_PEZZI = 10;
   var daTenere = function (p) { return !/\/versioni\//.test(p); };
   // la generazione cambia con svuotaCache(): da lì tutto si rilegge da Drive
-  function chiaveC(p) { return 'c' + generazioneCache_() + ':' + hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, p)).slice(0, 40); }
+  function chiaveC(p) { return 'c' + gen + ':' + hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, p)).slice(0, 40); }
   // undefined: la cache non sa niente; null: il file non c'è; testo: il contenuto
   function daCache(p) {
     if (!daTenere(p)) return undefined;
@@ -241,17 +277,47 @@ function archivioDrive_() {
       return out.length === t.len ? out : undefined;
     } catch (e) { return undefined; }
   }
+  // true se il contenuto e' in cache (per i file rimandati: la cache e' l'unica copia aggiornata)
   function inCache(p, testo) {
-    if (!daTenere(p)) return;
+    if (!daTenere(p)) return false;
     var k = chiaveC(p);
     try {
-      if (testo == null) { cache.put(k, JSON.stringify({ assente: true }), 21600); return; }
-      if (testo.length > PEZZO * MAX_PEZZI) { cache.remove(k); return; }
+      if (testo == null) { cache.put(k, JSON.stringify({ assente: true }), 21600); return true; }
+      if (testo.length > PEZZO * MAX_PEZZI) { cache.remove(k); return false; }
       var tag = Math.random().toString(36).slice(2, 8), n = Math.ceil(testo.length / PEZZO), pezzi = {};
       for (var i = 0; i < n; i++) pezzi[k + ':' + tag + ':' + i] = testo.slice(i * PEZZO, (i + 1) * PEZZO);
       cache.putAll(pezzi, 21600);
       cache.put(k, JSON.stringify({ tag: tag, n: n, len: testo.length }), 21600);
-    } catch (e) { try { cache.remove(k); } catch (x) { /* solo una comodità */ } }
+      return true;
+    } catch (e) { try { cache.remove(k); } catch (x) { /* solo una comodità */ } return false; }
+  }
+
+  // --- Scritture rimandate -------------------------------------------------------
+  // Alcuni file sono ricostruibili da altri (l'elenco dei bambini, l'indice delle versioni di
+  // ciascuno): durante il lavoro si tengono aggiornati nella cache, e su Drive si scrivono al
+  // massimo ogni RITARDO_MS (o dal risveglio periodico). Nelle proprieta' dello script resta
+  // scritto quali file hanno su Drive una copia indietro: se la cache li perde, il custode non
+  // si fida di Drive e li ricostruisce. Anche le versioni superate da eliminare aspettano il
+  // risveglio. Si scrive sempre dentro il lucchetto delle scritture.
+  var RITARDO_MS = 10 * 60000, MAX_PROP = 7000, MAX_DA_ELIMINARE = 30;
+  var rinv = null;
+  function rinvCarica() {
+    if (rinv) return rinv;
+    try { rinv = JSON.parse(PROP.getProperty('RINVIATI') || 'null'); } catch (e) { rinv = null; }
+    if (!rinv || typeof rinv !== 'object') rinv = {};
+    if (!rinv.s || typeof rinv.s !== 'object') rinv.s = {};
+    if (!Array.isArray(rinv.d)) rinv.d = [];
+    return rinv;
+  }
+  function rinvSalva() {
+    var r = rinvCarica();
+    if (!Object.keys(r.s).length && !r.d.length) PROP.deleteProperty('RINVIATI');
+    else PROP.setProperty('RINVIATI', JSON.stringify(r));
+  }
+  function inRitardo(p) { return !!rinvCarica().s[p]; }
+  function leggiNonRinviato(p) {
+    var testo = testoDaDrive(p);
+    return testo == null ? null : JSON.parse(testo);
   }
 
   // Una copia letta da Drive entra in cache solo se nessuno può scrivere intanto:
@@ -259,8 +325,9 @@ function archivioDrive_() {
   // lettura lenta potrebbe rimettere in cache la versione vecchia di un file
   // appena salvato da un'altra persona.
   var inLock = false;
-  function testoDrive(p) { var f = file(p); return f ? f.getBlob().getDataAsString('UTF-8') : null; }
+  function testoDrive(p) { var f = file(p); return f ? D(function () { return f.getBlob().getDataAsString('UTF-8'); }) : null; }
   function testoDaDrive(p) {
+    if (inRitardo(p)) return testoDrive(p);   // copia indietro: non va in cache
     if (inLock || !daTenere(p)) { var t = testoDrive(p); if (inLock) inCache(p, t); return t; }
     var lock = LockService.getScriptLock();
     if (lock.tryLock(0)) {
@@ -269,45 +336,77 @@ function archivioDrive_() {
     return testoDrive(p);
   }
 
-  function scriviTesto(percorso, contenuto, mime) {
-    var f = file(percorso);
+  // nuovo: il file non esiste ancora (una versione precedente col suo numero): niente ricerca per nome
+  function scriviTesto(percorso, contenuto, mime, nuovo) {
+    var f = (nuovo && !cache.get(chiaveF(percorso))) ? null : file(percorso);
     if (f) {
-      f.setContent(contenuto);
+      D(function () { return f.setContent(contenuto); });
       inCache(percorso, contenuto);
       return;
     }
     var parti = percorso.split('/');
     var nome = parti.pop();
-    var nuovo = cartella(parti.join('/'), true).createFile(nome, contenuto, mime);
-    cache.put('f:' + percorso, nuovo.getId(), 21600);
-    memoria['f:' + percorso] = nuovo;
+    var dir = cartella(parti.join('/'), true);
+    var nuovoF = D(function () { return dir.createFile(nome, contenuto, mime); });
+    cache.put(chiaveF(percorso), nuovoF.getId(), 21600);
+    memoria['f:' + percorso] = nuovoF;
     inCache(percorso, contenuto);
+  }
+
+  // Elimina davvero (nel cestino di Drive: recuperabile per 30 giorni)
+  function eliminaSubito(percorso) {
+    var f = file(percorso);
+    if (!f) return;
+    D(function () { return f.setTrashed(true); });
+    cache.remove(chiaveF(percorso));
+    memoria['f:' + percorso] = null;
+    inCache(percorso, null);
   }
 
   return {
     leggiJSON: function (percorso) {
       var c = daCache(percorso);
       if (c !== undefined) return c === null ? null : JSON.parse(c);
-      var testo = testoDaDrive(percorso);
-      return testo == null ? null : JSON.parse(testo);
+      return leggiNonRinviato(percorso);
     },
-    scriviJSON: function (percorso, oggetto) {
-      scriviTesto(percorso, JSON.stringify(oggetto), 'application/json');
+    // Come leggiJSON, ma `undefined` se la copia su Drive e' indietro e la cache l'ha persa
+    leggiAggiornato: function (percorso) {
+      var c = daCache(percorso);
+      if (c !== undefined) return c === null ? null : JSON.parse(c);
+      if (inRitardo(percorso)) return undefined;
+      return leggiNonRinviato(percorso);
+    },
+    scriviJSON: function (percorso, oggetto, opz) {
+      var testo = JSON.stringify(oggetto);
+      if (opz && opz.rinvia && daTenere(percorso) && testo.length <= PEZZO * MAX_PEZZI) {
+        var r = rinvCarica(), da = r.s[percorso], adesso = Date.now();
+        // la copia su Drive e' indietro da meno di RITARDO_MS: si aggiorna solo la cache
+        if (!(da && adesso - da > RITARDO_MS)) {
+          var primaVolta = !da;
+          var spazio = JSON.stringify(r).length < MAX_PROP;
+          if (!primaVolta || spazio) {
+            if (primaVolta) { r.s[percorso] = adesso; rinvSalva(); }
+            if (inCache(percorso, testo)) return;
+          }
+        }
+      }
+      scriviTesto(percorso, testo, 'application/json', opz && opz.nuovo);
+      if (inRitardo(percorso)) { delete rinvCarica().s[percorso]; rinvSalva(); }
     },
     elenca: function (percorso) {
       var dir = cartella(percorso, false);
       var out = { file: [], cartelle: [] };
       if (!dir) return out;
-      var fi = dir.getFiles();
-      while (fi.hasNext()) { var f = fi.next(); if (!f.isTrashed()) out.file.push(f.getName()); }
-      var di = dir.getFolders();
-      while (di.hasNext()) { var d = di.next(); if (!d.isTrashed()) out.cartelle.push(d.getName()); }
+      var fi = D(function () { return dir.getFiles(); });
+      while (D(function () { return fi.hasNext(); })) { var f = D(function () { return fi.next(); }); if (!D(function () { return f.isTrashed(); })) out.file.push(D(function () { return f.getName(); })); }
+      var di = D(function () { return dir.getFolders(); });
+      while (D(function () { return di.hasNext(); })) { var d = D(function () { return di.next(); }); if (!D(function () { return d.isTrashed(); })) out.cartelle.push(D(function () { return d.getName(); })); }
       return out;
     },
     leggiBinario: function (percorso) {
       var f = file(percorso);
       if (!f) return null;
-      var blob = f.getBlob();
+      var blob = D(function () { return f.getBlob(); });
       return { base64: Utilities.base64Encode(blob.getBytes()), mime: blob.getContentType() };
     },
     scriviBinario: function (percorso, base64, mime) {
@@ -315,8 +414,9 @@ function archivioDrive_() {
       var parti = percorso.split('/');
       var nome = parti.pop();
       var blob = Utilities.newBlob(Utilities.base64Decode(base64), mime, nome);
-      var nuovo = cartella(parti.join('/'), true).createFile(blob);
-      cache.put('f:' + percorso, nuovo.getId(), 21600);
+      var dir = cartella(parti.join('/'), true);
+      var nuovo = D(function () { return dir.createFile(blob); });
+      cache.put(chiaveF(percorso), nuovo.getId(), 21600);
       memoria['f:' + percorso] = nuovo;
     },
     esiste: function (percorso) { var c = daCache(percorso); return c !== undefined ? c !== null : !!file(percorso); },
@@ -326,19 +426,45 @@ function archivioDrive_() {
       var out = [];
       if (!dir) return out;
       var cerca = !!dir.searchFiles;
-      var it = cerca ? dir.searchFiles('trashed = false') : dir.getFiles();
-      while (it.hasNext()) { var f = it.next(); if (cerca || !f.isTrashed()) out.push(f.getName()); }
+      var it = D(function () { return cerca ? dir.searchFiles('trashed = false') : dir.getFiles(); });
+      while (D(function () { return it.hasNext(); })) { var f = D(function () { return it.next(); }); if (cerca || !D(function () { return f.isTrashed(); })) out.push(D(function () { return f.getName(); })); }
       return out;
     },
-    // Nel cestino di Drive, non cancellato per sempre: resta recuperabile per 30 giorni
-    elimina: function (percorso) {
-      var f = file(percorso);
-      if (!f) return;
-      f.setTrashed(true);
-      cache.remove('f:' + percorso);
-      memoria['f:' + percorso] = null;
-      inCache(percorso, null);
+    // Nel cestino di Drive, non cancellato per sempre: resta recuperabile per 30 giorni.
+    // Con `rinvia` (versioni superate) la cancellazione aspetta il risveglio periodico.
+    elimina: function (percorso, opz) {
+      if (opz && opz.rinvia) {
+        var r = rinvCarica();
+        if (r.d.indexOf(percorso) >= 0) { memoria['f:' + percorso] = null; return; }
+        if (r.d.length < MAX_DA_ELIMINARE && JSON.stringify(r).length < MAX_PROP) {
+          r.d.push(percorso); rinvSalva();
+          memoria['f:' + percorso] = null;
+          return;
+        }
+      }
+      eliminaSubito(percorso);
     },
+    // --- per smaltisci() del custode: il risveglio periodico e svuotaCache ---
+    rinviate: function () { return Object.keys(rinvCarica().s); },
+    // scrive su Drive la copia in cache di un file rimandato; false se la cache l'ha persa
+    scarica: function (percorso) {
+      var c = daCache(percorso);
+      if (c === undefined || c === null) return false;
+      scriviTesto(percorso, c, 'application/json');
+      delete rinvCarica().s[percorso]; rinvSalva();
+      return true;
+    },
+    dimentica: function (percorso) { delete rinvCarica().s[percorso]; rinvSalva(); },
+    eliminaRinviati: function () {
+      var r = rinvCarica(), fatte = 0, restano = [];
+      r.d.forEach(function (p) {
+        try { memoria['f:' + p] = undefined; eliminaSubito(p); fatte++; } catch (e) { restano.push(p); }
+      });
+      if (fatte || restano.length !== r.d.length) { r.d = restano; rinvSalva(); }
+      return fatte;
+    },
+    misure: function () { return { cache: _mCache, drive: _nDrive }; },
+    azzeraMisure: function () { _mCache = 0; _nDrive = 0; },
     // Come conLock ma senza aspettare: se qualcuno sta scrivendo, non fa niente
     provaLock: function (fn) {
       var lock = LockService.getScriptLock();
@@ -412,6 +538,8 @@ function disattivaRisveglio() {
 function risveglio() {
   var ora = Number(Utilities.formatDate(new Date(), 'Europe/Rome', 'H'));
   if (ora < 7 || ora >= 21) return;
+  // prima quello che i salvataggi hanno rimandato (elenco, indici delle versioni, versioni da eliminare)
+  try { custode_().smaltisci(); } catch (e) { /* al prossimo giro */ }
   var a = archivioDrive_();
   ['_config/accessi.json', '_config/cifratura.json', '_config/dispositivi.json', 'Pazienti/_elenco.json', 'Materiali/indice.json', '_config/modalita.json']
     .forEach(function (p) { try { a.leggiJSON(p); } catch (e) { /* al prossimo giro */ } });
@@ -431,6 +559,8 @@ function generazioneCache_() {
   return _generazione;
 }
 function svuotaCache() {
+  // quello che i salvataggi hanno rimandato va su Drive prima di dimenticare la cache
+  try { custode_().smaltisci(); } catch (e) { /* si ricostruira' dai file dei bambini */ }
   // anche le risposte dello stato del centro: senza revisione, nessuna vale piu'
   try { CacheService.getScriptCache().remove(QT.CHIAVE_STATO_REV); } catch (e) { /* scade da sola entro 6 ore */ }
   _generazione = Date.now().toString(36);

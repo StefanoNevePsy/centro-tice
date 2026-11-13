@@ -987,6 +987,68 @@ console.log('\nNome del proprietario');
   });
 }
 
+console.log('\nOperazioni sull\'archivio per richiesta e profilo dei tempi');
+{
+  // Ogni scrittura su Drive costa da 0,3 a 1,5 secondi: un salvataggio deve scriverne pochissime
+  const op = {};
+  const conta = (k) => { op[k] = (op[k] || 0) + 1; };
+  const azzera = () => Object.keys(op).forEach((k) => delete op[k]);
+  const dirO = fs.mkdtempSync(path.join(os.tmpdir(), 'custode-op-'));
+  const a = archivioSuDisco(dirO);
+  ['leggiJSON', 'scriviJSON', 'elimina', 'elenca', 'leggiBinario', 'scriviBinario', 'esiste'].forEach((k) => {
+    const f = a[k];
+    a[k] = (...x) => { conta(k); return f(...x); };
+  });
+  const cO = QT.creaCustode({
+    archivio: a, cache: cacheInMemoria(),
+    verificaToken: (t) => ({ email: t.slice(4), nome: 'Prova' }),
+    proprietario: () => PROPRIETARIO, ora: () => adesso.toISOString(), sha256Hex,
+  });
+  const chO = (azione, dati) => cO.gestisci({ v: 1, token: 'dev:' + PROPRIETARIO, azione, dati });
+  const scrittureTot = () => (op.scriviJSON || 0) + (op.elimina || 0) + (op.scriviBinario || 0);
+  const PIDO = String(Date.now() + 77);
+  ok(chO('cifratura.imposta', { cifratura: CIFRATURA }));
+  const salvaO = (v, extra) => {
+    azzera();
+    const r = chO('paziente.salva', { id: PIDO, versioneBase: v, busta: busta(paziente(PIDO, 'Prova ' + v, extra), 'tice:paziente:' + PIDO) });
+    return { r: ok(r), op: Object.assign({}, op), tot: scrittureTot(), fasi: r.fasi };
+  };
+  let ver = 1;
+  prova('bambino nuovo: al massimo 3 scritture (il suo file, l\'elenco, gli accessi)', () => {
+    azzera();
+    ok(chO('paziente.crea', { id: PIDO, busta: busta(paziente(PIDO, 'Prova'), 'tice:paziente:' + PIDO), etichetta: busta({ nome: 'Prova' }) }));
+    assert.ok(scrittureTot() <= 3, 'scritture: ' + JSON.stringify(op));
+  });
+  prova('salvataggio normale (nasce una versione precedente): al massimo 4 scritture e 1 eliminazione', () => {
+    tick(10 * 60000);
+    const c = salvaO(ver, {}); ver = c.r.version;
+    assert.ok((c.op.scriviJSON || 0) <= 4 && (c.op.elimina || 0) <= 1, JSON.stringify(c.op));
+  });
+  prova('salvataggi a raffica: solo il file del bambino e l\'elenco (2 scritture, nessuna eliminazione)', () => {
+    let visti = 0;
+    for (let i = 0; i < 6; i++) {
+      tick(20000);
+      const c = salvaO(ver, { n: i }); ver = c.r.version;
+      if ((c.op.scriviJSON || 0) === 2 && !c.op.elimina) visti++;
+      else assert.ok((c.op.scriviJSON || 0) <= 4 && (c.op.elimina || 0) <= 1, 'scritture: ' + JSON.stringify(c.op));
+    }
+    // dentro i 3 minuti dalla versione precedente non si scrive altro che il bambino e l'elenco
+    assert.ok(visti >= 4, 'la raffica e\' davvero a 2 scritture: ' + visti + ' su 6');
+  });
+  prova('ogni risposta ha il profilo `fasi`: attesa del lucchetto, letture, scritture, cache, altro e conteggi', () => {
+    const c = salvaO(ver, { fasi: 1 }); ver = c.r.version;
+    const f = c.fasi;
+    assert.ok(f && typeof f === 'object');
+    ['attesaLock', 'letture', 'scritture', 'cache', 'altro', 'nLetture', 'nScritture', 'nDrive'].forEach((k) => assert.ok(Number.isFinite(f[k]) && f[k] >= 0, k + ': ' + f[k]));
+    assert.ok(f.nScritture >= 1 && f.nLetture >= 1, JSON.stringify(f));
+    assert.ok(Array.isArray(f.file));
+    const r = chO('sincronizza.stato', {});
+    assert.ok(r.fasi && r.fasi.nScritture === 0, 'un controllo non scrive: ' + JSON.stringify(r.fasi));
+    assert.ok(!chO('azione.che.non.esiste', {}).ok);
+  });
+  fs.rmSync(dirO, { recursive: true, force: true });
+}
+
 console.log(`\n${passati} test passati, ${fallimenti.length} falliti`);
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fallimenti.length ? 1 : 0);

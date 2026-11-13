@@ -377,6 +377,17 @@
             <td class="num"><b>${secondi(r.medio)}</b> <span class="pill ${colore}">${g}</span><br>
             <span class="sotto piccolo">tipico ${secondi(r.mediano)}${r.custode !== null ? h` · custode ${secondi(r.custode)} · rete e avvio ${secondi(r.rete)}` : ''}</span></td></tr>`;
     }
+    // Dove e' andato il tempo dentro il custode, per gli ultimi salvataggi: da mandare a chi cura l'app
+    function dettagliVelocita() {
+        const l = Y.velocita.ultime('salvataggio', 6).filter((e) => e.fasi);
+        if (!l.length) return h`<p class="sotto piccolo">Nessun dettaglio ancora: compare dopo i prossimi salvataggi (serve il custode aggiornato).</p>`;
+        const ora = (t) => new Date(t).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        return h`${l.map((e) => { const f = e.fasi; return h`<div class="scheda imbottita" style="margin-top:6px">
+            <b>${ora(e.t)}</b> · totale ${secondi(e.tot)}${e.int !== null ? h` · custode ${secondi(e.int)}` : ''}<br>
+            <span class="sotto piccolo">attesa del lucchetto ${secondi(f.attesaLock)} · letture ${secondi(f.letture)} (${f.nLetture}) · scritture ${secondi(f.scritture)} (${f.nScritture}) · cache ${secondi(f.cache)} · altro ${secondi(f.altro)} · chiamate a Drive ${f.nDrive}</span>
+            ${f.file.length ? h`<br><span class="sotto piccolo">file più lenti: ${f.file.join(' · ')}</span>` : ''}
+        </div>`; })}`;
+    }
     function riquadroVelocita() {
         const c = Y.velocita.riepilogo('controllo'), v = Y.velocita.riepilogo('salvataggio'), m = T.velMisura;
         return h`<div class="scheda imbottita" style="margin-top:10px">
@@ -388,6 +399,10 @@
             <p class="sotto piccolo">Il «controllo novità» parte da solo ogni pochi secondi per vedere se qualcuno ha cambiato qualcosa. Il tempo totale è quello che aspetti tu: una parte è il lavoro del custode, il resto è la strada fino a Google e l'avvio del suo servizio. Se il tempo è alto ma la parte del custode è bassa, il rallentamento non dipende dai dati.</p>
             ${m ? h`<p class="sotto">${m.length ? h`Ultimi 3 controlli: <b>${m.map((e) => secondi(e.tot)).join(' · ')}</b>${m.every((e) => e.int !== null) ? h` (lavoro del custode: ${m.map((e) => secondi(e.int)).join(' · ')})` : ''}` : 'Nessuna misura riuscita.'}</p>` : ''}
             ${T.velErrore ? h`<p class="sotto">${icona('triangle-exclamation')} ${T.velErrore}</p>` : ''}
+            <details data-morph="velocita-dettagli" style="margin:8px 0"><summary>Dettagli</summary>
+                <p class="sotto piccolo">Ultimi salvataggi, dentro il custode: tra parentesi quante operazioni. Se vuoi farli controllare, copia queste righe.</p>
+                ${dettagliVelocita()}
+            </details>
             <button class="bt largo" data-a="misura-velocita" ${T.velLavoro ? grezzo('disabled') : ''}>${icona(T.velLavoro ? 'spinner fa-spin' : 'gauge-high')} ${T.velLavoro ? 'Misuro…' : 'Misura ora'}</button>
         </div>`;
     }

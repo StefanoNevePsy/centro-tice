@@ -315,6 +315,9 @@ var QT = (function () {
    *   ricordo?: { leggi(chiave) -> testo|null, scrivi(chiave, testo) }   (facoltativo)
    * }
    * archivio.nomiFile?(percorso) -> [nomi]  (facoltativo: elenco veloce dei soli file)
+   * Facoltativi, solo per l'archivio su Drive (nel mock non servono: si scrive sempre subito):
+   *   scriviJSON(p, o, { nuovo }) e (p, o, { rinvia }), elimina(p, { rinvia }), leggiAggiornato(p),
+   *   rinviate(), scarica(p), dimentica(p), eliminaRinviati(), misure(), azzeraMisure()
    */
   function creaCustode(amb) {
     var A0 = amb.archivio;
@@ -362,17 +365,58 @@ var QT = (function () {
       sporco = false;
       if (!cPut(REV, nuovaRev())) { try { C.remove(REV); } catch (e) { /* idem */ } }
     }
-    // Ogni scrittura dei file di stato passa di qui (e il lucchetto, chiudendosi, rinnova la revisione)
+    // Ogni scrittura dei file di stato passa di qui (e il lucchetto, chiudendosi, rinnova la revisione).
+    // `opz` (facoltativo, lo capisce solo l'archivio su Drive): { nuovo: true } = file che non esiste
+    // ancora, niente ricerca per nome; { rinvia: true } = la copia su Drive puo' restare indietro
+    // rispetto alla cache per qualche minuto (file ricostruibili: elenco e indice delle versioni).
     var A = {};
     Object.keys(A0).forEach(function (k) { A[k] = A0[k]; });
-    A.scriviJSON = function (p, o) {
+
+    // Profilo della richiesta: dove va il tempo (lo restituisce `gestisci` in `fasi`)
+    var PROF = null;
+    function nomeFile(p) { return String(p).split('/').pop(); }
+    function cron(tipo, p, fn) {
+      if (!PROF) return fn();
+      var t = Date.now();
+      try { return fn(); } finally {
+        var d = Date.now() - t;
+        if (tipo === 'L') { PROF.letture += d; PROF.nLetture++; } else { PROF.scritture += d; PROF.nScritture++; }
+        var k = (tipo === 'L' ? 'let ' : 'scr ') + nomeFile(p);
+        PROF.file[k] = (PROF.file[k] || 0) + d;
+      }
+    }
+    function chiudiProfilo(ms) {
+      var f = PROF; PROF = null;
+      var m = (A0.misure && A0.misure()) || {};
+      var file = Object.keys(f.file).filter(function (k) { return f.file[k] >= 5; })
+        .sort(function (a, b) { return f.file[b] - f.file[a]; }).slice(0, 10)
+        .map(function (k) { return k + ':' + f.file[k]; });
+      return {
+        attesaLock: f.attesaLock, letture: f.letture, scritture: f.scritture, cache: m.cache || 0,
+        altro: Math.max(0, ms - f.attesaLock - f.letture - f.scritture),
+        nLetture: f.nLetture, nScritture: f.nScritture, nDrive: m.drive || 0, file: file,
+      };
+    }
+    A.leggiJSON = function (p) { return cron('L', p, function () { return A0.leggiJSON(p); }); };
+    A.leggiBinario = function (p) { return cron('L', p, function () { return A0.leggiBinario(p); }); };
+    A.scriviBinario = function (p, b, m) { return cron('S', p, function () { return A0.scriviBinario(p, b, m); }); };
+    A.esiste = function (p) { return cron('L', p, function () { return A0.esiste(p); }); };
+    A.elenca = function (p) { return cron('L', p, function () { return A0.elenca(p); }); };
+    if (A0.nomiFile) A.nomiFile = function (p) { return cron('L', p, function () { return A0.nomiFile(p); }); };
+    A.scriviJSON = function (p, o, opz) {
       var t = prima(p);
-      try { return A0.scriviJSON(p, o); } finally { if (t && !inLock) chiudiStato(); }
+      try { return cron('S', p, function () { return A0.scriviJSON(p, o, opz); }); } finally { if (t && !inLock) chiudiStato(); }
     };
-    A.elimina = function (p) {
+    A.elimina = function (p, opz) {
       var t = prima(p);
-      try { return A0.elimina(p); } finally { if (t && !inLock) chiudiStato(); }
+      try { return cron('S', p, function () { return A0.elimina(p, opz); }); } finally { if (t && !inLock) chiudiStato(); }
     };
+    // Un file ricostruibile letto da quello che e' in cache; `undefined` = la copia su Drive puo'
+    // essere indietro e la cache l'ha persa: va ricostruito. null = non c'e'.
+    function leggiRinviabile(p) {
+      if (!A0.leggiAggiornato) return A.leggiJSON(p);
+      return cron('L', p, function () { return A0.leggiAggiornato(p); });
+    }
 
     // Lock rientrante: una ricostruzione di cache puo' partire sia da una
     // scrittura (gia' sotto lock) sia da una lettura (no). Tutte le scritture
@@ -380,7 +424,9 @@ var QT = (function () {
     var inLock = false;
     function conLock(fn) {
       if (inLock) return fn();
+      var tLock = Date.now();
       return A0.conLock(function () {
+        if (PROF) PROF.attesaLock += Date.now() - tLock;
         inLock = true; sporco = false;
         try { return fn(); } finally { inLock = false; chiudiStato(); }
       });
@@ -516,7 +562,7 @@ var QT = (function () {
       return v;
     }
     function leggiElenco() {
-      var e = A.leggiJSON(P.elenco);
+      var e = leggiRinviabile(P.elenco);
       return e || conLock(ricostruisciElenco);
     }
     function ricostruisciElenco() {
@@ -527,32 +573,44 @@ var QT = (function () {
         if (r) elenco.pazienti[pid] = voceElenco(r);
       });
       A.scriviJSON(P.elenco, elenco);
+      elencoRichiesta = elenco;
       return elenco;
     }
-    function aggiornaElenco(r) {
-      var elenco = A.leggiJSON(P.elenco) || { schema: SCHEMA, pazienti: {} };
+    // Con `rinvia` la copia su Drive puo' restare indietro di qualche minuto: la cache e' sempre aggiornata
+    // e, se la cache si perde, l'elenco si ricostruisce dai file dei bambini (che sono sempre scritti subito).
+    function aggiornaElenco(r, rinvia) {
+      var elenco = leggiElenco();
       elenco.pazienti[r.id] = voceElenco(r);
-      A.scriviJSON(P.elenco, elenco);
+      A.scriviJSON(P.elenco, elenco, rinvia ? { rinvia: true } : undefined);
       elencoRichiesta = elenco;
     }
 
     // Le versioni precedenti di un paziente hanno un piccolo indice (numero, quando,
     // chi): per elencarle e potarle non si rileggono più i file uno per uno.
     function leggiIndiceVersioni(pid) {
-      var x = A.leggiJSON(P.indiceVersioni(pid));
+      var x = leggiRinviabile(P.indiceVersioni(pid));
       if (x && Array.isArray(x.versioni)) return x;
-      // la prima volta: dalle versioni già nella cartella (lette una volta sola)
-      return { schema: SCHEMA, versioni: elencoVersioni(pid).map(function (v) {
-        var r = A.leggiJSON(P.versioni(pid) + '/' + v.nome) || {};
-        return { v: v.version, il: r.aggiornato || null, da: r.aggiornatoDa || null };
-      }) };
+      // la prima volta, o dopo che la cache ha perso un indice non ancora scritto su Drive: dalle
+      // versioni già nella cartella (lette una volta sola)
+      var costruisci = function () {
+        var idx = { schema: SCHEMA, versioni: elencoVersioni(pid).map(function (v) {
+          var r = A.leggiJSON(P.versioni(pid) + '/' + v.nome) || {};
+          return { v: v.version, il: r.aggiornato || null, da: r.aggiornatoDa || null };
+        }) };
+        if (x === undefined) A.scriviJSON(P.indiceVersioni(pid), idx);
+        return idx;
+      };
+      return x === undefined ? conLock(costruisci) : costruisci();
     }
     // Prima di sovrascrivere, la versione attuale va nelle versioni precedenti.
     // Più salvataggi della stessa persona a pochi minuti l'uno dall'altro (si sta
     // lavorando al programma) sono una versione sola: se ne tiene l'ultima.
+    // L'indice e l'eliminazione delle versioni superate si possono rimandare di qualche minuto
+    // (rinvia): il file del bambino e la nuova versione sono scritti subito.
     function archiviaVersione(r) {
       var idx = leggiIndiceVersioni(r.id), l = idx.versioni, prec = l[0];
       var voce = { v: r.version, il: r.aggiornato || null, da: r.aggiornatoDa || null };
+      var RINVIA = { rinvia: true };
       // Salvataggi a raffica della stessa persona (si sta ritoccando il programma): la versione
       // precedente di pochi minuti fa basta, non si scrive niente su Drive oltre al paziente
       if (prec && prec.v !== voce.v && prec.da && prec.da === voce.da && prec.il && voce.il &&
@@ -560,17 +618,17 @@ var QT = (function () {
         // le versioni troppo vecchie si potano comunque (l'indice si riscrive solo se ne è uscita qualcuna)
         var quante = l.length;
         potaVersioni(r.id, idx);
-        if (idx.versioni.length !== quante) A.scriviJSON(P.indiceVersioni(r.id), idx);
+        if (idx.versioni.length !== quante) A.scriviJSON(P.indiceVersioni(r.id), idx, RINVIA);
         return;
       }
-      A.scriviJSON(P.versione(r.id, r.version), r);
+      A.scriviJSON(P.versione(r.id, r.version), r, { nuovo: true });
       if (prec && prec.v !== voce.v && prec.da && prec.da === voce.da && prec.il && voce.il &&
           Math.abs(Date.parse(voce.il) - Date.parse(prec.il)) < BOZZE_MS) {
-        A.elimina(P.versione(r.id, prec.v));
+        A.elimina(P.versione(r.id, prec.v), RINVIA);
         l[0] = voce;
       } else if (!prec || prec.v !== voce.v) l.unshift(voce);
       potaVersioni(r.id, idx);
-      A.scriviJSON(P.indiceVersioni(r.id), idx);
+      A.scriviJSON(P.indiceVersioni(r.id), idx, RINVIA);
     }
     function elencoVersioni(pid) {
       return A.elenca(P.versioni(pid)).file
@@ -588,7 +646,7 @@ var QT = (function () {
         var giorno = x.il ? x.il.slice(0, 10) : '';
         // si tiene la piu' recente di ogni giorno (le versioni sono in ordine decrescente)
         if (giorno && giorno >= limite && !giorniVisti[giorno]) { giorniVisti[giorno] = true; tenute.push(x); return; }
-        A.elimina(P.versione(pid, x.v));
+        A.elimina(P.versione(pid, x.v), { rinvia: true });
       });
       idx.versioni = tenute;
     }
@@ -880,7 +938,7 @@ var QT = (function () {
         if (aula !== AULA_BASE) r.aula = aula;
         if (d.riservato === true) { r.riservato = true; r.condivisi = []; }
         A.scriviJSON(P.paziente(pid), r);
-        aggiornaElenco(r);
+        aggiornaElenco(r, true);
         if (!r.riservato) assegnaSeServe(u, pid);
         return r;
       });
@@ -926,7 +984,7 @@ var QT = (function () {
         if (attuale.riservato) { r.riservato = true; r.condivisi = attuale.condivisi || []; }
         if (attuale.aula) r.aula = attuale.aula;
         A.scriviJSON(P.paziente(pid), r);
-        aggiornaElenco(r);
+        aggiornaElenco(r, true);
         return { id: r.id, version: r.version, aggiornato: r.aggiornato, aggiornatoDa: r.aggiornatoDa };
       });
     };
@@ -1419,11 +1477,16 @@ var QT = (function () {
 
     // --- Ingresso -------------------------------------------------------------
     // Ogni risposta porta `ms`: i millisecondi passati dentro il custode (il resto,
-    // per chi chiama, e' rete e avvio di Apps Script).
+    // per chi chiama, e' rete e avvio di Apps Script) e `fasi`: dove sono andati (attesa del
+    // lucchetto, letture e scritture dei file, cache, altro) con quante operazioni e i file piu' lenti.
     function gestisci(richiesta) {
       var t0 = Date.now();
-      var r = gestisciInterno(richiesta);
-      if (r && typeof r === 'object') r.ms = Date.now() - t0;
+      PROF = { attesaLock: 0, letture: 0, scritture: 0, nLetture: 0, nScritture: 0, file: {} };
+      if (A0.azzeraMisure) A0.azzeraMisure();
+      var r;
+      try { r = gestisciInterno(richiesta); }
+      finally { var ms = Date.now() - t0; var fasi = PROF ? chiudiProfilo(ms) : null; }
+      if (r && typeof r === 'object') { r.ms = ms; r.fasi = fasi; }
       return r;
     }
     function gestisciInterno(richiesta) {
@@ -1487,7 +1550,28 @@ var QT = (function () {
     /** Dal risveglio periodico: tiene pronta la corsia rapida anche se la cache e' scaduta. */
     function scalda() { ripristinaRev(); }
 
-    return { gestisci: gestisci, azioni: Object.keys(azioni), ricostruisci: ricostruisci, revocaScaduti: revocaScaduti, scalda: scalda };
+    /**
+     * Dal risveglio periodico (e prima di svuotare la cache): scrive su Drive quello che i salvataggi
+     * hanno rimandato (elenco, indici delle versioni, versioni superate da eliminare). Se la cache
+     * ha perso un file rimandato lo ricostruisce dai file dei bambini.
+     */
+    function smaltisci() {
+      if (!A0.rinviate) return 0;
+      return conLock(function () {
+        var n = 0;
+        A0.rinviate().forEach(function (p) {
+          if (A0.scarica(p)) { n++; return; }
+          var m = /^Pazienti\/([^\/]+)\/versioni\.json$/.exec(p);
+          if (p === P.elenco) { ricostruisciElenco(); n++; }
+          else if (m) { leggiIndiceVersioni(m[1]); n++; }
+          else A0.dimentica(p);
+        });
+        if (A0.eliminaRinviati) n += A0.eliminaRinviati();
+        return n;
+      });
+    }
+
+    return { gestisci: gestisci, azioni: Object.keys(azioni), ricostruisci: ricostruisci, revocaScaduti: revocaScaduti, scalda: scalda, smaltisci: smaltisci };
   }
 
   return {
