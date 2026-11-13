@@ -182,6 +182,8 @@ var QT = (function () {
     'modalita.aggiorna': true, 'turni.salva': true, 'paziente.aula': true,
   };
   var RE_RICHIESTA = /^[A-Za-z0-9_-]{8,64}$/;
+  var QT_CHIAVE_STATO_REV = 'qt:stato:rev';
+  var TTL_STATO = 21600;   // 6 ore: il massimo della cache di Apps Script
 
   function validaCifratura(c) {
     oggettoV(c, 'cifratura');
@@ -315,7 +317,62 @@ var QT = (function () {
    * archivio.nomiFile?(percorso) -> [nomi]  (facoltativo: elenco veloce dei soli file)
    */
   function creaCustode(amb) {
-    var A = amb.archivio;
+    var A0 = amb.archivio;
+
+    // --- Corsia rapida: lo «stato del centro» in cache -------------------------
+    // La domanda piu' frequente e' «c'e' qualcosa di nuovo?» (sincronizza.stato).
+    // Per rispondere «no» senza aprire alcun file, per ogni persona si tiene in
+    // cache la risposta (profilo + impronta dell'elenco) insieme al numero di
+    // revisione del centro. Il numero di revisione cambia a OGNI scrittura dei
+    // file da cui la risposta dipende (accessi, elenco, chiave, dispositivi):
+    //   - prima della scrittura diventa «w» (scrittura in corso: nessuna risposta
+    //     dalla cache, e chi legge intanto non salva niente);
+    //   - a scrittura finita, ancora dentro il lucchetto, un valore nuovo.
+    // Una risposta in cache vale solo se porta la revisione attuale: tutto quello
+    // che e' stato scritto dopo di lei la rende inutilizzabile. Se la cache manca
+    // o e' scaduta (max 6 ore) si risponde leggendo i file, come sempre.
+    // amb.cache = { get(k), put(k, testo, secondi), remove(k), getAll?(chiavi) } (facoltativa).
+    var C = amb.cache || null;
+    var REV = QT_CHIAVE_STATO_REV;
+    var FILE_STATO = {};
+    [P.accessi, P.elenco, P.cifratura, P.dispositivi].forEach(function (p) { FILE_STATO[p] = true; });
+    var sporco = false, senzaInvalidare = false;
+    function cGet(k) { if (!C) return null; try { var v = C.get(k); return v == null ? null : v; } catch (e) { return null; } }
+    function cGetAll(chiavi) {
+      var out = {};
+      if (!C) return out;
+      try {
+        if (C.getAll) { var m = C.getAll(chiavi) || {}; chiavi.forEach(function (k) { out[k] = m[k] == null ? null : m[k]; }); return out; }
+      } catch (e) { /* una alla volta */ }
+      chiavi.forEach(function (k) { out[k] = cGet(k); });
+      return out;
+    }
+    function cPut(k, v) { if (!C) return false; try { C.put(k, v, TTL_STATO); return true; } catch (e) { return false; } }
+    function nuovaRev() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+    function prima(p) {
+      if (!C || !FILE_STATO[p] || senzaInvalidare) return false;
+      if (!sporco) {
+        sporco = true;
+        if (!cPut(REV, 'w')) { try { C.remove(REV); } catch (e) { /* senza revisione non si risponde dalla cache */ } }
+      }
+      return true;
+    }
+    function chiudiStato() {
+      if (!sporco) return;
+      sporco = false;
+      if (!cPut(REV, nuovaRev())) { try { C.remove(REV); } catch (e) { /* idem */ } }
+    }
+    // Ogni scrittura dei file di stato passa di qui (e il lucchetto, chiudendosi, rinnova la revisione)
+    var A = {};
+    Object.keys(A0).forEach(function (k) { A[k] = A0[k]; });
+    A.scriviJSON = function (p, o) {
+      var t = prima(p);
+      try { return A0.scriviJSON(p, o); } finally { if (t && !inLock) chiudiStato(); }
+    };
+    A.elimina = function (p) {
+      var t = prima(p);
+      try { return A0.elimina(p); } finally { if (t && !inLock) chiudiStato(); }
+    };
 
     // Lock rientrante: una ricostruzione di cache puo' partire sia da una
     // scrittura (gia' sotto lock) sia da una lettura (no). Tutte le scritture
@@ -323,10 +380,23 @@ var QT = (function () {
     var inLock = false;
     function conLock(fn) {
       if (inLock) return fn();
-      return A.conLock(function () {
-        inLock = true;
-        try { return fn(); } finally { inLock = false; }
+      return A0.conLock(function () {
+        inLock = true; sporco = false;
+        try { return fn(); } finally { inLock = false; chiudiStato(); }
       });
+    }
+    // Revisione assente (cache scaduta o svuotata) o rimasta «w» per un'esecuzione
+    // interrotta: la si rinnova, ma solo avendo il lucchetto (nessuno sta scrivendo).
+    function ripristinaRev() {
+      if (!C) return;
+      var r = cGet(REV);
+      if (r && r !== 'w') return;
+      var rinnova = function () { var r2 = cGet(REV); if (!r2 || r2 === 'w') cPut(REV, nuovaRev()); };
+      try {
+        if (inLock) rinnova();
+        else if (A0.provaLock) A0.provaLock(rinnova);
+        else A0.conLock(rinnova);
+      } catch (e) { /* al prossimo giro */ }
     }
 
     function oggi() { return amb.ora().slice(0, 10); }
@@ -650,7 +720,10 @@ var QT = (function () {
       if (!m.r.ultimoAccesso || Date.parse(amb.ora()) - Date.parse(m.r.ultimoAccesso) > 3600000) {
         conLock(function () {
           var disp = leggiDispositivi();
-          if (disp.dispositivi[id]) { disp.dispositivi[id].ultimoAccesso = amb.ora(); A.scriviJSON(P.dispositivi, disp); }
+          // solo la data dell'ultimo accesso: non cambia niente di quanto la corsia rapida conserva
+          senzaInvalidare = true;
+          try { if (disp.dispositivi[id]) { disp.dispositivi[id].ultimoAccesso = amb.ora(); A.scriviJSON(P.dispositivi, disp); } }
+          finally { senzaInvalidare = false; }
         });
       }
       return { kid: cfg ? cfg.kid : null, chiavi: m.r.chiavi || {} };
@@ -720,11 +793,47 @@ var QT = (function () {
       for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) >>> 0;
       return voci.length + '-' + h.toString(36);
     }
+    // La revisione letta PRIMA di consultare qualunque file: la risposta si mette in cache
+    // solo se, a lavoro finito, e' ancora la stessa (nessuno ha scritto nel frattempo).
+    var revInizio = null, identitaStato = null;
     azioni['sincronizza.stato'] = function (u, d) {
+      var rev0 = revInizio, idn = identitaStato;
+      revInizio = identitaStato = null;
       var voci = azioni['pazienti.elenco'](u), imp = impronta(voci);
       var uguale = typeof d.impronta === 'string' && d.impronta === imp;
-      return { io: azioni['io'](u), impronta: imp, elenco: uguale ? null : voci };
+      var io = azioni['io'](u);
+      if (C && rev0 && rev0 !== 'w' && idn) {
+        // l'accesso a tempo scade a mezzanotte: la risposta in cache vale fino al giorno della prima scadenza
+        var fino = null, accessi = leggiAccessi();
+        Object.keys(accessi.utenti || {}).forEach(function (e) {
+          var sc = accessi.utenti[e] && accessi.utenti[e].scadenza;
+          if (sc && sc >= oggi() && (!fino || sc < fino)) fino = sc;
+        });
+        if (cGet(REV) === rev0) {
+          var testo = JSON.stringify({ rev: rev0, email: u.email, nomeId: idn.nome || '', prop: String(amb.proprietario() || '').toLowerCase(), fino: fino, io: io, impronta: imp });
+          if (testo.length < 90000) cPut(chiaveStato(u.email), testo);
+        }
+      }
+      return { io: io, impronta: imp, elenco: uguale ? null : voci };
     };
+    function chiaveStato(email) { return 'qt:stato:u:' + String(email).slice(0, 200); }
+    // Il «niente di nuovo» senza aprire un solo file: la persona e' gia' stata riconosciuta
+    // (token verificato), il suo accesso, l'elenco e la chiave non sono stati toccati da
+    // nessuna scrittura (stessa revisione) e nessuna scadenza e' passata.
+    function statoVeloce(identita, richiesta) {
+      if (!C) return null;
+      var imp = richiesta.dati && richiesta.dati.impronta;
+      var email = String(identita.email || '').toLowerCase();
+      if (typeof imp !== 'string' || !imp || !email) return null;
+      var k = chiaveStato(email), v = cGetAll([REV, k]), rev = v[REV];
+      if (!rev || rev === 'w' || !v[k]) return null;
+      var e;
+      try { e = JSON.parse(v[k]); } catch (x) { return null; }
+      if (!e || e.rev !== rev || e.email !== email || e.impronta !== imp || e.nomeId !== (identita.nome || '')) return null;
+      if (e.prop !== String(amb.proprietario() || '').toLowerCase()) return null;
+      if (e.fino && oggi() > e.fino) return null;
+      return { io: e.io, impronta: e.impronta, elenco: null };
+    }
 
     azioni['paziente.leggi'] = function (u, d) {
       var pid = idV(d.id, RE.pz, 'id');
@@ -1309,7 +1418,15 @@ var QT = (function () {
     };
 
     // --- Ingresso -------------------------------------------------------------
+    // Ogni risposta porta `ms`: i millisecondi passati dentro il custode (il resto,
+    // per chi chiama, e' rete e avvio di Apps Script).
     function gestisci(richiesta) {
+      var t0 = Date.now();
+      var r = gestisciInterno(richiesta);
+      if (r && typeof r === 'object') r.ms = Date.now() - t0;
+      return r;
+    }
+    function gestisciInterno(richiesta) {
       try {
         if (!richiesta || typeof richiesta !== 'object') throw err('richiesta-non-valida', 'Richiesta vuota.');
         if (richiesta.v !== 1) throw err('richiesta-non-valida', 'Versione del protocollo non supportata: aggiorna l\'app.');
@@ -1318,6 +1435,14 @@ var QT = (function () {
         var identita;
         try { identita = amb.verificaToken(richiesta.token); }
         catch (e) { throw err('non-autenticato', 'Accesso scaduto o non valido: rientra con Google.'); }
+        var stato = null;
+        if (richiesta.azione === 'sincronizza.stato') {
+          stato = statoVeloce(identita, richiesta);
+          if (stato) return { ok: true, dati: stato };
+          // niente in cache o qualcosa di nuovo: si risponde dai file, e se serve si rinnova la revisione
+          ripristinaRev();
+          revInizio = cGet(REV); identitaStato = identita;
+        }
         var u = utenteDa(identita);
         // Accesso lungo sul dispositivo: dopo un accesso con Google (non da un'altra
         // sessione) il custode rilascia un suo gettone firmato, valido qualche settimana.
@@ -1359,11 +1484,15 @@ var QT = (function () {
     /** Dal risveglio periodico: le chiavi di chi è scaduto si revocano anche se non si ripresenta. */
     function revocaScaduti() { return conLock(revocaChiavi); }
 
-    return { gestisci: gestisci, azioni: Object.keys(azioni), ricostruisci: ricostruisci, revocaScaduti: revocaScaduti };
+    /** Dal risveglio periodico: tiene pronta la corsia rapida anche se la cache e' scaduta. */
+    function scalda() { ripristinaRev(); }
+
+    return { gestisci: gestisci, azioni: Object.keys(azioni), ricostruisci: ricostruisci, revocaScaduti: revocaScaduti, scalda: scalda };
   }
 
   return {
     SCHEMA: SCHEMA, PERMESSI: PERMESSI, RUOLI: RUOLI, AULA_BASE: AULA_BASE, PERCORSI: P, RE: RE, VERSIONI: VERSIONI,
+    CHIAVE_STATO_REV: QT_CHIAVE_STATO_REV,
     creaCustode: creaCustode, stabile: stabile, hashRiferiti: hashRiferiti, bustaV: bustaV,
   };
 })();

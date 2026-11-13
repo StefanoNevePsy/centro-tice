@@ -364,6 +364,35 @@
     }
 
     // =====================================================================
+    // Velocità del custode
+    // =====================================================================
+    const secondi = (ms) => ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+    function giudizioVelocita(ms) {
+        return ms < 1000 ? ['Veloce', 'verde'] : ms < 2500 ? ['Nella norma', ''] : ['Lento', 'arancio'];
+    }
+    function rigaVelocita(titolo, r, vuoto) {
+        if (!r) return h`<tr><td>${titolo}</td><td class="num sotto">${vuoto}</td></tr>`;
+        const [g, colore] = giudizioVelocita(r.medio);
+        return h`<tr><td>${titolo}<br><span class="sotto piccolo">ultime ${r.n} ${r.n === 1 ? 'volta' : 'volte'}</span></td>
+            <td class="num"><b>${secondi(r.medio)}</b> <span class="pill ${colore}">${g}</span><br>
+            <span class="sotto piccolo">tipico ${secondi(r.mediano)}${r.custode !== null ? h` · custode ${secondi(r.custode)} · rete e avvio ${secondi(r.rete)}` : ''}</span></td></tr>`;
+    }
+    function riquadroVelocita() {
+        const c = Y.velocita.riepilogo('controllo'), v = Y.velocita.riepilogo('salvataggio'), m = T.velMisura;
+        return h`<div class="scheda imbottita" style="margin-top:10px">
+            <b>${icona('gauge-high')} Velocità del custode</b>
+            <table class="tabella" style="margin-top:6px"><tbody>
+                ${rigaVelocita('Controllo novità', c, 'ancora nessuna misura')}
+                ${rigaVelocita('Salvataggio', v, 'ancora nessun salvataggio')}
+            </tbody></table>
+            <p class="sotto piccolo">Il «controllo novità» parte da solo ogni pochi secondi per vedere se qualcuno ha cambiato qualcosa. Il tempo totale è quello che aspetti tu: una parte è il lavoro del custode, il resto è la strada fino a Google e l'avvio del suo servizio. Se il tempo è alto ma la parte del custode è bassa, il rallentamento non dipende dai dati.</p>
+            ${m ? h`<p class="sotto">${m.length ? h`Ultimi 3 controlli: <b>${m.map((e) => secondi(e.tot)).join(' · ')}</b>${m.every((e) => e.int !== null) ? h` (lavoro del custode: ${m.map((e) => secondi(e.int)).join(' · ')})` : ''}` : 'Nessuna misura riuscita.'}</p>` : ''}
+            ${T.velErrore ? h`<p class="sotto">${icona('triangle-exclamation')} ${T.velErrore}</p>` : ''}
+            <button class="bt largo" data-a="misura-velocita" ${T.velLavoro ? grezzo('disabled') : ''}>${icona(T.velLavoro ? 'spinner fa-spin' : 'gauge-high')} ${T.velLavoro ? 'Misuro…' : 'Misura ora'}</button>
+        </div>`;
+    }
+
+    // =====================================================================
     // Account
     // =====================================================================
     function vistaAccount() {
@@ -386,6 +415,7 @@
                     ${S.errore ? h`<p class="sotto">${icona('triangle-exclamation')} ${S.errore}</p>` : ''}
                     <button class="bt primario largo" style="margin-top:10px" data-a="sincronizza" ${S.lavoro ? grezzo('disabled') : ''}>${icona('rotate')} ${S.lavoro ? 'Sincronizzazione…' : 'Sincronizza ora'}</button>
                 </div>` : ''}
+                ${Y.pronto() ? riquadroVelocita() : ''}
                 ${!u ? '' : admin() ? h`<div class="scheda imbottita" style="margin-top:10px">
                     <b>${icona('key')} Chiave del centro</b> <span class="sotto piccolo">${S.cfg ? S.cfg.kid : ''}</span>
                     <p class="sotto">La conoscono solo gli amministratori. Ai dispositivi delle persone abilitate l'app la consegna da sola, senza mostrarla: chi perde l'accesso non ha niente da conservare.</p>
@@ -1086,6 +1116,12 @@
                     T.elencoDisp = null;
                 } catch (e) { avviso(e.message, 'errore'); }
                 T.consegnando = false; TiceHome.ridisegna();
+            },
+            'misura-velocita': async () => {
+                T.velLavoro = true; T.velErrore = null; TiceHome.ridisegna();
+                try { T.velMisura = await Y.velocita.misuraOra(3); }
+                catch (e) { T.velErrore = (e && e.message) || 'Misura non riuscita.'; }
+                T.velLavoro = false; TiceHome.ridisegna();
             },
             'gestisci-aule': () => gestisciAule(),
             'sposta-bambini': () => spostaBambini(),

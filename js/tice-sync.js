@@ -218,11 +218,57 @@
     // Le scritture pesanti (salvataggi, materiali, cambio chiave) tengono il margine lungo.
     const BREVI = new Set(['io', 'pazienti.elenco', 'pazienti.leggi', 'paziente.leggi', 'dispositivo.registra', 'dispositivo.chiave',
         'dispositivi.elenco', 'modalita.leggi', 'turni.leggi', 'cifratura.leggi', 'paziente.versioni', 'paziente.versione', 'accessi.leggi']);
+    // Quanto ci mette il custode a rispondere: per ogni chiamata il tempo totale (andata e
+    // ritorno) e, se il custode lo dice, quello passato dentro di lui (`ms`). Il resto e'
+    // rete e avvio di Apps Script. Si tengono le ultime 50 misure per tipo, sul dispositivo.
+    const Velocita = (() => {
+        const K = 'tice_velocita', MAX = 50;
+        const TIPO = { 'sincronizza.stato': 'controllo', 'paziente.salva': 'salvataggio', 'paziente.crea': 'salvataggio',
+            'paziente.archivia': 'salvataggio', 'turni.salva': 'salvataggio' };
+        let m = null;
+        const carica = () => {
+            if (m) return m;
+            let x = null;
+            try { x = JSON.parse(localStorage.getItem(K) || 'null'); } catch (e) { /* senza memoria */ }
+            m = { controllo: [], salvataggio: [] };
+            if (x && typeof x === 'object') ['controllo', 'salvataggio'].forEach((t) => {
+                if (Array.isArray(x[t])) m[t] = x[t].filter((e) => e && Number.isFinite(e.tot)).slice(-MAX);
+            });
+            return m;
+        };
+        const media = (l) => l.reduce((a, b) => a + b, 0) / l.length;
+        const mediana = (l) => { const o = l.slice().sort((a, b) => a - b), k = o.length >> 1; return o.length % 2 ? o[k] : (o[k - 1] + o[k]) / 2; };
+        function registra(azione, tot, interno, opz) {
+            const tipo = (opz && opz.tipo) || TIPO[azione];
+            if (!tipo || !Number.isFinite(tot) || (opz && opz.misura === false)) return;
+            const e = { t: Date.now(), tot: Math.round(tot), int: Number.isFinite(interno) ? Math.round(interno) : null };
+            const l = carica()[tipo];
+            l.push(e); if (l.length > MAX) l.splice(0, l.length - MAX);
+            try { localStorage.setItem(K, JSON.stringify(m)); } catch (x) { /* solo una comodita' */ }
+            if (opz && typeof opz.misura === 'function') { try { opz.misura(e); } catch (x) { /* solo avviso */ } }
+        }
+        // n, tempo medio e mediano, e quanta parte e' il custode (media sulle sole misure che lo dicono)
+        function riepilogo(tipo) {
+            const l = carica()[tipo] || [];
+            if (!l.length) return null;
+            const tot = l.map((e) => e.tot), conInt = l.filter((e) => e.int !== null);
+            const r = { n: l.length, medio: media(tot), mediano: mediana(tot), ultimo: l[l.length - 1].tot, custode: null, rete: null };
+            if (conInt.length) {
+                r.custode = media(conInt.map((e) => e.int));
+                r.rete = Math.max(0, media(conInt.map((e) => e.tot)) - r.custode);
+            }
+            return r;
+        }
+        const azzera = () => { m = { controllo: [], salvataggio: [] }; try { localStorage.removeItem(K); } catch (e) { /* ok */ } };
+        return { registra, riepilogo, azzera };
+    })();
+    const adesso = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+
     async function chiama(azione, dati, opzioni) {
         const o = Object.assign({ attesaMax: BREVI.has(azione) ? 45000 : undefined }, opzioni || {});
         const tentativi = o.tentativi || 4, rid = nuovoRid();
         for (let n = 1; ; n++) {
-            try { return await chiamaUnaVolta(azione, dati, rid, o.attesaMax); }
+            try { return await chiamaUnaVolta(azione, dati, rid, o.attesaMax, undefined, o); }
             catch (e) {
                 const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
                 if (!RIPETIBILE(e) || offline || n >= tentativi) throw e;
@@ -233,7 +279,7 @@
         }
     }
     Auth_creaSessione = (g) => chiamaUnaVolta('sessione.crea', {}, nuovoRid(), 45000, g);
-    async function chiamaUnaVolta(azione, dati, rid, attesaMax, tokenFisso) {
+    async function chiamaUnaVolta(azione, dati, rid, attesaMax, tokenFisso, opzMisura) {
         const url = cfgApp().custodeUrl;
         if (!url) throw new ErroreCustode('non-configurato', 'Il custode non è configurato (tice-config.js).');
         const token = tokenFisso || await Auth.token();
@@ -241,6 +287,7 @@
         const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
         const timer = ctrl ? setTimeout(() => ctrl.abort(), attesaMax || 330000) : null;
         let r, testo;
+        const t0 = adesso();
         try {
             // text/plain evita la richiesta preliminare CORS, che Apps Script non gestisce
             r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -271,6 +318,7 @@
         }
         // la risposta di "sono attivo" (GET): la richiesta non è arrivata, si riprova
         if (!('dati' in j)) throw new ErroreRete('Il custode non ha ricevuto la richiesta: riprovo.');
+        Velocita.registra(azione, adesso() - t0, typeof j.ms === 'number' ? j.ms : null, opzMisura);
         return j.dati;
     }
 
@@ -1046,6 +1094,27 @@
         await sincronizza({ soloCoda: true });
         cambiato('paziente:' + pid);
     }
+    // «Misura ora»: tre controlli di novita' di fila, come quelli che l'app fa da sola
+    // (se l'elenco e' aggiornato il custode risponde «niente di nuovo»). Non cambia niente.
+    async function misuraControlli(quanti) {
+        const n = quanti || 3, fatte = [];
+        const opz = { tentativi: 1, attesaMax: 45000, misura: (e) => fatte.push(e) };
+        let imp = S.improntaElenco || '';
+        let azione = 'sincronizza.stato';
+        if (!imp) {
+            // un primo giro (non contato) per sapere com'e' l'elenco: i successivi sono i «niente di nuovo»
+            try { imp = ((await chiama('sincronizza.stato', { impronta: '' }, { tentativi: 1, attesaMax: 45000, misura: false })) || {}).impronta || ''; }
+            catch (e) { if (e && e.custode && e.codice === 'richiesta-non-valida') azione = 'io'; else throw e; }
+        }
+        for (let i = 0; i < n; i++) {
+            if (azione === 'io') await chiama('io', undefined, Object.assign({ tipo: 'controllo' }, opz));
+            else {
+                try { await chiama('sincronizza.stato', { impronta: imp }, opz); }
+                catch (e) { if (i === 0 && e && e.custode && e.codice === 'richiesta-non-valida') { azione = 'io'; i--; continue; } throw e; }
+            }
+        }
+        return fatte;
+    }
     async function versioni(pid) { return chiama('paziente.versioni', { id: pid }); }
     async function anteprimaVersione(pid, version) { return apri(await chiama('paziente.versione', { id: pid, version })); }
 
@@ -1062,6 +1131,7 @@
         ruolo: () => (conAule() ? (auleMie()[aulaAttiva()] || {}).ruolo || S.io.ruolo : (S.io && S.io.ruolo)) || null,
         conAule, aule: auleMie, aulaAttiva, impostaAula, aulaDi, puoIn, spostaAula, spostaAule, AULA_BASE,
         attivo: () => !!cfgApp().custodeUrl,
+        velocita: { riepilogo: Velocita.riepilogo, azzera: Velocita.azzera, misuraOra: misuraControlli },
         pronto, condiviso: (pid) => S.condivisi.has(pid), inAttesa: (pid) => S.coda.has(pid),
         // nell'aula su cui si lavora
         puo: (cosa) => { if (!S.io) return true; if (!conAule()) return !S.io.permessi || !!S.io.permessi[cosa]; const x = auleMie()[aulaAttiva()]; return !!(x && x.permessi && x.permessi[cosa]); },

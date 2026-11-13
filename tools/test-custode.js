@@ -14,17 +14,31 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const QT = require('../custode/core.js');
-const { archivioSuDisco, sha256Hex } = require('./custode-mock.js');
+const { archivioSuDisco, cacheInMemoria, sha256Hex } = require('./custode-mock.js');
 
 const PROPRIETARIO = 'stefano@centrotice.it';
 let adesso = new Date('2026-10-01T09:00:00Z');
 const tick = (ms = 1000) => { adesso = new Date(adesso.getTime() + ms); };
 
 const ricordi = new Map();
-function nuovoCustode() {
+// L'archivio su disco, con il conto delle letture (per verificare che lo stato «a riposo» non ne faccia)
+const conteggio = { letture: 0, scritture: 0 };
+function archivioContato(dir) {
+  const a = archivioSuDisco(dir);
+  const leggiJSON = a.leggiJSON, scriviJSON = a.scriviJSON, leggiBinario = a.leggiBinario, elenca = a.elenca, esiste = a.esiste;
+  a.leggiJSON = (p) => { conteggio.letture++; return leggiJSON(p); };
+  a.leggiBinario = (p) => { conteggio.letture++; return leggiBinario(p); };
+  a.elenca = (p) => { conteggio.letture++; return elenca(p); };
+  a.esiste = (p) => { conteggio.letture++; return esiste(p); };
+  a.scriviJSON = (p, o) => { conteggio.scritture++; return scriviJSON(p, o); };
+  return a;
+}
+const cache = cacheInMemoria();
+function nuovoCustode(cacheDi) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'custode-test-'));
   const custode = QT.creaCustode({
-    archivio: archivioSuDisco(dir),
+    archivio: archivioContato(dir),
+    cache: cacheDi || cache,
     verificaToken: (t) => {
       if (!t || !t.startsWith('dev:')) throw new Error('no');
       const [email, nome] = t.slice(4).split('|');
@@ -437,7 +451,7 @@ prova('la stessa pubblicazione rimandata con lo stesso identificativo non va in 
   const prima = custode.gestisci({ v: 1, token: 'dev:' + PROPRIETARIO, azione: 'materiali.pubblica', rid, dati: { set: SET, versioneBase: base } });
   const ancora = custode.gestisci({ v: 1, token: 'dev:' + PROPRIETARIO, azione: 'materiali.pubblica', rid, dati: { set: SET, versioneBase: base } });
   assert.ok(prima.ok && ancora.ok);
-  assert.deepStrictEqual(ancora, prima);
+  assert.deepStrictEqual(ancora.dati, prima.dati);   // (`ms` e' il tempo di questa risposta: cambia)
   assert.strictEqual(ok(chiama(PROPRIETARIO, 'materiali.indice')).sets.animali.versione, base + 1, 'pubblicato una volta sola');
 });
 prova('...con un identificativo diverso invece si', () => {
@@ -697,6 +711,210 @@ prova('l\'elenco dello stato rispetta le aule e le assegnazioni', () => {
   const e = ok(chiama(TIR, 'pazienti.elenco'));
   assert.deepStrictEqual(t.elenco.map((x) => x.id).sort(), e.map((x) => x.id).sort());
 });
+
+console.log('\nCorsia rapida dello stato (cache)');
+{
+  const cv = cacheInMemoria();
+  const V = nuovoCustode(cv);
+  const cc = (email, azione, dati) => V.custode.gestisci({ v: 1, token: 'dev:' + email, azione, dati });
+  const ADMV = 'admin.v@centrotice.it', PROFV = 'prof.v@centrotice.it', TIRV = 'tir.v@centrotice.it', SCADV = 'scade.v@centrotice.it';
+  const PV = String(Date.now() + 77);
+  const bustaV1 = (o) => busta(o, 'tice:paziente:' + PV);
+  const stato = (email, imp) => ok(cc(email, 'sincronizza.stato', imp === undefined ? {} : { impronta: imp }));
+  // una chiamata di stato «a riposo»: quante letture di file fa?
+  const lettureDi = (f) => { const l0 = conteggio.letture; const r = f(); return { r, letture: conteggio.letture - l0 }; };
+  let imp0;
+  const giorno = (n) => new Date(adesso.getTime() + n * 86400000).toISOString().slice(0, 10);
+
+  prova('preparazione: chiave, persone, un bambino', () => {
+    ok(cc(PROPRIETARIO, 'cifratura.imposta', { cifratura: CIFRATURA }));
+    ok(cc(PROPRIETARIO, 'accessi.salva', { versioneBase: 0, accessi: { utenti: {
+      [ADMV]: { nome: 'Admin V', ruolo: 'admin', pazienti: '*' },
+      [PROFV]: { nome: 'Prof V', ruolo: 'professionista', pazienti: '*' },
+      [TIRV]: { nome: 'Tir V', ruolo: 'tirocinante', pazienti: [] },
+      [SCADV]: { nome: 'Scade V', ruolo: 'professionista', pazienti: '*', scadenza: giorno(1) },
+    } } }));
+    ok(cc(PROPRIETARIO, 'paziente.crea', { id: PV, busta: bustaV1(paziente(PV, 'Anna V')), etichetta: busta({ nome: 'Anna V' }, 'tice:etichetta:' + PV) }));
+  });
+  prova('la prima chiamata legge i file e riempie la cache; la seconda, a riposo, non ne apre nemmeno uno', () => {
+    const a = lettureDi(() => stato(PROFV));
+    assert.ok(a.letture > 0 && Array.isArray(a.r.elenco) && a.r.elenco.length === 1);
+    imp0 = a.r.impronta;
+    const b = lettureDi(() => stato(PROFV, imp0));
+    assert.strictEqual(b.letture, 0, 'letture di file con la cache calda: ' + b.letture);
+    assert.ok(b.r.elenco === null && b.r.impronta === imp0 && b.r.io.email === PROFV && b.r.io.ruolo === 'professionista');
+  });
+  prova('la risposta dalla cache e\' identica a quella dai file (profilo compreso)', () => {
+    const veloce = stato(PROFV, imp0);
+    cv.svuota();
+    const lenta = stato(PROFV, imp0);
+    assert.strictEqual(JSON.stringify(veloce), JSON.stringify(lenta));   // com'e' sul filo
+    for (const e of [ADMV, TIRV, PROPRIETARIO]) {
+      const x = stato(e); const y = stato(e, x.impronta), z = lettureDi(() => stato(e, x.impronta));
+      assert.strictEqual(JSON.stringify(y), JSON.stringify(z.r)); assert.strictEqual(z.letture, 0, e);
+    }
+  });
+  prova('senza impronta (o con quella sbagliata) l\'elenco arriva sempre', () => {
+    assert.ok(Array.isArray(stato(PROFV).elenco));
+    assert.ok(Array.isArray(stato(PROFV, 'vecchia').elenco));
+    assert.ok(Array.isArray(stato(PROFV, '').elenco));
+  });
+  prova('chi non e\' autenticato o non e\' abilitato non ottiene niente, nemmeno con la cache calda', () => {
+    ko(V.custode.gestisci({ v: 1, token: '', azione: 'sincronizza.stato', dati: { impronta: imp0 } }), 'non-autenticato');
+    ko(cc('estraneo@gmail.com', 'sincronizza.stato', { impronta: imp0 }), 'non-autorizzato');
+  });
+  prova('un salvataggio cambia l\'impronta per tutti: mai «niente di nuovo» se c\'e\' qualcosa', () => {
+    const r = ok(cc(PROFV, 'paziente.leggi', { id: PV }));
+    ok(cc(PROFV, 'paziente.salva', { id: PV, versioneBase: r.version, busta: bustaV1(paziente(PV, 'Anna V', { note: 'x' })) }));
+    for (const e of [PROFV, ADMV]) {
+      const x = stato(e, imp0);
+      assert.ok(Array.isArray(x.elenco) && x.impronta !== imp0, e + ': dopo un salvataggio l\'elenco deve arrivare');
+    }
+    imp0 = stato(PROFV).impronta;
+    assert.strictEqual(lettureDi(() => stato(PROFV, imp0)).letture, 0, 'poi torna rapido');
+  });
+  prova('archiviazione, riservato e cambio aula arrivano subito', () => {
+    ok(cc(ADMV, 'paziente.archivia', { id: PV }));
+    let x = stato(ADMV, imp0); assert.notStrictEqual(x.impronta, imp0);
+    assert.ok(x.elenco.find((p) => p.id === PV).eliminato);
+    ok(cc(ADMV, 'paziente.archivia', { id: PV, archiviato: false }));
+    imp0 = stato(PROFV).impronta;
+    stato(PROFV, imp0);
+    ok(cc(PROPRIETARIO, 'paziente.condivisione', { id: PV, riservato: true, condivisi: [] }));
+    x = stato(ADMV, imp0); assert.ok(Array.isArray(x.elenco) && x.impronta !== imp0);
+    // l'admin non e' il creatore: il riservato sparisce dal suo elenco subito
+    assert.ok(!stato(ADMV).elenco.some((p) => p.id === PV));
+    ok(cc(PROPRIETARIO, 'paziente.condivisione', { id: PV, riservato: false }));
+    imp0 = stato(PROFV).impronta;
+  });
+  prova('un cambio di accessi (ruolo, aule) si vede subito nel profilo, anche con l\'impronta uguale', () => {
+    const pr = stato(PROFV, imp0);
+    assert.strictEqual(pr.io.ruolo, 'professionista');
+    const t0 = stato(TIRV); stato(TIRV, t0.impronta);
+    const a = ok(cc(PROPRIETARIO, 'accessi.leggi'));
+    a.utenti[PROFV].ruolo = 'tirocinante'; a.utenti[PROFV].aule = { principale: 'tirocinante' };
+    ok(cc(PROPRIETARIO, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    const dopo = stato(PROFV, imp0);
+    assert.strictEqual(dopo.io.ruolo, 'tirocinante', 'il ruolo cambiato deve arrivare nella risposta rapida');
+    assert.strictEqual(dopo.io.permessi.registraSedute === undefined ? 'x' : dopo.io.permessi.gestisciAccessi, false);
+    // e anche chi non e' stato toccato riparte dai file una volta, poi di nuovo rapido
+    assert.strictEqual(stato(TIRV, t0.impronta).io.ruolo, 'tirocinante');
+    const r = lettureDi(() => stato(TIRV, t0.impronta));
+    assert.strictEqual(r.letture, 0);
+    // ripristino del ruolo
+    const b = ok(cc(PROPRIETARIO, 'accessi.leggi'));
+    b.utenti[PROFV].ruolo = 'professionista'; b.utenti[PROFV].aule = { principale: 'professionista' };
+    ok(cc(PROPRIETARIO, 'accessi.salva', { accessi: b, versioneBase: b.version }));
+    assert.strictEqual(stato(PROFV, imp0).io.ruolo, 'professionista');
+  });
+  prova('disattivare una persona la chiude fuori subito, anche con la cache calda', () => {
+    stato(PROFV); stato(PROFV, stato(PROFV).impronta);
+    const imp = stato(PROFV).impronta;
+    assert.strictEqual(lettureDi(() => stato(PROFV, imp)).letture, 0);
+    const a = ok(cc(PROPRIETARIO, 'accessi.leggi'));
+    a.utenti[PROFV].attivo = false;
+    ok(cc(PROPRIETARIO, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    ko(cc(PROFV, 'sincronizza.stato', { impronta: imp }), 'disattivato');
+    ko(cc(PROFV, 'sincronizza.stato', { impronta: imp }), 'disattivato');
+    const b = ok(cc(PROPRIETARIO, 'accessi.leggi'));
+    b.utenti[PROFV].attivo = true;
+    ok(cc(PROPRIETARIO, 'accessi.salva', { accessi: b, versioneBase: b.version }));
+    assert.strictEqual(stato(PROFV, imp).io.email, PROFV);
+  });
+  prova('togliere una persona dall\'elenco la chiude fuori subito', () => {
+    const imp = stato(TIRV).impronta; stato(TIRV, imp);
+    assert.strictEqual(lettureDi(() => stato(TIRV, imp)).letture, 0);
+    const a = ok(cc(PROPRIETARIO, 'accessi.leggi'));
+    const salva = JSON.parse(JSON.stringify(a.utenti[TIRV]));
+    delete a.utenti[TIRV];
+    ok(cc(PROPRIETARIO, 'accessi.salva', { accessi: a, versioneBase: a.version }));
+    ko(cc(TIRV, 'sincronizza.stato', { impronta: imp }), 'non-autorizzato');
+    const b = ok(cc(PROPRIETARIO, 'accessi.leggi'));
+    b.utenti[TIRV] = salva;
+    ok(cc(PROPRIETARIO, 'accessi.salva', { accessi: b, versioneBase: b.version }));
+  });
+  prova('la scadenza a tempo vale anche con la cache calda: il giorno dopo si e\' fuori', () => {
+    const imp = stato(SCADV).impronta; stato(SCADV, imp);
+    assert.strictEqual(lettureDi(() => stato(SCADV, imp)).letture, 0, 'prima della scadenza e\' rapido');
+    const salvato = adesso;
+    adesso = new Date(giorno(1) + 'T23:00:00Z');
+    assert.strictEqual(stato(SCADV, imp).io.email, SCADV, 'l\'ultimo giorno e\' ancora dentro');
+    adesso = new Date(giorno(2) + 'T00:30:00Z');
+    ko(cc(SCADV, 'sincronizza.stato', { impronta: imp }), 'scaduto');
+    adesso = salvato;
+  });
+  prova('la richiesta di chiave di un dispositivo arriva agli admin (inAttesa) e si spegne alla consegna', () => {
+    const DV = 'dev' + crypto.randomBytes(8).toString('hex');
+    const imp = stato(ADMV).impronta;
+    assert.strictEqual(stato(ADMV, imp).io.inAttesa, 0);
+    assert.strictEqual(lettureDi(() => stato(ADMV, imp)).letture, 0);
+    ok(cc(PROFV, 'dispositivo.registra', { id: DV, nome: 'Chrome', pubblica: PUB }));
+    assert.strictEqual(stato(ADMV, imp).io.inAttesa, 1, 'la richiesta deve comparire subito');
+    assert.strictEqual(lettureDi(() => stato(ADMV, imp)).r.io.inAttesa, 1);
+    ok(cc(ADMV, 'dispositivi.abilita', { id: DV, kid: 'k1', chiave: consegna(PUB), pubblica: PUB }));
+    assert.strictEqual(stato(ADMV, imp).io.inAttesa, 0, 'consegnata: non e\' piu\' in attesa');
+    ok(cc(PROFV, 'dispositivo.togli', { id: DV }));
+  });
+  prova('la sola data dell\'ultimo accesso di un dispositivo non svuota la cache', () => {
+    const DV = 'dev' + crypto.randomBytes(8).toString('hex');
+    ok(cc(PROFV, 'dispositivo.registra', { id: DV, nome: 'Chrome', pubblica: PUB }));
+    ok(cc(ADMV, 'dispositivi.abilita', { id: DV, kid: 'k1', chiave: consegna(PUB), pubblica: PUB }));
+    const imp = stato(ADMV).impronta; stato(ADMV, imp);
+    assert.strictEqual(lettureDi(() => stato(ADMV, imp)).letture, 0);
+    tick(2 * 3600 * 1000);
+    ok(cc(PROFV, 'dispositivo.chiave', { id: DV }));
+    assert.strictEqual(lettureDi(() => stato(ADMV, imp)).letture, 0, 'resta rapido');
+    ok(cc(PROFV, 'dispositivo.togli', { id: DV }));
+  });
+  prova('un cambio della chiave del centro arriva subito (kid)', () => {
+    const imp = stato(ADMV).impronta; stato(ADMV, imp);
+    const nuova = { kid: 'k2', kdf: CIFRATURA.kdf, verifica: busta({ tice: 'ok2' }) };
+    ok(cc(PROPRIETARIO, 'cifratura.imposta', { cifratura: nuova, sostituisci: true, kidAttuale: 'k1' }));
+    assert.strictEqual(stato(ADMV, imp).io.kid, 'k2');
+    // si rimette com'era per gli altri test (nuovo custode: questo e' a se')
+  });
+  prova('la revoca delle chiavi per scadenza (risveglio) rinnova la revisione', () => {
+    const imp = stato(PROFV).impronta; stato(PROFV, imp);
+    assert.strictEqual(V.custode.revocaScaduti(), 0);
+    assert.strictEqual(lettureDi(() => stato(PROFV, imp)).letture, 0, 'senza revoche la cache resta');
+  });
+  prova('cache vuota o scaduta: si ricostruisce dai file e torna rapido', () => {
+    const imp = stato(PROFV).impronta;
+    cv.svuota();
+    const a = lettureDi(() => stato(PROFV, imp));
+    assert.ok(a.letture > 0, 'prima: dai file');
+    assert.strictEqual(a.r.elenco, null);
+    assert.strictEqual(lettureDi(() => stato(PROFV, imp)).letture, 0, 'poi: dalla cache');
+    // solo la revisione persa (scaduta): tutte le risposte in cache non valgono piu'
+    cv.remove(QT.CHIAVE_STATO_REV);
+    assert.ok(lettureDi(() => stato(PROFV, imp)).letture > 0);
+    assert.strictEqual(lettureDi(() => stato(PROFV, imp)).letture, 0);
+  });
+  prova('una scrittura interrotta (revisione «w» rimasta) non da mai risposte dalla cache, e si ripara', () => {
+    const imp = stato(PROFV).impronta; stato(PROFV, imp);
+    cv.put(QT.CHIAVE_STATO_REV, 'w', 600);
+    assert.ok(lettureDi(() => stato(PROFV, imp)).letture > 0, 'con «w» si legge dai file');
+    assert.notStrictEqual(cv.get(QT.CHIAVE_STATO_REV), 'w', 'la revisione si e\' rinnovata');
+    stato(PROFV, imp);
+    assert.strictEqual(lettureDi(() => stato(PROFV, imp)).letture, 0);
+  });
+  prova('una cache che dà errore non rompe niente (si risponde dai file)', () => {
+    const rotta = { get() { throw new Error('giu'); }, getAll() { throw new Error('giu'); }, put() { throw new Error('giu'); }, remove() { throw new Error('giu'); } };
+    const R = nuovoCustode(rotta);
+    const cr = (email, azione, dati) => R.custode.gestisci({ v: 1, token: 'dev:' + email, azione, dati });
+    const a = ok(cr(PROPRIETARIO, 'sincronizza.stato', {}));
+    assert.ok(a.io.email === PROPRIETARIO);
+    assert.strictEqual(ok(cr(PROPRIETARIO, 'sincronizza.stato', { impronta: a.impronta })).elenco, null);
+    fs.rmSync(R.dir, { recursive: true, force: true });
+  });
+  prova('ogni risposta dice quanti millisecondi ha lavorato il custode (ms)', () => {
+    const r = cc(PROFV, 'sincronizza.stato', { impronta: imp0 });
+    assert.ok(Number.isFinite(r.ms) && r.ms >= 0 && r.ms < 5000, 'ms: ' + r.ms);
+    const e = cc('estraneo@gmail.com', 'io');
+    assert.ok(!e.ok && Number.isFinite(e.ms));
+  });
+  fs.rmSync(V.dir, { recursive: true, force: true });
+}
 
 console.log('\nNome del proprietario');
 {

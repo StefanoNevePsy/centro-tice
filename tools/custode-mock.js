@@ -89,6 +89,24 @@ function archivioSuDisco(radice) {
     // Il core e' sincrono e Node esegue una richiesta alla volta fino in fondo:
     // le scritture non possono sovrapporsi.
     conLock(fn) { return fn(); },
+    provaLock(fn) { fn(); return true; },
+  };
+}
+
+// Cache in memoria con la stessa interfaccia di CacheService (valori fino a 100 KB, TTL in secondi)
+function cacheInMemoria() {
+  const m = new Map();
+  const valida = (k) => { const x = m.get(k); if (!x) return null; if (x.scade && x.scade < Date.now()) { m.delete(k); return null; } return x.v; };
+  return {
+    get: valida,
+    getAll(chiavi) { const o = {}; chiavi.forEach((k) => { const v = valida(k); if (v != null) o[k] = v; }); return o; },
+    put(k, v, ttl) {
+      if (typeof v !== 'string' || v.length > 100 * 1024) throw new Error('valore troppo grande per la cache');
+      m.set(k, { v, scade: Math.min(ttl || 600, 21600) * 1000 + Date.now() });
+    },
+    remove(k) { m.delete(k); },
+    svuota() { m.clear(); },
+    _mappa: m,
   };
 }
 
@@ -164,6 +182,7 @@ function creaServer(o) {
     proprietario: () => o.proprietario,
     ora: () => (o.ora ? o.ora() : new Date().toISOString()),
     sha256Hex,
+    cache: o.cache || cacheInMemoria(),
     ricordo: (() => { const m = new Map(); return { leggi: (k) => m.get(k) || null, scrivi: (k, v) => m.set(k, v) }; })(),
   });
 
@@ -223,7 +242,7 @@ function creaServer(o) {
   });
 }
 
-module.exports = { creaServer, archivioSuDisco, sha256Hex };
+module.exports = { creaServer, archivioSuDisco, cacheInMemoria, sha256Hex };
 
 if (require.main === module) {
   const o = opzioni(process.argv);

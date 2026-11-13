@@ -49,9 +49,11 @@ function doGet() {
 // Chi ospita il custode, sempre admin. Lo si legge da Google una volta e lo si
 // ricorda nelle proprieta' dello script: se Google per un attimo non lo dice,
 // il proprietario non viene scambiato per uno sconosciuto.
+var _proprietario = null;
 function proprietario_() {
+  if (_proprietario) return _proprietario;
   var p = PROP.getProperty('PROPRIETARIO');
-  if (p) return String(p).trim().toLowerCase();
+  if (p) return (_proprietario = String(p).trim().toLowerCase());
   var e = '';
   try { e = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase(); } catch (x) { e = ''; }
   if (e) { try { PROP.setProperty('PROPRIETARIO', e); } catch (x) { /* si riprova la prossima volta */ } }
@@ -68,6 +70,13 @@ function custode_() {
     proprietario: proprietario_,
     ora: function () { return new Date().toISOString(); },
     sha256Hex: function (b64) { return hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.base64Decode(b64))); },
+    // Corsia rapida dello «stato del centro» (vedi core.js): chiavi gia' corte, valori < 100 KB, TTL max 6 ore
+    cache: {
+      get: function (k) { return CacheService.getScriptCache().get(k); },
+      getAll: function (chiavi) { return CacheService.getScriptCache().getAll(chiavi); },
+      put: function (k, v, secondi) { CacheService.getScriptCache().put(k, v, Math.min(secondi || 600, 21600)); },
+      remove: function (k) { CacheService.getScriptCache().remove(k); },
+    },
     // Risposte alle scritture gia' fatte, per i reinvii dell'app (10 minuti)
     ricordo: {
       leggi: function (k) { return CacheService.getScriptCache().get(chiaveCache_(k)); },
@@ -330,6 +339,14 @@ function archivioDrive_() {
       memoria['f:' + percorso] = null;
       inCache(percorso, null);
     },
+    // Come conLock ma senza aspettare: se qualcuno sta scrivendo, non fa niente
+    provaLock: function (fn) {
+      var lock = LockService.getScriptLock();
+      if (!lock.tryLock(0)) return false;
+      var prima = inLock;
+      inLock = true;
+      try { fn(); return true; } finally { inLock = prima; lock.releaseLock(); }
+    },
     conLock: function (fn) {
       var lock = LockService.getScriptLock();
       if (!lock.tryLock(25000)) {
@@ -400,6 +417,8 @@ function risveglio() {
     .forEach(function (p) { try { a.leggiJSON(p); } catch (e) { /* al prossimo giro */ } });
   // accessi scaduti: le chiavi dei loro dispositivi si revocano (scrive solo se ce n'è)
   try { custode_().revocaScaduti(); } catch (e) { /* al prossimo giro */ }
+  // la corsia rapida dello stato (se la cache e' scaduta si rinnova la revisione)
+  try { custode_().scalda(); } catch (e) { /* al prossimo giro */ }
 }
 
 // Dopo una modifica fatta a mano sui file in Drive (da evitare: es. un file
@@ -412,6 +431,8 @@ function generazioneCache_() {
   return _generazione;
 }
 function svuotaCache() {
+  // anche le risposte dello stato del centro: senza revisione, nessuna vale piu'
+  try { CacheService.getScriptCache().remove(QT.CHIAVE_STATO_REV); } catch (e) { /* scade da sola entro 6 ore */ }
   _generazione = Date.now().toString(36);
   PropertiesService.getScriptProperties().setProperty('GENERAZIONE_CACHE', _generazione);
   Logger.log('Cache svuotata: il custode rilegge tutto da Drive.');
