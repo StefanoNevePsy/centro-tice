@@ -1331,3 +1331,11 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
     .tice .grafici-scelta { max-width: 560px; }
 }
 .tice .grafici-bimbo .avatar { font-size: 0.62rem !important; letter-spacing: -0.02em; overflow: hidden; }
+
+/* Accesso Google (One Tap) sopra tutta l'app: sul telefono il riquadro di Google
+   compare in basso e finiva sotto le schermate a tutto schermo */
+#credential_picker_container,
+#credential_picker_iframe,
+iframe[src*="accounts.google.com/gsi"] {
+    z-index: 2147483647 !important;
+}
