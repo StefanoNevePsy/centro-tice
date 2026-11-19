@@ -26,7 +26,7 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
   const url = 'http://127.0.0.1:' + server.address().port + '/';
   const opz = {};
   const pw = '/opt/pw-browsers'; // ambiente di sviluppo con un Chromium già scaricato
-  if (!process.env.CI && fs.existsSync(pw)) { const c = fs.readdirSync(pw).find((x) => x.startsWith('chromium-')); if (c) opz.executablePath = `${pw}/${c}/chrome-linux/chrome`; }
+  if (!process.env.CI && fs.existsSync(pw)) { const c = fs.readdirSync(pw).find((x) => x.startsWith('chromium-')); if (c) { const e = ['chrome-linux64', 'chrome-linux'].map((d) => `${pw}/${c}/${d}/chrome`).find((f) => fs.existsSync(f)); if (e) opz.executablePath = e; } }
   const b = await chromium.launch(opz);
   const errori = [];
   try {
@@ -393,6 +393,132 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     ok(await p.evaluate(() => !!document.getElementById('report-content')), 'dal collegamento si apre ancora la cartella vecchia');
     for (const t of ['overview', 'dates', 'activities', 'viz', 'diary']) { await p.evaluate((x) => { const l = state.patients.find((y) => y.name === 'Prova B.'); switchReportTab(x, l.id); }, t); await attesa(300); }
     ok(!/Colpire/.test(await p.evaluate(() => { const l = state.patients.find((y) => y.name === 'Prova B.'); switchReportTab('activities', l.id); return document.getElementById('report-content').innerText; })), 'cartella clinica: i comportamenti non compaiono fra le attività');
+    // ---- giochi: più set insieme in un'attività, e gioco avviato direttamente → seduta di oggi (js/tice-gioco.js, js/tice-home-giochi.js) ----
+    await p.evaluate(() => { try { closePatients(); } catch (e) { /* già chiusa */ } });
+    await p.evaluate(() => {
+      const img = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>';
+      const modi = ['tact', 'intraverbal_scenari', 'search_find'];
+      state.savedSets.push({ id: 'gs1', name: 'Set Uno', category: 'Prova', modes: modi, items: ['cane', 'gatto', 'topo'].map((label) => ({ label, url: img })) });
+      state.savedSets.push({ id: 'gs2', name: 'Set Due', category: 'Prova', modes: modi, items: ['mela', 'pera'].map((label) => ({ label, url: img })) });
+      state.patients.push({ id: 'p-senza', name: 'Senza Programma', history: [] });
+      TiceHome.vai('programma', state.patients.find((x) => x.name === 'Prova B.').id);
+    }); await attesa(500);
+    await p.click(`[data-a="nuovo-target"][data-id="${att.id}"]`); await attesa(400);
+    ok(!(await p.locator('.tice-foglio [data-unione]').isVisible()), 'più set: con nessun set scelto non compare «separati / insieme»');
+    await p.click('.tice-foglio label:has([name=s][value=gs1])'); await p.click('.tice-foglio label:has([name=s][value=gs2])'); await attesa(200);
+    ok(await p.locator('.tice-foglio [data-unione]').isVisible() && await p.locator('.tice-foglio [name=unione][value=separati]').isChecked(), 'più set: con due set compare la scelta, e «Set separati» è quella di partenza');
+    await p.selectOption('.tice-foglio [name=modo]', 'tact');
+    await p.click('.tice-foglio label:has([name=unione][value=insieme])'); await attesa(200);
+    await salvaFoglio();
+    const tIns = await p.evaluate((id) => { const a = state.patients.find((x) => x.name === 'Prova B.').programma.attivita.find((y) => y.id === id); const t = a.target[a.target.length - 1]; return { id: t.id, testo: t.testo, setId: t.setId, setIds: t.setIds, mode: t.mode, n: a.target.length }; }, att.id);
+    ok(tIns.setIds && tIns.setIds.length === 2 && tIns.setId === tIns.setIds[0] && /Set Uno/.test(tIns.testo) && /Set Due/.test(tIns.testo) && tIns.mode === 'tact', 'più set insieme: un solo target con i due set (' + tIns.testo + ')');
+    // senza «insieme» (separati) restano un target per set
+    await p.click(`[data-a="nuovo-target"][data-id="${att.id}"]`); await attesa(400);
+    await p.click('.tice-foglio label:has([name=s][value=gs1])'); await p.click('.tice-foglio label:has([name=s][value=gs2])'); await attesa(200);
+    await salvaFoglio();
+    const nSep = await p.evaluate((id) => state.patients.find((x) => x.name === 'Prova B.').programma.attivita.find((y) => y.id === id).target.length, att.id);
+    ok(nSep === tIns.n + 2, 'set separati (di partenza): un target per ogni set');
+    await p.evaluate(({ id, tid }) => { const a = state.patients.find((x) => x.name === 'Prova B.').programma.attivita.find((y) => y.id === id); a.target = a.target.slice(0, -2); TiceProgramma.rendiCorrente(a, tid); TiceHome.ridisegna(); }, { id: att.id, tid: tIns.id }); await attesa(400);
+    await p.locator(`[data-a="menu-target"][data-id="${att.id}"]`).last().click(); await attesa(400);
+    ok(/2 set usati insieme/.test(await p.locator('.tice-foglio').innerText()) && await p.locator('.tice-foglio [data-foglio="set"]').count() === 1, 'più set: il menu del target ha «Set del target» e dice che sono 2 insieme');
+    await p.keyboard.press('Escape'); await attesa(300);
+    // si gioca dal target: il gioco parte con gli stimoli di tutti i set; il risultato è unico con il dettaglio per set e per stimolo
+    const nStorico = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').history.length);
+    const avvio = await p.evaluate(({ id, tid }) => {
+      const pz = state.patients.find((x) => x.name === 'Prova B.'), a = pz.programma.attivita.find((y) => y.id === id), t = a.target.find((y) => y.id === tid);
+      TiceHome.strumenti.lancia(pz, a, t);
+      return { merged: (state.mergedSets || []).length, items: state.session.playItems.length, id: state.activeSetId, mode: document.getElementById('mode-select').value, nascosta: document.getElementById('tice').hidden };
+    }, { id: att.id, tid: tIns.id }); await attesa(400);
+    ok(avvio.merged === 2 && avvio.items === 5 && /^multi_gs[12]_gs[12]$/.test(avvio.id) && avvio.mode === 'tact' && avvio.nascosta, 'più set insieme: il gioco parte con i 5 stimoli dei due set (' + avvio.id + ')');
+    await p.evaluate(() => { state.session.playItems.forEach((it, i) => { state.tactIndex = i; recordResponse(it._setId === 'gs1' ? true : (i % 2 ? false : 'prompt')); }); });
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1500);
+    const gi = await p.evaluate((n) => { const l = state.patients.find((x) => x.name === 'Prova B.').history; const s = l[l.length - 1]; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(s)) }; }, nStorico);
+    const bd = gi.s.setBreakdown || [];
+    ok(gi.nuove === 1 && gi.s.total === 5 && gi.s.correct === 3 && gi.s.setId === avvio.id && gi.s.attivitaId === att.id && gi.s.targetId === tIns.id && gi.s.fonte === 'app-gioco', 'più set insieme: una sola seduta con il totale unito (3/5), collegata all\'attività e al target');
+    ok(bd.length === 2 && bd.find((x) => x.setId === 'gs1').correct === 3 && bd.find((x) => x.setId === 'gs1').total === 3 && bd.find((x) => x.setId === 'gs2').correct === 0 && bd.find((x) => x.setId === 'gs2').total === 2, 'più set insieme: il dettaglio per set (Set Uno 3/3, Set Due 0/2)');
+    ok((gi.s.itemDetails || []).length === 5 && gi.s.itemDetails.every((d) => d.setId && d.setName && d.label), 'più set insieme: il dettaglio per stimolo, ognuno con il suo set');
+    await attesa(500);
+    ok(await p.evaluate(() => !document.getElementById('tice').hidden && TiceHome.attuale().vista === 'seduta'), 'più set insieme: a fine gioco si torna alla seduta');
+    // il dettaglio si vede nella cartella del bambino
+    await p.evaluate(() => TiceHome.vai('cartella', state.patients.find((x) => x.name === 'Prova B.').id)); await attesa(600);
+    await p.click('[data-a="cartella-tab"][data-tab="giornate"]'); await attesa(300);
+    await p.locator('.cr-giorno .cr-sed:has-text("Set Uno")').first().click(); await attesa(400);
+    const fogl = await p.locator('.tice-foglio').innerText();
+    ok(/Dettaglio per set e per stimolo/.test(fogl) && /Set Uno/.test(fogl) && /Set Due/.test(fogl) && /cane/.test(fogl) && /mela/.test(fogl) && /3\/3/.test(fogl), 'cartella: la scheda della seduta mostra il dettaglio per set e per stimolo');
+    await p.keyboard.press('Escape'); await attesa(300);
+    // la cartella vecchia legge lo stesso dato (dettaglio per set con gli stimoli)
+    ok(await p.evaluate(() => { const h = document.createElement('div'); const l = state.patients.find((x) => x.name === 'Prova B.'); const s = l.history[l.history.length - 1]; return typeof renderSetBreakdownCollapsible === 'function' && /cane/.test(renderSetBreakdownCollapsible(s, l.id, l.history.length - 1, false)); }), 'cartella vecchia: il dettaglio per set mostra anche gli stimoli');
+
+    // gioco avviato direttamente: un bambino senza programma resta come prima (la seduta va nella cartella)
+    const gioca = (pid, modo, ids, esiti) => p.evaluate(async ({ pid, modo, ids, esiti }) => {
+      const w = (ms) => new Promise((r) => setTimeout(r, ms));
+      TiceHome.chiudi();
+      setGlobalPatient(pid); selectModeFromDropdown(modo);
+      if (ids.length > 1) loadSetsTogether(ids); else loadSelectedSet(ids[0]);
+      await w(100);
+      state.session.playItems.forEach((it, i) => { state.tactIndex = i; recordResponse(esiti[i % esiti.length]); });
+    }, { pid, modo, ids, esiti });
+    const salvaGioco = async () => { await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1200); };
+    await gioca('p-senza', 'tact', ['gs1'], [true, false, true]); await salvaGioco();
+    ok(await p.evaluate(() => state.patients.find((x) => x.id === 'p-senza').history.length) === 1 && await p.evaluate(() => localStorage.getItem('tice_bozza_p-senza')) === null, 'gioco diretto: un bambino che non è del Centro resta com\'era (seduta nella cartella, nessuna bozza)');
+    // un bambino del Centro: la seduta va nella bozza di oggi come attività una tantum
+    const idB = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').id);
+    await p.evaluate(() => { try { localStorage.removeItem('tice_bozza_' + state.patients.find((x) => x.name === 'Prova B.').id); TiceHome.strumenti.T.bozza = null; } catch (e) { /* niente */ } });
+    const nPrima = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').history.length);
+    await gioca(idB, 'tact', ['gs1', 'gs2'], [true, false, 'prompt']); await salvaGioco();
+    const dopo = await p.evaluate(() => { const l = state.patients.find((x) => x.name === 'Prova B.'); const b = JSON.parse(localStorage.getItem('tice_bozza_' + l.id) || 'null'); return { storico: l.history.length, temp: b ? b.temp.map((t) => ({ nome: t.nome, fuori: t.fuori })) : null, v: b ? Object.values(b.voci).map((v) => [v.v, v.p, v.x, !!v.gioco]) : null }; });
+    ok(dopo.storico === nPrima && dopo.temp && dopo.temp.length === 1 && /^TACT – Set (Uno \+ Set Due|Due \+ Set Uno)$/.test(dopo.temp[0].nome) && dopo.temp[0].fuori && dopo.v[0][3], 'gioco diretto: il risultato è nella bozza di oggi come attività una tantum, non nella cartella (' + (dopo.temp && dopo.temp[0].nome) + ')');
+    const av = await p.locator('.tice-avviso.con-azione').innerText();
+    ok(/Aggiunto alla seduta di oggi di Prova B\./.test(av) && /Apri/.test(av), 'gioco diretto: avviso «Aggiunto alla seduta di oggi di …» con il tasto «Apri»');
+    // salvato due volte lo stesso risultato: nessun doppione
+    await p.evaluate(async () => {
+      const l = state.patients.find((x) => x.name === 'Prova B.'); const b = JSON.parse(localStorage.getItem('tice_bozza_' + l.id));
+      const g = JSON.parse(JSON.stringify(Object.values(b.voci)[0].gioco)); delete g.id;
+      l.history.push(g); await DB.savePatient(l);
+    }); await attesa(300);
+    ok(await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').history.length) === nPrima, 'gioco diretto: lo stesso risultato salvato due volte non entra nella cartella');
+    ok(await p.evaluate(() => { const l = state.patients.find((x) => x.name === 'Prova B.'); return JSON.parse(localStorage.getItem('tice_bozza_' + l.id)).temp.length; }) === 1, 'gioco diretto: nella bozza resta una sola attività');
+    await p.click('.tice-avviso.con-azione button'); await attesa(800);
+    ok(await p.evaluate(() => TiceHome.attuale().vista) === 'seduta' && /una tantum/.test(await p.locator('.att.con-dati').last().innerText()) && /2 set insieme/.test(await p.locator('.att.con-dati').last().innerText()), 'gioco diretto: «Apri» porta alla seduta, con l\'attività una tantum aperta e il dettaglio per set');
+    // modificabile come il resto: il titolo e la modalità
+    const idTmp = await p.evaluate(() => { const l = state.patients.find((x) => x.name === 'Prova B.'); return JSON.parse(localStorage.getItem('tice_bozza_' + l.id)).temp[0].id; });
+    await p.click(`[data-a="nota-voce"][data-id="${idTmp}"]`); await attesa(400);
+    ok(await p.locator('.tice-foglio [name=titolo]').count() === 1 && await p.locator('.tice-foglio [data-mod-voce]').count() === 1, 'gioco diretto: nelle opzioni ci sono titolo e modalità');
+    await p.fill('.tice-foglio [name=titolo]', 'Gioco di prova'); await salvaFoglio();
+    ok(await p.evaluate((id) => TiceHome.strumenti.bozza(state.patients.find((x) => x.name === 'Prova B.').id).temp.find((t) => t.id === id).nome, idTmp) === 'Gioco di prova', 'gioco diretto: il titolo si cambia come per ogni attività del giorno');
+    // «Cambia»: dove va (una tantum, unisci a un'attività, nuova)
+    await p.click(`[data-a="destinazione-temp"][data-id="${idTmp}"]`); await attesa(400);
+    const dest = await p.locator('.tice-foglio').innerText();
+    ok(/Una tantum/.test(dest) && /Unisci a un'altra attività del programma|Forse è/.test(dest) && /Aggiungila al programma come attività nuova/.test(dest), 'gioco diretto: «Cambia» offre una tantum, unisci a un\'attività del programma e attività nuova');
+    await p.keyboard.press('Escape'); await attesa(300);
+    // fine seduta: resta una tantum, con titolo, modalità di gioco e dettaglio
+    await p.click('[data-a="termina"]'); await attesa(500);
+    await p.fill('.tice-foglio [name=operatore]', 'Prova'); await salvaFoglio(); await attesa(500);
+    while (await p.locator('.tice-foglio').count()) { await p.keyboard.press('Escape'); await attesa(200); }
+    const fine = await p.evaluate(() => { const l = state.patients.find((x) => x.name === 'Prova B.'); const s = l.history.find((x) => x.setName === 'Gioco di prova'); return s ? { mode: s.mode, att: s.attivitaId, id: s.id, tot: s.total, bd: (s.setBreakdown || []).length, it: (s.itemDetails || []).length, fonte: s.fonte, op: s.operatore, n: l.history.filter((x) => x.giocoFirma && x.giocoFirma === s.giocoFirma).length } : null; });
+    ok(fine && fine.mode === 'tact' && !fine.att && /^sx_/.test(fine.id) && fine.tot === 5 && fine.bd === 2 && fine.it === 5 && fine.fonte === 'app-gioco' && fine.op === 'Prova' && fine.n === 1, 'gioco diretto: a fine seduta una sola seduta, con il titolo scelto, la modalità di gioco e il dettaglio per set e per stimolo');
+    ok(await p.evaluate(() => TiceHome.strumenti.agganci.datiFuori(state.patients.find((x) => x.name === 'Prova B.')).some((g) => g.nome === 'Gioco di prova')), 'gioco diretto: la seduta una tantum compare fra i «Dati fuori dal programma», correggibile con «Correggi i dati»');
+    // la stessa seduta, di nuovo giocata e unita a un'attività del programma
+    await p.evaluate(() => { TiceHome.strumenti.T.bozza = null; localStorage.removeItem('tice_bozza_' + state.patients.find((x) => x.name === 'Prova B.').id); });
+    await gioca(idB, 'tact', ['gs1'], [true, true, false]); await salvaGioco();
+    const idTmp2 = await p.evaluate(() => { const l = state.patients.find((x) => x.name === 'Prova B.'); return JSON.parse(localStorage.getItem('tice_bozza_' + l.id)).temp[0].id; });
+    await p.evaluate(() => TiceHome.vai('seduta', state.patients.find((x) => x.name === 'Prova B.').id)); await attesa(500);
+    await p.evaluate((id) => { TiceHome.strumenti.T.aperte[id] = true; TiceHome.ridisegna(); }, idTmp2); await attesa(300);
+    await p.click(`[data-a="destinazione-temp"][data-id="${idTmp2}"]`); await attesa(400);
+    await p.locator(`.tice-foglio [data-foglio="u:${att.id}"]`).first().click(); await attesa(500);
+    ok(await p.evaluate((id) => TiceHome.strumenti.bozza(state.patients.find((x) => x.name === 'Prova B.').id).temp.length === 0, idTmp2), 'gioco diretto: «Unisci a un\'attività» toglie l\'attività una tantum dalla seduta');
+    await p.click('[data-a="termina"]'); await attesa(500);
+    await p.fill('.tice-foglio [name=operatore]', 'Prova'); await salvaFoglio(); await attesa(500);
+    while (await p.locator('.tice-foglio').count()) { await p.keyboard.press('Escape'); await attesa(200); }
+    const unita = await p.evaluate((id) => { const l = state.patients.find((x) => x.name === 'Prova B.'); const s = l.history.filter((x) => x.fonte === 'app-gioco' && x.attivitaId === id).pop(); return s ? { mode: s.mode, it: (s.itemDetails || []).length, tot: s.total } : null; }, att.id);
+    ok(unita && unita.mode === 'tact' && unita.tot === 3 && unita.it === 3, 'gioco diretto: unito a un\'attività del programma, la seduta tiene modalità di gioco e dettaglio per stimolo');
+    // telefono: la scheda con il dettaglio e la scelta «set insieme» entrano nello schermo
+    await p.evaluate(() => { TiceHome.strumenti.T.bozza = null; localStorage.removeItem('tice_bozza_' + state.patients.find((x) => x.name === 'Prova B.').id); });
+    await gioca(idB, 'tact', ['gs1', 'gs2'], [true, false]); await salvaGioco();
+    await p.setViewportSize({ width: 390, height: 844 }); await attesa(300);
+    await p.click('.tice-avviso.con-azione button'); await attesa(800);
+    ok(await p.evaluate(() => { const m = document.querySelector('.tice-main'); let fuori = 0; document.querySelectorAll('#tice *').forEach((e) => { if (e.getBoundingClientRect().right > innerWidth + 1) fuori++; }); return m.scrollWidth <= m.clientWidth + 1 && fuori === 0; }), 'gioco diretto, telefono: la scheda con il dettaglio per set sta nello schermo (nessun elemento esce a destra)');
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
     ok(errori.length === 0, 'nessun errore di pagina' + (errori.length ? ': ' + errori.join(' | ') : ''));
   } catch (e) { falliti++; console.log('  ✗ interrotta: ' + (e.message || e).split('\n')[0] + (errori.length ? ' · errori di pagina: ' + errori.join(' | ') : '')); }
   await b.close(); server.close();

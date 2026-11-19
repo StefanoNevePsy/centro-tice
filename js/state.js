@@ -247,6 +247,7 @@ let state = {
     fluenzaShowBar: true,
     // Multi-set session for search_find / intraverbal_scenari
     // Allows accumulating data across multiple sets, then saving one unified session
+    mergedSets: null,       // più set usati insieme in un unico gioco: [{ id, name, cat }] (state.activeSetId = 'multi_…')
     multiSetSession: null,  // { sets: [ { setId, setName, setCat, itemResults, scoreHistory } ], active: false }
     // Singolare/Plurale state
     spState: null  // { items, index, subMode, pairStep, pairOrder, currentForm, pluralCount, round }

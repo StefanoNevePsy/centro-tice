@@ -123,6 +123,7 @@
                 ${s.mantenimento ? h`<span class="pill grigia">mantenimento</span>` : ''}
                 ${s.misuraNome ? h`<span class="pill grigia">${s.misuraNome}</span>` : ''}
                 ${s.mode === 'quaderno_task' ? h`<span class="pill grigia">task analysis</span>` : ''}
+                ${Array.isArray(s.setBreakdown) && s.setBreakdown.length > 1 ? h`<span class="pill grigia">${s.setBreakdown.length} set</span>` : ''}
                 ${barretta(s)}
                 ${chi.length ? h`<span class="cr-chi-riga">${icona('user')} ${chi.join(' + ')}</span>` : ''}
             </div>
@@ -208,10 +209,12 @@
                 ${riga('Target', t ? t.testo : '')}
                 ${riga('Tipo', (td ? 'Time delay' + (s.timeDelaySeconds != null ? ' · ' + s.timeDelaySeconds + ' s' : '') : s.scala === 'percentuale' ? 'Percentuale' : 'Indipendente') + (s.mantenimento ? ' · mantenimento' : '') + (s.mode === 'quaderno_task' ? ' · task analysis' : ''))}
                 ${riga('Esito', tot > 0 ? h`${v} ${v === 1 ? 'corretta' : 'corrette'} (V) · ${pr} con aiuto (P) · ${x} ${x === 1 ? 'errore' : 'errori'} (X) — su ${tot}${pc != null ? ' · ' + pc + '%' : ''}` : (pc != null ? pc + '%' : ''))}
+                ${riga('Gioco', s.mode && !['quaderno', 'quaderno_task', 'comportamento'].includes(s.mode) && X.etichettaModo ? X.etichettaModo(s.mode) : '')}
                 ${riga('Misura', s.misuraNome || '')}
                 ${riga('Durata', durT)}
                 ${s.fuoriStatistiche ? riga('Statistiche', 'Non conteggiata nelle statistiche') : ''}
             </tbody></table>
+            ${X.dettaglioRisultatoGioco && ((s.setBreakdown && s.setBreakdown.length) || (s.itemDetails && s.itemDetails.length)) ? h`<p class="sotto piccolo" style="margin:10px 0 4px">${s.setBreakdown && s.setBreakdown.length ? 'Dettaglio per set e per stimolo' : 'Stimoli'}</p>${X.dettaglioRisultatoGioco(s, { aperto: !!(s.setBreakdown && s.setBreakdown.length && s.setBreakdown.length <= 3) })}` : ''}
             ${s.sequenza ? h`<p class="sotto piccolo" style="margin:10px 0 4px">Sequenza delle risposte</p><div class="sequenza" role="img" aria-label="Sequenza: ${s.sequenza}">${String(s.sequenza).split('').map((r) => h`<i class="${r}"></i>`)}</div>` : ''}
             ${nota ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Nota</p><p class="cr-nota" style="font-size:0.95rem;color:var(--text-primary)">${nota}</p>` : ''}
             ${corr.length ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Correzioni</p><ul class="cr-correzioni">${corr.map((c) => h`<li>${dataOra(c.il) || '—'}${c.chi ? ' · ' + c.chi : ''}: prima era «${c.da}»</li>`)}</ul>` : ''}

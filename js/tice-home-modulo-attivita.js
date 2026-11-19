@@ -34,9 +34,15 @@
                 <p class="sotto piccolo">Su tablet e computer, toccando l'attività si apre direttamente il gioco con il set, pronto da somministrare.</p>
                 <input type="search" placeholder="Cerca un set" data-filtro-set autocomplete="off" style="margin-bottom:6px">
                 <div class="opzioni" style="max-height:34vh;overflow-y:auto" data-elenco-set>
-                    ${sets.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + (x.cat || x.category || '')).toLowerCase()}">
+                    ${sets.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + (x.cat || x.category || '')).toLowerCase()}" data-modi="${(x.modes || []).join(' ')}">
                         <input type="checkbox" name="s" value="${x.id}"><span class="corpo">${x.name}<small>${x.cat || x.category || ''}${x.items ? ' · ' + x.items.length + ' elementi' : ''}</small></span></label>`)}
                 </div>
+                <div class="campo ma-unione" data-unione hidden style="margin-top:8px"><span>${icona('layer-group')} Con più set scelti</span>
+                    <div class="scelta verticale">
+                        <label><input type="radio" name="unione" value="separati" checked><span>Set separati <small class="sotto">· un target per ogni set, uno dopo l'altro</small></span></label>
+                        <label><input type="radio" name="unione" value="insieme"><span>Set insieme <small class="sotto">· un solo target: il gioco usa gli stimoli di tutti i set e il risultato è unico, con il dettaglio per set</small></span></label>
+                    </div>
+                    <span class="sotto piccolo avviso-doppione" data-unione-nota></span></div>
                 <label class="campo" style="margin-top:8px"><span>Con il gioco</span><select name="modo">
                     ${modi.map((m) => h`<option value="${m}" ${m === modoPred ? grezzo('selected') : ''}>${etichettaModo(m)}</option>`)}</select></label>` : ''}
             <details class="ta-nuova" ${ta.length ? '' : grezzo('open')}><summary><b>${icona('list-ol')} Task analysis</b> <span class="sotto piccolo">un target fatto di passi, segnati uno alla volta</span></summary>
@@ -53,7 +59,7 @@
                 const fd = new FormData(f);
                 const numA = String(fd.get('num_a') || '').trim();
                 const numerati = numA ? nomiNumerati(fd.get('num_nome'), fd.get('num_da'), numA).join('\n') : '';
-                return { t: [numerati, fd.get('t') || ''].filter(Boolean).join('\n'), set: fd.getAll('s'), modo: fd.get('modo') || '', lista: fd.get('lista') || '',
+                return { t: [numerati, fd.get('t') || ''].filter(Boolean).join('\n'), set: fd.getAll('s'), modo: fd.get('modo') || '', unione: fd.get('unione') || 'separati', lista: fd.get('lista') || '',
                     taNome: fd.get('ta_nome') || '', taPassi: fd.get('ta_passi') || '', taLista: fd.get('ta_lista') || '' };
             },
             dopo: (f) => {
@@ -62,15 +68,33 @@
                     const q = filtro.value.trim().toLowerCase();
                     f.querySelectorAll('[data-elenco-set] > label').forEach((l) => { l.hidden = !!q && !l.dataset.nome.includes(q) && !l.querySelector('input').checked; });
                 });
+                // la scelta «separati / insieme» compare con due o più set; con «insieme» il gioco deve andare bene per tutti
+                const box = f.querySelector('[data-unione]');
+                if (!box) return;
+                const nota = box.querySelector('[data-unione-nota]'), modo = f.querySelector('[name=modo]');
+                const aggiorna = () => {
+                    const scelti = [...f.querySelectorAll('[data-elenco-set] input:checked')];
+                    box.hidden = scelti.length < 2;
+                    const insieme = !box.hidden && box.querySelector('[name=unione]:checked').value === 'insieme';
+                    const manca = insieme && modo ? scelti.filter((i) => !String(i.closest('label').dataset.modi || '').split(' ').includes(modo.value)).map((i) => i.closest('label').querySelector('.corpo').firstChild.textContent.trim()) : [];
+                    nota.textContent = manca.length ? `«${manca.join('», «')}» non ${manca.length === 1 ? 'è adatto' : 'sono adatti'} a questo gioco: scegli un gioco che vada bene per tutti i set.` : '';
+                };
+                f.addEventListener('change', aggiorna);
+                aggiorna();
             }
         });
     }
     function aggiungiTargetDaModulo(att, r) {
         String(r.t || '').split('\n').map((x) => x.trim()).filter(Boolean).forEach((x) => P.aggiungiTarget(att, x, true));
         const sets = setArchivio();
-        r.set.forEach((id) => {
-            const x = sets.find((y) => y.id === id);
-            if (!x) return;
+        const scelti = r.set.map((id) => sets.find((y) => y.id === id)).filter(Boolean);
+        if (r.unione === 'insieme' && scelti.length > 1) {
+            // più set in un solo target: il gioco usa gli stimoli di tutti, il risultato è unico
+            const comuni = (scelti[0].modes || []).filter((m) => !MODI_ESCLUSI.includes(m) && scelti.every((x) => (x.modes || []).includes(m)));
+            const modo = comuni.includes(r.modo) ? r.modo : (comuni[0] || r.modo);
+            P.aggiungiTarget(att, { testo: scelti.map((x) => x.name).join(' + '), setId: scelti[0].id, setIds: scelti.map((x) => x.id), mode: modo }, true);
+            if (!att.mode && modo) att.mode = modo;
+        } else scelti.forEach((x) => {
             const modi = (x.modes || []).filter((m) => !MODI_ESCLUSI.includes(m));
             const modo = modi.includes(r.modo) ? r.modo : (modi[0] || r.modo);
             P.aggiungiTarget(att, { testo: x.name, setId: x.id, mode: modo }, true);

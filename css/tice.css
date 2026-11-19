@@ -1339,3 +1339,39 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 iframe[src*="accounts.google.com/gsi"] {
     z-index: 2147483647 !important;
 }
+
+/* --- giochi: avviso con un tasto, risultato del gioco in seduta, dettaglio per set e per stimolo ---------- */
+.tice-avviso.con-azione { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; }
+.tice-avviso.con-azione button {
+    flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 0; border-radius: 9px; cursor: pointer;
+    background: var(--tice-arancio, #fb8e28); color: #1c1f24; font: inherit; font-weight: 700;
+}
+.tice .gioco-nota { margin: 0 0 12px; padding: 8px 10px; border-radius: 10px; background: var(--t-sup-2); }
+.tice .gioco-nota p { margin: 0 0 6px; }
+.tice .gioco-dove { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.gioco-dett { display: flex; flex-direction: column; gap: 4px; }
+.gioco-set { border: 1px solid rgba(var(--ink-rgb), 0.12); border-radius: 9px; padding: 0; background: rgba(var(--ink-rgb), 0.03); }
+.gioco-set > summary, .gioco-set > .gioco-set-riga {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; cursor: pointer; list-style: none;
+}
+.gioco-set > .gioco-set-riga { cursor: default; }
+.gioco-set > summary::-webkit-details-marker { display: none; }
+.gioco-set-nome { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.gioco-set-esito { flex: 0 0 auto; font-size: 0.86rem; white-space: nowrap; }
+.gioco-stimoli { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 10px 10px; }
+.gioco-chip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px; font-size: 0.85rem;
+    border: 1px solid transparent; color: var(--text-primary);
+}
+.gioco-chip .gioco-r { font-weight: 800; font-size: 0.8rem; }
+.gioco-chip.V { background: rgba(31,143,85,0.14); border-color: rgba(31,143,85,0.35); }
+.gioco-chip.V .gioco-r { color: var(--success-color); }
+.gioco-chip.P { background: rgba(224,160,40,0.16); border-color: rgba(224,160,40,0.4); }
+.gioco-chip.P .gioco-r { color: var(--warning-color); }
+.gioco-chip.X { background: rgba(214,69,69,0.14); border-color: rgba(214,69,69,0.38); }
+.gioco-chip.X .gioco-r { color: var(--danger-color); }
+.ma-unione .scelta label small { font-weight: 400; }
+.gioco-set .pct-ok { color: var(--success-color); }
+.gioco-set .pct-medio { color: var(--warning-color); }
+.gioco-set .pct-basso { color: var(--danger-color); }
+.tice-foglio .ma-unione[hidden] { display: none; }

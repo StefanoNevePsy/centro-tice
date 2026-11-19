@@ -34,33 +34,40 @@
         const conDati = () => b.temp.filter((t) => !t.fuori && haDati(b.voci[t.id]));
         let giro = 0;
         while (conDati().length && giro++ < 50) {
-            const t = conDati()[0], v = b.voci[t.id], n = v.v + v.p + v.x;
-            const resto = conDati().length;
-            const nt = M.normalizza(t.nome);
-            const candidati = P.programma(p).attivita.filter((a) => !misure(a).length);
-            const simile = (a) => { const na = M.normalizza(a.nome); return (t.modalita && a.modalita === t.modalita) || (na && nt && (na === nt || na.includes(nt) || nt.includes(na))); };
-            const vicine = candidati.filter(simile);
-            const altre = candidati.filter((a) => !simile(a)).sort((x, y) => (x.stato === 'attivo' ? 0 : 1) - (y.stato === 'attivo' ? 0 : 1) || String(x.nome).localeCompare(String(y.nome), 'it'));
-            const opz = (a) => h`<button type="button" class="opzione" data-foglio="${'u:' + a.id}"><span class="corpo">${a.nome}<small>${ETICHETTE_STATO[a.stato] || a.stato}${(() => { const c = P.targetCorrente(a); return c ? ' · ' + c.target.testo : ''; })()}</small></span>${icona('arrow-right')}</button>`;
-            const r = await foglio(h`<div><h2>«${t.nome}»</h2>
-                <p class="sotto">L'hai aggiunta solo per questa seduta (${n} ${n === 1 ? 'risposta' : 'risposte'}). Prima di salvare, dove vanno questi dati?${resto > 1 ? h` <b>${resto} da sistemare.</b>` : ''}</p>
-                ${vicine.length ? h`<h3>Forse è</h3><div class="opzioni">${vicine.map(opz)}</div>` : ''}
-                ${puoProgrammi(p) ? h`<div class="opzioni" style="margin-top:10px"><button type="button" class="opzione" data-foglio="nuova">${icona('plus')}<span class="corpo">Aggiungila al programma come attività nuova<small>Con modalità, target e criterio, come dal programma</small></span></button></div>` : ''}
-                ${altre.length ? h`<details class="sez apribile" ${vicine.length ? '' : grezzo('open')}><summary><span class="sez-titolo">Unisci a un'altra attività del programma</span> <span class="sotto piccolo">${altre.length}</span></summary><div class="opzioni">${altre.map(opz)}</div></details>` : ''}
-                <details style="margin-top:12px"><summary class="sotto piccolo">Altro</summary>
-                    <div class="opzioni" style="margin-top:6px"><button type="button" class="opzione" data-foglio="fuori"><span class="corpo">Lasciala fuori dal programma${puoProgrammi(p) ? '' : ': la sistema la referente'}<small>I dati restano con il nome «${t.nome}», senza grafico dell'attività né criterio</small></span></button></div></details>
-                <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Torna alla seduta</button></div></div>`);
-            if (!r) return false;
-            if (r === 'fuori') { t.fuori = true; salvaBozza(); continue; }
-            let dest = null;
-            if (r === 'nuova') {
-                const m = await moduloAttivita(p, null, Object.assign({ nome: t.nome, sessionType: t.sessionType || 'independent' }, t.modalita ? { modalita: t.modalita } : {}));
-                if (!m) continue;
-                dest = await creaAttivitaDaModulo(p, m);
-            } else if (typeof r === 'string' && r.startsWith('u:')) dest = P.attivita(p, r.slice(2));
-            if (!dest) continue;
-            unisciTemporanea(p, b, t, dest);
+            const t = conDati()[0];
+            if (!await destinazioneTemporanea(p, b, t, conDati().length)) return false;
         }
+        return true;
+    }
+    // Dove vanno i dati di un'attività aggiunta per un giorno (anche una seduta di gioco): a un'attività del programma,
+    // a una nuova, o restano come attività «una tantum». Restituisce false se si torna indietro.
+    async function destinazioneTemporanea(p, b, t, resto) {
+        const v = b.voci[t.id], n = v.v + v.p + v.x, gioco = !!(v.gioco || t.daGioco);
+        const nt = M.normalizza(t.nome);
+        const candidati = P.programma(p).attivita.filter((a) => !misure(a).length);
+        const simile = (a) => { const na = M.normalizza(a.nome); return (t.modalita && a.modalita === t.modalita) || (na && nt && (na === nt || na.includes(nt) || nt.includes(na))); };
+        const vicine = candidati.filter(simile);
+        const altre = candidati.filter((a) => !simile(a)).sort((x, y) => (x.stato === 'attivo' ? 0 : 1) - (y.stato === 'attivo' ? 0 : 1) || String(x.nome).localeCompare(String(y.nome), 'it'));
+        const opz = (a) => h`<button type="button" class="opzione" data-foglio="${'u:' + a.id}"><span class="corpo">${a.nome}<small>${ETICHETTE_STATO[a.stato] || a.stato}${(() => { const c = P.targetCorrente(a); return c ? ' · ' + c.target.testo : ''; })()}${gioco && haDati(b.voci[a.id]) ? ' · ha già risposte oggi: si sommano, senza il dettaglio per set' : ''}</small></span>${icona('arrow-right')}</button>`;
+        const r = await foglio(h`<div><h2>«${t.nome}»</h2>
+            <p class="sotto">${gioco ? 'Giocata con l\'app' : 'L\'hai aggiunta solo per questa seduta'} (${n} ${n === 1 ? 'risposta' : 'risposte'}). ${gioco ? 'Di partenza è un\'attività una tantum. Dove vanno questi dati?' : 'Prima di salvare, dove vanno questi dati?'}${resto > 1 ? h` <b>${resto} da sistemare.</b>` : ''}</p>
+            ${gioco ? h`<div class="opzioni"><button type="button" class="opzione" data-foglio="fuori">${icona('bookmark')}<span class="corpo">Una tantum<small>Resta così, con il suo nome «${t.nome}»: non entra in nessun programma</small></span></button></div>` : ''}
+            ${vicine.length ? h`<h3>Forse è</h3><div class="opzioni">${vicine.map(opz)}</div>` : ''}
+            ${puoProgrammi(p) ? h`<div class="opzioni" style="margin-top:10px"><button type="button" class="opzione" data-foglio="nuova">${icona('plus')}<span class="corpo">Aggiungila al programma come attività nuova<small>Con modalità, target e criterio, come dal programma</small></span></button></div>` : ''}
+            ${altre.length ? h`<details class="sez apribile" ${vicine.length ? '' : grezzo('open')}><summary><span class="sez-titolo">Unisci a un'altra attività del programma</span> <span class="sotto piccolo">${altre.length}</span></summary><div class="opzioni">${altre.map(opz)}</div></details>` : ''}
+            ${gioco ? '' : h`<details style="margin-top:12px"><summary class="sotto piccolo">Altro</summary>
+                <div class="opzioni" style="margin-top:6px"><button type="button" class="opzione" data-foglio="fuori"><span class="corpo">Lasciala fuori dal programma${puoProgrammi(p) ? '' : ': la sistema la referente'}<small>I dati restano con il nome «${t.nome}», senza grafico dell'attività né criterio</small></span></button></div></details>`}
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">${gioco && resto === 1 ? 'Annulla' : 'Torna alla seduta'}</button></div></div>`);
+        if (!r) return false;
+        if (r === 'fuori') { t.fuori = true; salvaBozza(); return true; }
+        let dest = null;
+        if (r === 'nuova') {
+            const m = await moduloAttivita(p, null, Object.assign({ nome: t.nome, sessionType: t.sessionType || 'independent' }, t.modalita ? { modalita: t.modalita } : {}));
+            if (!m) return true;
+            dest = await creaAttivitaDaModulo(p, m);
+        } else if (typeof r === 'string' && r.startsWith('u:')) dest = P.attivita(p, r.slice(2));
+        if (!dest) return true;
+        unisciTemporanea(p, b, t, dest);
         return true;
     }
     // I dati di un'attività di un giorno passano a una del programma (sommandosi a quelli già presi oggi)
@@ -72,6 +79,7 @@
             const tipo = gia.sessionType || att.sessionType || 'independent';
             if ((v.sessionType || 'independent') !== tipo) { v.sessionType = tipo; convertiVoce(v, tipo, att); }
             gia.v += v.v; gia.p += v.p; gia.x += v.x;
+            delete gia.gioco;   // i conteggi sommati non sono più quelli del gioco
             gia.sequenza = (gia.sequenza || '') + (v.sequenza || '');
             gia.nota = [gia.nota, v.nota].filter(Boolean).join(' — ');
             if (!gia.decisione) gia.decisione = v.decisione || '';
@@ -115,10 +123,16 @@
                 if (d != null) voceS.tdSeconds = d;
             }
             let s;
+            // una seduta di gioco: l'ora in cui è stata giocata (se è dello stesso giorno)
+            const quandoV = v.gioco && v.gioco.date && P.giorno(v.gioco.date) === b.data ? v.gioco.date : quando;
             if (att.temporanea) {
-                s = P.seduta({ id: null, nome: att.nome, area: '', sessionType: att.sessionType }, null, voceS, quando);
+                s = P.seduta({ id: null, nome: att.nome, area: '', sessionType: att.sessionType }, null, voceS, quandoV);
                 s.attivitaId = null;
                 s.setId = 'quaderno_' + att.nome.replace(/\s+/g, '_').toLowerCase();
+                if (v.gioco && window.TiceGioco) {
+                    TiceGioco.applicaGioco(s, v, false);
+                    if (att.modalita) s.modalita = att.modalita;
+                }
             } else {
                 const t = v.targetId ? att.target.find((x) => x.id === v.targetId) : null;
                 const senza = !(att.target || []).length;
@@ -161,8 +175,9 @@
                     if (!Object.keys(att.inAttesa).length) delete att.inAttesa;
                     return;
                 }
-                s = marca(P.seduta(att, t, voceS, quando));
+                s = marca(P.seduta(att, t, voceS, quandoV));
                 annotaTD(p, att, s);
+                if (v.gioco && window.TiceGioco) TiceGioco.applicaGioco(s, v, !!(t && t.setId));
             }
             nuove.push(s);
             p.history = p.history || [];
@@ -300,7 +315,7 @@
                 await salvaSeduta(p, b, dati);
             }
         },
-        aggancio: { proponiProssimo }
+        aggancio: { proponiProssimo, destinazioneTemporanea }
     });
     X.proponiProssimo = proponiProssimo;
 })();

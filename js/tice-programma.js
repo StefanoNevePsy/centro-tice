@@ -62,6 +62,21 @@
   function attivita(p, id) {
     return programma(p).attivita.filter(function (a) { return a.id === id; })[0] || null;
   }
+  /**
+   * I set di un target: `setId`, e `setIds` se l'attività usa più set insieme (il primo è sempre `setId`).
+   * [] per un target non collegato a un set. Lo stesso calcolo di TiceGioco.idsSet.
+   */
+  function setIdsDi(target) {
+    if (!target) return [];
+    var l = (Array.isArray(target.setIds) ? target.setIds : []).filter(Boolean).map(String);
+    if (!l.length && target.setId) l = [String(target.setId)];
+    return l.filter(function (x, i) { return l.indexOf(x) === i; });
+  }
+  /** L'id con cui lo storico conosce il set (o i set usati insieme: «multi_a_b», come le sedute a scenari). */
+  function setIdDi(target) {
+    var l = setIdsDi(target);
+    return l.length > 1 ? 'multi_' + l.join('_') : (l[0] || '');
+  }
   function nomeSet(att, target) {
     // Un target collegato a un set dell'archivio si chiama come il set: così le
     // sedute registrate qui e quelle dei giochi finiscono nello stesso grafico.
@@ -142,7 +157,7 @@
       if (ms && s.misura !== ms) return false;
       if (target && target.setId) {
         // anche le sedute di quel set giocate prima che entrasse nel programma
-        return s.targetId ? s.targetId === target.id : (s.setId === target.setId && s.mode === modoTarget(att, target));
+        return s.targetId ? s.targetId === target.id : (s.setId === setIdDi(target) && s.mode === modoTarget(att, target));
       }
       if (target) return s.targetId ? s.targetId === target.id : (s.mode === 'quaderno' && s.setName === nome);
       return s.attivitaId === att.id || (s.mode === 'quaderno' && (s.setName === att.nome || String(s.setName).indexOf(att.nome + ' · ') === 0));
@@ -213,7 +228,7 @@
     var s = {
       id: nuovoId('sx'),
       date: quando,
-      setId: target && target.setId ? target.setId : 'tice_' + (target ? target.id : att.id),
+      setId: target && target.setId ? setIdDi(target) : 'tice_' + (target ? target.id : att.id),
       setName: nomeSet(att, target),
       setCat: att.area || '',
       mode: (target && target.setId && modoTarget(att, target)) || 'quaderno',
@@ -287,7 +302,7 @@
     if (dati.target) aggiungiTarget(att, dati.target, true);
     return att;
   }
-  /** dati: il testo, oppure { testo, setId, mode } per un set dell'archivio. */
+  /** dati: il testo, oppure { testo, setId, mode } per un set dell'archivio ({ testo, setIds, mode } per più set insieme). */
   function aggiungiTarget(att, dati, attiva) {
     var corrente = (att.target || []).filter(function (x) { return x.stato === 'attivo'; })[0];
     var d = typeof dati === 'object' && dati ? dati : { testo: dati };
@@ -297,6 +312,12 @@
       inizio: null, fine: null, origine: 'app', modificato: new Date().toISOString()
     };
     if (d.setId) { t.setId = String(d.setId); if (d.mode) t.mode = String(d.mode); }
+    // più set usati insieme in un unico target: setId resta il primo
+    if (Array.isArray(d.setIds) && d.setIds.length > 1) {
+      t.setIds = d.setIds.map(String).filter(function (x, i, a) { return x && a.indexOf(x) === i; });
+      t.setId = t.setIds[0];
+      if (d.mode) t.mode = String(d.mode);
+    }
     if (d.passi && d.passi.length) t.passi = nuoviPassi(d.passi);
     (att.target || (att.target = [])).push(t);
     att.modificato = t.modificato;
@@ -396,6 +417,7 @@
     PALETTE: PALETTE, coloreDi: coloreDi, inPercentuale: inPercentuale,
     conAttesa: conAttesa, chiaveAttesa: chiaveAttesa, inAttesaDi: inAttesaDi, dividiLU: dividiLU, contaRisposte: contaRisposte,
     sedute: sedute, criterioRaggiunto: criterioRaggiunto, criterioDi: criterioDi, seduta: seduta,
+    setIdsDi: setIdsDi, setIdDi: setIdDi,
     nuovaAttivita: nuovaAttivita, aggiungiTarget: aggiungiTarget,
     chiudiTarget: chiudiTarget, rendiCorrente: rendiCorrente, spostaTarget: spostaTarget,
     attiveOggi: attiveOggi

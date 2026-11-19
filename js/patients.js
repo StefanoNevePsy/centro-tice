@@ -1228,8 +1228,8 @@ window.toggleDaySessionDetail = (header, patientId, sessionIdx, activityKeyEncod
                 html += `</div>`;
             }
 
-            // Item details (wrong/prompted items)
-            if (s.itemDetails && s.itemDetails.length > 0) {
+            // Item details (wrong/prompted items); con più set insieme gli stimoli stanno già sotto «Dettaglio per Set»
+            if (s.itemDetails && s.itemDetails.length > 0 && !(s.setBreakdown && s.setBreakdown.length && s.itemDetails.some(d => d.setId))) {
                 const wrong = s.itemDetails.filter(d => d.result !== true);
                 if (wrong.length > 0) {
                     const wrongLabel = isTD ? 'Promptati' : 'Sbagliati';
@@ -1294,6 +1294,7 @@ window.toggleDaySessionDetail = (header, patientId, sessionIdx, activityKeyEncod
                         <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:8px;"><b>${i + 1}.</b> ${sb.setName}${sb.setCat ? ` <span style="color:var(--text-secondary); font-size:0.65rem;">(${sb.setCat})</span>` : ''}</span>
                         <span style="font-weight:bold; flex-shrink:0; display:flex; align-items:center; gap:4px;">${parts.join(' ')} <span style="font-size:0.7rem; color:${_clr}; font-weight:bold; margin-left:6px;">${pct}%</span></span>
                     </div>`;
+                    html += renderSetStimuli(s, sb);
                 });
                 html += `</div></div>`;
             }
@@ -1471,6 +1472,18 @@ function renderTaskStepDetailsCollapsible(s, patientId, sessionIdx, isTD) {
         </tr>`;
 }
 
+// Gli stimoli di un set in una seduta con più set insieme (ognuno con il suo esito)
+function renderSetStimuli(s, sb) {
+    const lista = (s.itemDetails || []).filter(d => d.setId && d.setId === sb.setId);
+    if (!lista.length) return '';
+    return `<div style="display:flex; flex-wrap:wrap; gap:2px; padding:3px 0 2px 16px;">` + lista.map(d => {
+        const ok = d.result === true, isP = d.result === 'prompt';
+        const color = ok ? 'var(--success-color)' : isP ? 'var(--warning-color)' : 'var(--danger-color)';
+        const rgba = ok ? '16,185,129' : isP ? '245,158,11' : '239,68,68';
+        return `<span style="display:inline-block; padding:1px 7px; border-radius:6px; font-size:0.72rem; background:rgba(${rgba},0.12); color:${color}; border:1px solid rgba(${rgba},0.3);">${d.label} <span style="opacity:0.6;">${ok ? '&#10003;' : isP ? 'P' : 'X'}</span></span>`;
+    }).join('') + `</div>`;
+}
+
 // --- Set breakdown collapsible row for multi-set sessions (search_find / intraverbal_scenari) ---
 function renderSetBreakdownCollapsible(s, patientId, sessionIdx, isTD) {
     if (!s.setBreakdown || s.setBreakdown.length === 0) return '';
@@ -1489,7 +1502,7 @@ function renderSetBreakdownCollapsible(s, patientId, sessionIdx, isTD) {
         return `<div style="padding:4px 8px; margin:2px 0; border-radius:6px; font-size:0.75rem; background:${bg}; border:1px solid ${border}; display:flex; justify-content:space-between; align-items:center;">
             <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:8px;"><b>${i + 1}.</b> ${sb.setName}${sb.setCat ? ` <span style="color:var(--text-secondary); font-size:0.65rem;">(${sb.setCat})</span>` : ''}</span>
             <span style="font-weight:bold; flex-shrink:0; display:flex; align-items:center; gap:4px;">${parts.join(' ')} <span style="font-size:0.7rem; color:${_clr}; font-weight:bold; margin-left:4px;">${pct}%</span></span>
-        </div>`;
+        </div>${renderSetStimuli(s, sb)}`;
     }).join('');
 
     return `
@@ -1778,6 +1791,9 @@ function renderActivitiesTab(patient, sortBy) {
                 itemDetailsHtml = renderMemLavCollapsible(s, patient.id, s.originalIndex, isTD);
             } else if (hasGoNogoBreakdown) {
                 itemDetailsHtml = renderGoNogoBreakdownCollapsible(s, patient.id, s.originalIndex, isTD);
+            } else if (hasSetBreakdown && (s.itemDetails || []).some(d => d.setId)) {
+                // più set insieme: dettaglio per set con gli stimoli di ciascuno
+                itemDetailsHtml = renderSetBreakdownCollapsible(s, patient.id, s.originalIndex, isTD);
             } else if (hasDetails) {
                 itemDetailsHtml = renderItemDetailsCollapsible(s, patient.id, s.originalIndex, isTD);
             } else if (isTaskAnalysisSession) {

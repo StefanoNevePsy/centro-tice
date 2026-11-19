@@ -232,6 +232,7 @@
                         ${t.stato === 'attivo' || t.stato === 'pianificato' ? h`<button class="opzione" data-foglio="repertorio">${icona('star')}<span class="corpo">Già in repertorio</span></button>` : ''}
                         ${t.setId ? h`<button class="opzione" data-foglio="gioca">${icona('play')}<span class="corpo">Somministra con l'app<small>${etichettaModo(P.modoTarget(att, t))} · set ${t.testo}</small></span></button>`
                             : h`<button class="opzione" data-foglio="testo">${icona('pen')}<span class="corpo">Modifica il testo</span></button>`}
+                        ${t.setId ? h`<button class="opzione" data-foglio="set">${icona('layer-group')}<span class="corpo">Set del target<small>${P.setIdsDi(t).length > 1 ? P.setIdsDi(t).length + ' set usati insieme: cambia' : 'Aggiungi altri set da usare insieme in questo target'}</small></span></button>` : ''}
                         <button class="opzione" data-foglio="passi">${icona('list-ol')}<span class="corpo">${P.passiDi(t).length ? 'Passi della task analysis' : 'Trasforma in task analysis'}<small>${P.passiDi(t).length ? P.passiDi(t).length + ' passi: modifica, aggiungi, riordina' : 'Un passo alla volta in seduta'}</small></span></button>
                         <button class="opzione" data-foglio="suggerimento">${icona('lightbulb')}<span class="corpo">Suggerimenti per questo target<small>${t.suggerimento ? 'Modifica' : 'Note su come somministrarlo, visibili in seduta'}</small></span></button>
                         <button class="opzione" data-foglio="condizioni">${icona('check-double')}<span class="corpo">Cosa vale come ✓, P, ✗ per questo target<small>${t.condizioni ? 'Modifica' : 'Vuoto: valgono quelle dell\'attività'}</small></span></button>
@@ -278,6 +279,31 @@
                     if (!np) return;
                     const nuovi = P.nuoviPassi(String(np.p || '').split('\n'), ora);
                     if (nuovi.length) t.passi = nuovi; else delete t.passi;
+                    t.modificato = att.modificato = new Date().toISOString();
+                }
+                else if (r === 'set') {
+                    // i set del target: con più di uno il gioco usa gli stimoli di tutti insieme, con un risultato unico
+                    const archivio = X.setArchivio(), attuali = P.setIdsDi(t);
+                    const nomeDi = (id) => ((archivio.find((x) => x.id === id) || {}).name || '');
+                    const ns = await foglio(h`<form><h2>Set · ${t.testo}</h2>
+                        <p class="sotto piccolo">Con più set il gioco usa gli stimoli di tutti insieme: il risultato è uno solo, con il dettaglio per set e per stimolo. Le sedute già registrate restano su questo target.</p>
+                        <input type="search" placeholder="Cerca un set" data-filtro-set autocomplete="off" style="margin-bottom:6px">
+                        <div class="opzioni" style="max-height:40vh;overflow-y:auto" data-elenco-set>
+                            ${archivio.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + (x.cat || x.category || '')).toLowerCase()}">
+                                <input type="checkbox" name="s" value="${x.id}" ${attuali.includes(x.id) ? grezzo('checked') : ''}><span class="corpo">${x.name}<small>${x.cat || x.category || ''}${x.items ? ' · ' + x.items.length + ' elementi' : ''}</small></span></label>`)}
+                        </div>
+                        <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
+                    { invia: (f) => ({ s: new FormData(f).getAll('s') }),
+                        dopo: (f) => { const q = f.querySelector('[data-filtro-set]'); q.addEventListener('input', () => { const v = q.value.trim().toLowerCase(); f.querySelectorAll('[data-elenco-set] > label').forEach((l) => { l.hidden = !!v && !l.dataset.nome.includes(v) && !l.querySelector('input').checked; }); }); } });
+                    if (!ns) return;
+                    // i set che non sono su questo dispositivo restano com'erano
+                    const ids = attuali.filter((id) => !archivio.some((x) => x.id === id) && ns.s.length).concat(ns.s);
+                    if (!ids.length) { avviso('Scegli almeno un set', 'errore'); return; }
+                    const nomePrima = attuali.map(nomeDi).filter(Boolean).join(' + ');
+                    t.setId = ids[0];
+                    if (ids.length > 1) t.setIds = ids; else delete t.setIds;
+                    // il testo segue i set, se era quello automatico
+                    if (!nomePrima || t.testo === nomePrima) t.testo = ids.map(nomeDi).filter(Boolean).join(' + ') || t.testo;
                     t.modificato = att.modificato = new Date().toISOString();
                 }
                 else if (r === 'testo') {

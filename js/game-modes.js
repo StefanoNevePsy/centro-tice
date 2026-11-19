@@ -1628,9 +1628,10 @@ window.startRacconto = async () => {
             const rawP = results.filter(v => v === 'prompt').length;
             const rawX = results.filter(v => v === false).length;
             const rawTotal = rawV + rawP + rawX;
+            const _lab = window._activeSetLabel ? window._activeSetLabel() : null;
             const activeSet = state.savedSets.find(ss => ss.id === state.activeSetId);
-            const defaultSetName = activeSet?.name || "Set Rimosso";
-            const setCat = activeSet?.category || '';
+            const defaultSetName = _lab ? _lab.name : (activeSet?.name || "Set Rimosso");
+            const setCat = _lab ? _lab.cat : (activeSet?.category || '');
             const nameInput = document.getElementById('session-name-input');
             const customName = nameInput ? nameInput.value.trim() : '';
             const setName = customName || defaultSetName;

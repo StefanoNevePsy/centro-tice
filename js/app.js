@@ -354,8 +354,12 @@ window.filterSetsByMode = function () {
 
     updateDropdown(compatibleSets);
 
-    // Reset stage if active set is not compatible
-    if (state.activeSetId && !compatibleSets.find(s => s.id === state.activeSetId)) {
+    // Reset stage if active set is not compatible (più set usati insieme: tutti devono esserlo)
+    const _attivoOk = state.mergedSets && state.mergedSets.length
+        ? state.mergedSets.every(m => compatibleSets.find(s => s.id === m.id))
+        : !!compatibleSets.find(s => s.id === state.activeSetId);
+    if (state.activeSetId && !_attivoOk) {
+        state.mergedSets = null;
         document.getElementById('game-stage').innerHTML = `
             <div style="height:100%; display:flex; justify-content:center; align-items:center; opacity:0.5; flex-direction:column; text-align:center;">
                 <i class="fa-solid fa-filter-circle-xmark fa-3x" style="margin-bottom:15px"></i>
@@ -533,7 +537,8 @@ function updateDropdown(sets) {
     // Update trigger label
     if (state.activeSetId) {
         const activeSet = sets.find(s => s.id === state.activeSetId);
-        label.textContent = activeSet ? activeSet.name : '-- Scegli un Set --';
+        label.textContent = activeSet ? activeSet.name
+            : (state.mergedSets && state.mergedSets.length ? state.mergedSets.map(m => m.name).join(' + ') : '-- Scegli un Set --');
     } else {
         label.textContent = '-- Scegli un Set --';
     }
@@ -683,6 +688,7 @@ window.loadSelectedSet = async (setId) => {
             _snapshotCurrentSetData();
         }
 
+        state.mergedSets = null; // un set solo: finiscono i set usati insieme
         state.activeSetId = setId;
         state.items = JSON.parse(JSON.stringify(s.items));
         // Update custom dropdown label & selection highlight
@@ -719,11 +725,53 @@ window.loadSelectedSet = async (setId) => {
     }
 };
 
+// --- PIÙ SET INSIEME: un solo gioco con gli stimoli di tutti i set scelti ---
+// Gli stimoli sono in un unico elenco (ognuno porta il suo set); a fine gioco il risultato è
+// un totale unico, con il dettaglio per set (setBreakdown) e per stimolo (itemDetails).
+window.loadSetsTogether = (setIds) => {
+    const sets = (setIds || []).map(id => state.savedSets.find(x => x.id === id)).filter(Boolean);
+    if (!sets.length) return false;
+    if (sets.length === 1) { window.loadSelectedSet(sets[0].id); return true; }
+    const U = window.TiceGioco;
+    if (!U) { window.loadSelectedSet(sets[0].id); return true; }
+    closeSetDropdown();
+    const unione = U.unisciSet(sets);
+    state.mergedSets = unione.sets;
+    state.activeSetId = unione.id;
+    state.items = unione.items;
+    const label = document.getElementById('set-dropdown-label');
+    if (label) label.textContent = unione.nome;
+    const panel = document.getElementById('set-dropdown-panel');
+    if (panel) panel.querySelectorAll('.set-dropdown-item').forEach(el => el.classList.remove('selected'));
+    window.startGame();
+    return true;
+};
+// Nome e categoria del set in gioco (anche se sono più set insieme)
+function _activeSetLabel() {
+    if (state.mergedSets && state.mergedSets.length) {
+        return { name: state.mergedSets.map(m => m.name).join(' + '), cat: state.mergedSets[0].cat || '' };
+    }
+    const a = state.savedSets.find(ss => ss.id === state.activeSetId);
+    return { name: a?.name || 'Set Rimosso', cat: a?.category || '' };
+}
+window._activeSetLabel = _activeSetLabel;
+
 // Snapshot current set's scoring data into multiSetSession
 function _snapshotCurrentSetData() {
     if (!state.multiSetSession || !state.activeSetId) return;
     const results = Object.values(state.session.itemResults);
     if (results.length === 0) return; // nothing scored on this set
+
+    // Più set insieme: un'unica scheda di gioco, divisa per set e per stimolo
+    if (state.mergedSets && state.mergedSets.length > 1 && window.TiceGioco) {
+        const d = window.TiceGioco.dettaglio(state.session.playItems || [], state.session.itemResults, state.mergedSets.map(m => m.id), state.session.itemOrigin);
+        d.setBreakdown.forEach(sb => state.multiSetSession.sets.push({
+            setId: sb.setId, setName: sb.setName, setCat: sb.setCat, correct: sb.correct, prompts: sb.prompts,
+            incorrect: sb.incorrect, total: sb.total, percentage: sb.percentage, variantIndex: state._sfVariantIndex || 0
+        }));
+        state.multiSetSession.itemDetails = (state.multiSetSession.itemDetails || []).concat(d.itemDetails);
+        return;
+    }
 
     const activeSet = state.savedSets.find(ss => ss.id === state.activeSetId);
     const rawV = results.filter(v => v === true).length;
@@ -1517,6 +1565,11 @@ window.recordResponse = (result) => {
         if (scoredId && state.session.scoreHistory[state.session.scoreHistory.length - 1] !== scoredId) {
             state.session.scoreHistory.push(scoredId);
         }
+        // a quale scena (e quindi a quale set, se sono più set insieme) appartiene il risultato
+        if (scoredId) {
+            if (!state.session.itemOrigin) state.session.itemOrigin = {};
+            state.session.itemOrigin[scoredId] = state._sfVariantIndex || 0;
+        }
     } else if (engine === 'ran' && state.ranMode === 'grid') {
         // RAN grid mode: track per-item results using a running index
         // so itemDetails can be saved for RAN Intensivo error tracking
@@ -1922,9 +1975,12 @@ async function _doSaveSession(p, noteText) {
         let customName = nameInput ? nameInput.value.trim() : '';
         // Default name: list of set names
         const setNames = allSets.map(s => s.setName);
-        const defaultName = setNames.length > 1
-            ? setNames[0] + ` (+${setNames.length - 1})`
-            : setNames[0] || 'Scenari';
+        const _insieme = !!(state.mergedSets && state.mergedSets.length > 1);
+        const defaultName = _insieme
+            ? setNames.join(' + ')
+            : setNames.length > 1
+                ? setNames[0] + ` (+${setNames.length - 1})`
+                : setNames[0] || 'Scenari';
         const setName = customName || defaultName;
         if (customName) saveCustomSessionName(customName);
 
@@ -1966,6 +2022,10 @@ async function _doSaveSession(p, noteText) {
         };
 
         if (noteText) sessionData.note = noteText;
+        // Più set insieme: anche il dettaglio per stimolo, con il set di ciascuno
+        if (state.multiSetSession.itemDetails && state.multiSetSession.itemDetails.length) {
+            sessionData.itemDetails = state.multiSetSession.itemDetails;
+        }
 
         if (type === 'timedelay') {
             sessionData.timeDelaySeconds = getSelectedTDSeconds();
@@ -2025,9 +2085,9 @@ async function _doSaveSession(p, noteText) {
             ? MEM_LAV_THEMES[state._memLavState.theme].label : 'Memoria';
         defaultName = 'Memoria di Lavoro: ' + themeLabel;
     } else {
-        const activeSet = state.savedSets.find(ss => ss.id === state.activeSetId);
-        defaultName = activeSet?.name || "Set Rimosso";
-        setCat = activeSet?.category || '';
+        const _lab = _activeSetLabel();
+        defaultName = _lab.name;
+        setCat = _lab.cat;
     }
 
     const nameInput = document.getElementById('session-name-input');
@@ -2211,13 +2271,26 @@ async function _doSaveSession(p, noteText) {
                     // Tag the variant so the per-word analysis can compare
                     // the same word across different picture variants.
                     const _v = sessionData.variant || 0;
-                    itemDetails.push(_v ? { label, result, variant: _v } : { label, result });
+                    const _d = _v ? { label, result, variant: _v } : { label, result };
+                    // Più set insieme: da quale set viene lo stimolo
+                    if (item._setId) { _d.setId = item._setId; _d.setName = item._setName; }
+                    itemDetails.push(_d);
                 }
             }
             if (itemDetails.length > 0) {
                 sessionData.itemDetails = itemDetails;
             }
         }
+        }
+    }
+
+    // Più set insieme: il totale è unico, il dettaglio per set è quello delle sedute a scenari
+    if (state.mergedSets && state.mergedSets.length > 1 && window.TiceGioco && Array.isArray(sessionData.itemDetails)
+        && sessionData.itemDetails.some(d => d.setId)) {
+        const _d = window.TiceGioco.dettaglio(state.session.playItems || [], state.session.itemResults, state.mergedSets.map(m => m.id));
+        if (_d.setBreakdown.length) {
+            const _vi = parseInt(document.getElementById('variant-select').value) || 0;
+            sessionData.setBreakdown = _d.setBreakdown.map(sb => ({ ...sb, variantIndex: _vi }));
         }
     }
 

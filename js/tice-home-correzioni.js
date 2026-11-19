@@ -16,7 +16,9 @@
         const gruppi = {};
         (p.history || []).forEach((s) => {
             if (s.attivitaId && ids.has(s.attivitaId)) return;
-            if (s.mode !== 'quaderno' && s.mode !== 'quaderno_task') return;
+            // anche le sedute dei giochi entrate nella seduta di oggi come attività «una tantum»
+            const daGioco = s.fonte === 'app-gioco' && !s.attivitaId;
+            if (s.mode !== 'quaderno' && s.mode !== 'quaderno_task' && !daGioco) return;
             // le vecchie sedute del quaderno senza id sono già lette dalle attività con lo stesso nome
             if (!s.attivitaId && P.programma(p).attivita.some((a) => P.sedute(p, a).includes(s))) return;
             const n = String(s.setName || 'Senza nome');
@@ -33,8 +35,10 @@
             s.attivitaId = att.id;
             s.targetId = t ? t.id : null;
             s.setName = P.nomeSet(att, t);
-            s.setId = t && t.setId ? t.setId : 'tice_' + (t ? t.id : att.id);
-            if (s.mode !== 'quaderno_task') s.mode = (t && t.setId && P.modoTarget(att, t)) || 'quaderno';
+            const gioco = s.fonte === 'app-gioco';
+            // una seduta di gioco tiene la sua modalità (e i set giocati) anche dentro un'attività
+            if (!gioco || (t && t.setId)) s.setId = t && t.setId ? P.setIdDi(t) : 'tice_' + (t ? t.id : att.id);
+            if (s.mode !== 'quaderno_task' && !gioco) s.mode = (t && t.setId && P.modoTarget(att, t)) || 'quaderno';
             s.setCat = (M.categoriaDi(att, dizionario()) || {}).nome || att.area || s.setCat || '';
             ['misura', 'misuraNome', 'bambino', 'bambinoNome'].forEach((k) => delete s[k]);
             if (prima !== s.setName) (s.correzioni = s.correzioni || []).push({ il: quando, da: prima, chi: chiOpera() });

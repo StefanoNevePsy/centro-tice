@@ -526,7 +526,7 @@
         // ogni presa dati arriva a criterio per conto suo; l'attività quando ci arrivano tutte
         const critM = ms.map((m) => (valuta && !m.mantenimento ? P.criterioRaggiunto(P.sedute(p, att, senzaTarget ? undefined : t, m.id), att.criterio) : null));
         const nCrit = critM.filter(Boolean).length, nAcq = ms.filter((m) => !m.mantenimento).length;
-        const giocabile = t && t.setId && setArchivio().some((x) => x.id === t.setId);
+        const giocabile = t && t.setId && setGiocabili(t);
         const giaOggi = !att.temporanea && t ? P.sedute(p, att, t).filter((x) => P.giorno(x.date) === b.data) : [];
         const oggiV = giaOggi.reduce((n, x) => n + (x.correct || 0), 0), oggiT = giaOggi.reduce((n, x) => n + (x.total || 0), 0);
         const prev = ms.length ? null : previsione(p, att, v);
@@ -542,7 +542,7 @@
                     <span class="nome"><span class="nome-testo">${att.nome}</span>
                         ${ecoico(att) ? h` <span class="pill">Echo to tact</span>` : tipo === 'timedelay' ? h` <span class="pill">T/D${tdS != null ? ' ' + sec(tdS) : ''}</span>` : ''}
                         ${att.field ? h` <span class="pill field" title="Field: ${att.field} stimoli fra cui scegliere">F${att.field}</span>` : ''}
-                        ${att.temporanea ? h` <span class="pill grigia">solo oggi</span>` : ''}
+                        ${att.temporanea ? h` <span class="pill grigia">${att.daGioco ? 'una tantum · gioco' : 'solo oggi'}</span>` : ''}
                         ${att.stato && att.stato !== 'attivo' ? h` <span class="pill grigia">${att.stato}</span>` : ''}
                         ${mant ? h` <span class="pill arancio" title="${att.mantenimento ? 'Il dato si prende ma non entra nelle statistiche' : 'Il target ha già raggiunto il criterio: si registra come mantenimento finché non si apre il prossimo'}">mantenimento</span>` : ''}
                         ${aCriterio ? h` <span class="pill verde">${icona('flag-checkered')} criterio</span>` : nCrit ? h` <span class="pill verde chiara" title="${ms.filter((m, i) => critM[i]).map((m) => m.nome).join(', ')} a criterio">${icona('flag-checkered')} ${nCrit} di ${nAcq}</span>` : ''}
@@ -566,6 +566,7 @@
                 </div>`}
             </div>` : ''}
             ${aperta ? h`<div class="att-corpo">
+                ${EST.dettaglioGioco ? EST.dettaglioGioco(p, att, v) : ''}
                 ${giocabile ? h`<button class="bt primario largo" style="margin-bottom:10px" data-a="gioca" data-id="${att.id}">${icona('play')} Somministra con l'app · ${etichettaModo(P.modoTarget(att, t))}</button>` : ''}
                 ${t && t.setId && !giocabile ? h`<p class="sotto piccolo">Il set «${t.testo}» non è su questo dispositivo: scaricalo dai materiali o segna qui sotto.</p>` : ''}
                 ${att.cronometro ? cronometro(att, v) : ''}
@@ -1092,7 +1093,7 @@
             const p0 = paz(T.pid), a0 = attivitaDi(p0, id);
             const c0 = a0 && !a0.temporanea && P.targetCorrente(a0);
             const v0 = bozza(p0.id).voci[id];
-            if (c0 && c0.target.setId && !haDati(v0) && schermoGrande() && setArchivio().some((x) => x.id === c0.target.setId)) {
+            if (c0 && c0.target.setId && !haDati(v0) && schermoGrande() && setGiocabili(c0.target)) {
                 lancia(p0, a0, c0.target);
                 return;
             }
@@ -1248,6 +1249,8 @@
                 <datalist id="tice-decisioni"><option value='Passa a 0" T/D'><option value='Passa a 1" T/D'><option value='Passa a 2" T/D'><option value="Probe"><option value="Stop"></datalist>
                 <label class="campo campo-chi"><span>Svolta da <small class="sotto">· solo se diversa da chi ha svolto la seduta</small></span><input name="operatore" maxlength="120" value="${v.operatore || ''}" placeholder="${chiDellaSeduta(p, bozza(p.id)) || 'Nome'}" autocomplete="off"></label>
                 ${sceltePersone(calV.nomi.concat(calV.persone), 'operatore')}
+                ${att.temporanea ? (() => { const mt = att.modalita ? M.trovaModalita(att.modalita, dizionario()) : null; return h`<label class="campo"><span>Titolo</span><input name="titolo" maxlength="120" required value="${att.nome}" autocomplete="off"></label>
+                    <div class="campo"><span>Modalità</span><input type="hidden" name="modalita" value="${att.modalita || ''}"><button type="button" class="campo-in scegli-mod" data-mod-voce><span>${mt ? mt.nome : 'Nessuna, in automatico'}</span>${icona('magnifying-glass')}</button></div>`; })() : ''}
                 <details class="sez apribile"><summary><span class="sez-titolo">Correggi i dati</span> <span class="sotto piccolo">${[targets.length > 1 ? 'target' : '', eco ? '' : 'tipo', 'conteggi', attesaV ? 'prove in attesa' : ''].filter(Boolean).join(', ')}</span></summary>
                     ${targets.length > 1 ? h`<label class="campo"><span>Target registrato</span><select name="targetId">
                         ${targets.map((t) => h`<option value="${t.id}" ${t.id === v.targetId ? grezzo('selected') : ''}>${t.testo} (${P.STATI_TARGET[t.stato]})</option>`)}</select></label>` : ''}
@@ -1268,6 +1271,21 @@
                 <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, {
                 dopo: (el) => {
                     agganciaChi(el);
+                    // attività di un giorno: la modalità si sceglie dallo stesso foglio del programma
+                    const btMod = el.querySelector('[data-mod-voce]');
+                    if (btMod) btMod.addEventListener('click', async () => {
+                        const hid = el.querySelector('[name=modalita]');
+                        const sc = await scegliModalita(hid.value);
+                        if (sc == null) return;
+                        let id = sc;
+                        if (sc.indexOf('+') === 0) {
+                            const [, cat, nuovo] = sc.split('|');
+                            if (!String(nuovo || '').trim()) { avviso('Scrivi il nome nella ricerca e tocca «Aggiungi».', 'errore'); return; }
+                            try { id = await creaModalita(nuovo, cat || 'altro') || ''; } catch (e) { avviso('Modalità non creata: ' + (e.message || e), 'errore'); return; }
+                        }
+                        const m = id ? M.trovaModalita(id, dizionario()) : null;
+                        hid.value = id; btMod.firstChild.textContent = m ? m.nome : 'Nessuna, in automatico';
+                    });
                     // cambiando tipo: l'etichetta dei conteggi e cosa succede alle risposte già segnate
                     const conv = el.querySelector('[data-conversione]'), et = el.querySelector('[data-etichetta-no]');
                     el.querySelectorAll('[name=tipo]').forEach((x) => x.addEventListener('change', () => {
@@ -1277,6 +1295,8 @@
                 }
             });
             if (r === 'togli') {
+                // il risultato di un gioco non si perde per un tocco
+                if (v.gioco && !await conferma(`Togliere «${att.nome}» dalla seduta?`, 'Il risultato del gioco (' + v.v + '/' + (v.v + v.p + v.x) + ') non viene salvato da nessuna parte.', { ok: 'Togli', pericolo: true })) return;
                 const bz = bozza(p.id);
                 bz.temp = bz.temp.filter((x) => x.id !== att.id);
                 delete bz.voci[att.id];
@@ -1284,6 +1304,14 @@
                 return;
             }
             if (!r) return;
+            if (att.temporanea) {
+                const tt = bozza(p.id).temp.find((x) => x.id === att.id);
+                if (tt) {
+                    const nome = String(r.titolo || '').trim();
+                    if (nome) tt.nome = nome;
+                    if (r.modalita) tt.modalita = r.modalita; else delete tt.modalita;
+                }
+            }
             if (r.targetId && r.targetId !== v.targetId) {
                 const tt = att.target.find((x) => x.id === r.targetId);
                 // il target è dell'attività: vale per tutte le sue prese dati
@@ -1293,13 +1321,16 @@
                 });
             }
             if (!eco) v.sessionType = r.tipo === 'timedelay' ? 'timedelay' : 'independent';
-            convertiVoce(v, v.sessionType, attV);
+            // un risultato di gioco ha P e ✗ insieme: si convertono solo se si cambia il tipo di seduta
+            if (!(v.gioco && v.sessionType === tipoV)) convertiVoce(v, v.sessionType, attV);
             const no = ecoico(attV) ? 'x' : nonCorretta(v.sessionType).toLowerCase();
             const nv = Math.max(0, Math.min(999, parseInt(r.v, 10) || 0));
             // si scrivono corrette e totale: le non corrette sono la differenza, del tipo giusto
             const ne = ecoico(attV) ? Math.max(0, Math.min(999, parseInt(r.eco, 10) || 0)) : v.p;
-            const ntot = Math.max(nv + (ecoico(attV) ? ne : 0), Math.min(999, parseInt(r.tot, 10) || 0));
-            const nn = ntot - nv - (ecoico(attV) ? ne : 0);
+            // le risposte dell'altro tipo (P in una seduta indipendente, ✗ in time delay: arrivano da un gioco) non si toccano
+            const altro = ecoico(attV) ? 0 : (no === 'x' ? v.p : v.x);
+            const ntot = Math.max(nv + (ecoico(attV) ? ne : 0) + altro, Math.min(999, parseInt(r.tot, 10) || 0));
+            const nn = ntot - nv - (ecoico(attV) ? ne : 0) - altro;
             if (nv !== v.v || nn !== v[no] || ne !== v.p) {
                 v.p = ne;
                 // la sequenza non corrisponde più ai conteggi: la si ricostruisce in blocco
@@ -1466,6 +1497,8 @@
             .sort((a, b) => String(a.cat || a.category || '').localeCompare(String(b.cat || b.category || ''), 'it') || String(a.name).localeCompare(String(b.name), 'it'));
     }
     const etichettaModo = (m) => (typeof getModeLabel === 'function' ? getModeLabel(m) : m);
+    // Il target è collegato a uno o più set (insieme) e almeno uno è su questo dispositivo?
+    const setGiocabili = (t) => { const ar = setArchivio(); return P.setIdsDi(t).some((id) => ar.some((x) => x.id === id)); };
 
     // Il nome delle sedute segue quello dell'attività e del target
     function rinominaSedute(p, att) {
@@ -1649,11 +1682,14 @@
     const schermoGrande = () => window.matchMedia('(min-width: 768px)').matches;
     function lancia(p, att, t) {
         const modo = P.modoTarget(att, t);
-        const set = setArchivio().find((x) => x.id === t.setId);
-        if (!set || !modo) { avviso('Set o gioco non disponibili su questo dispositivo.', 'errore'); return; }
+        // più set insieme: il gioco gira con gli stimoli di tutti (quelli che mancano su questo dispositivo si dicono)
+        const ids = P.setIdsDi(t), archivio = setArchivio();
+        const presenti = ids.filter((id) => archivio.some((x) => x.id === id));
+        if (!presenti.length || !modo) { avviso('Set o gioco non disponibili su questo dispositivo.', 'errore'); return; }
+        if (presenti.length < ids.length) avviso(`${ids.length - presenti.length === 1 ? 'Un set manca' : (ids.length - presenti.length) + ' set mancano'} su questo dispositivo: gioco con gli altri.`);
         const v = bozza(p.id).voci[att.id];
         const tipo = (v && v.sessionType) || att.sessionType || 'independent';
-        T.lancio = { pid: p.id, attId: att.id, targetId: t.id, setId: t.setId, mode: modo, n: (p.history || []).length, nome: att.nome, testo: t.testo };
+        T.lancio = { pid: p.id, attId: att.id, targetId: t.id, setId: presenti.length > 1 ? 'multi_' + presenti.join('_') : presenti[0], mode: modo, n: (p.history || []).length, nome: att.nome, testo: t.testo };
         salvaLancio();
         chiudi();
         try {
@@ -1665,7 +1701,8 @@
             const secCtrl = document.getElementById('td-seconds-ctrl');
             const td = tdOggi(att, v, t);
             if (secCtrl && td != null) secCtrl.value = td;
-            selectSetFromDropdown(t.setId);
+            if (presenti.length > 1 && typeof loadSetsTogether === 'function') loadSetsTogether(presenti);
+            else selectSetFromDropdown(presenti[0]);
         } catch (e) {
             console.error(e);
             avviso('Non sono riuscito ad aprire il gioco: ' + e.message, 'errore');
