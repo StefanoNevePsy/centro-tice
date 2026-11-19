@@ -519,6 +519,137 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     await p.click('.tice-avviso.con-azione button'); await attesa(800);
     ok(await p.evaluate(() => { const m = document.querySelector('.tice-main'); let fuori = 0; document.querySelectorAll('#tice *').forEach((e) => { if (e.getBoundingClientRect().right > innerWidth + 1) fuori++; }); return m.scrollWidth <= m.clientWidth + 1 && fuori === 0; }), 'gioco diretto, telefono: la scheda con il dettaglio per set sta nello schermo (nessun elemento esce a destra)');
     await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
+
+    // ---- data della seduta: una seduta di un giorno passato, e il cambio di data a posteriori (js/tice-data.js) ----
+    const foto = (nome) => (process.env.TICE_SHOT ? p.screenshot({ path: process.env.TICE_SHOT + '/' + nome + '.png' }) : null);   // schermate per chi sviluppa: TICE_SHOT=cartella
+    const nomeB = 'Prova B.';
+    const giornoFa = (n) => p.evaluate((k) => { const d = new Date(); d.setDate(d.getDate() - k); return TiceProgramma.giorno(d.toISOString()); }, n);
+    const gPass = await giornoFa(12), gPass2 = await giornoFa(20), gOggi = await giornoFa(0);
+    const pulisciBozza = () => p.evaluate((nome) => { const l = state.patients.find((x) => x.name === nome); TiceHome.strumenti.T.bozza = null; localStorage.removeItem('tice_bozza_' + l.id); }, nomeB);
+    const scegliData = async (g, ora) => {
+      await p.evaluate(() => { setTimeout(() => TiceHome.strumenti.azioni.data(), 0); }); await attesa(400);
+      await p.fill('.tice-foglio [name=data]', g); await p.fill('.tice-foglio [name=ora]', ora || '');
+      await p.locator('.tice-foglio .bottoni .bt.primario').last().click(); await attesa(400);
+    };
+    await pulisciBozza();
+    await p.evaluate((nome) => TiceHome.vai('seduta', state.patients.find((x) => x.name === nome).id), nomeB); await attesa(500);
+    await scegliData(gPass);
+    // il giorno scelto non torna a oggi: né dopo il ridisegno, né dopo una ricarica (bozza ancora vuota)
+    ok(await p.evaluate(() => TiceHome.strumenti.bozza(TiceHome.strumenti.T.pid).data) === gPass, 'seduta in un giorno passato: scelta la data, la bozza (ancora vuota) non torna a oggi');
+    await p.evaluate(() => TiceHome.ridisegna()); await attesa(300);
+    ok(await p.evaluate(() => TiceHome.strumenti.bozza(TiceHome.strumenti.T.pid).data) === gPass, 'seduta in un giorno passato: dopo un ridisegno resta quel giorno');
+    ok(await p.evaluate(() => { const T = TiceHome.strumenti.T; const pid = T.pid; T.bozza = null; return TiceHome.strumenti.bozza(pid).data; }) === gPass, 'seduta in un giorno passato: dopo una ricarica (bozza riletta dal dispositivo) resta quel giorno');
+    ok(/Stai registrando una seduta del/.test(await p.locator('.banda').first().innerText()) && await p.locator('.banda [data-a="data"]').count() === 1, 'seduta in un giorno passato: la fascia lo dice, con «Cambia»');
+    await foto('seduta-passata');
+    // si segna: una prova, un episodio del comportamento, un gioco in seduta (come il gioco avviato dalla seduta aperta)
+    await p.evaluate((id) => {
+      const X = TiceHome.strumenti, pz = state.patients.find((x) => x.id === X.T.pid), b = X.bozza(pz.id), c = TiceProgramma.targetCorrente(pz.programma.attivita.find((y) => y.id === id));
+      b.voci[id] = { v: 2, p: 0, x: 1, sequenza: 'VVX', targetId: c ? c.target.id : null, sessionType: 'independent' };
+      const cp = pz.comportamenti[0];
+      b.comp = b.comp || {}; b.comp[cp.id] = { episodi: [{ id: 'ep_prova', t: new Date().toISOString() }], inCorso: null };   // un episodio segnato adesso, per un giorno passato
+      X.salvaBozza(); TiceHome.ridisegna();
+    }, att.id); await attesa(400);
+    ok(await p.evaluate(() => { const b = TiceHome.strumenti.bozza(TiceHome.strumenti.T.pid); return b.data; }) === gPass && await p.evaluate(() => Object.values(TiceHome.strumenti.T.bozza.voci).some((v) => v.v + v.p + v.x > 0)), 'seduta in un giorno passato: le risposte entrano nella bozza di quel giorno');
+    const nStor0 = await p.evaluate((nome) => state.patients.find((x) => x.name === nome).history.length, nomeB);
+    await p.click('[data-a="termina"]'); await attesa(500);
+    await p.fill('.tice-foglio [name=operatore]', 'Prova'); await p.fill('.tice-foglio [name=nota]', 'Nota a posteriori.');
+    await salvaFoglio(); await attesa(500);
+    while (await p.locator('.tice-foglio').count()) { await p.keyboard.press('Escape'); await attesa(200); }
+    const dopoP = await p.evaluate(({ nome, n0 }) => {
+      const l = state.patients.find((x) => x.name === nome), nuove = l.history.slice(n0);
+      const g = (iso) => TiceProgramma.giorno(iso);
+      const nota = (l.diario || []).find((x) => x.testo === 'Nota a posteriori.');
+      return { n: nuove.length, giorni: [...new Set(nuove.map((s) => g(s.date)))], comp: nuove.filter((s) => s.mode === 'comportamento').map((s) => (s.dettaglio || []).map((e) => g(e.t))), nota: nota && { data: nota.data, il: g(nota.il) }, daily: (l.dailyNotes || {}), bozza: localStorage.getItem('tice_bozza_' + l.id), soloOggi: nuove.some((s) => g(s.date) === TiceProgramma.oggi()) };
+    }, { nome: nomeB, n0: nStor0 });
+    ok(dopoP.n >= 2 && dopoP.giorni.length === 1 && dopoP.giorni[0] === gPass && !dopoP.soloOggi, 'seduta in un giorno passato: tutte le voci salvate (attività e comportamenti) sono nel giorno scelto, nessuna in quello di oggi (' + dopoP.giorni.join(',') + ')');
+    ok(dopoP.comp.length >= 1 && dopoP.comp.every((gg) => gg.length > 0 && gg.every((x) => x === gPass)), 'seduta in un giorno passato: anche gli episodi del comportamento sono in quel giorno');
+    ok(dopoP.nota && dopoP.nota.data === gPass && dopoP.nota.il === gPass && /Nota a posteriori/.test(dopoP.daily[gPass] || '') && !/Nota a posteriori/.test(dopoP.daily[gOggi] || ''), 'seduta in un giorno passato: la nota di seduta e il testo del giorno (dailyNotes) sono in quel giorno');
+    ok(dopoP.bozza === null, 'seduta in un giorno passato: salvata la seduta la bozza sparisce e si riparte da oggi');
+    ok(await p.evaluate(() => TiceHome.strumenti.bozza(TiceHome.strumenti.T.pid).data) === gOggi, 'seduta in un giorno passato: la seduta dopo riparte da oggi');
+
+    // gioco avviato direttamente mentre c'è una seduta aperta per un altro giorno: resta nella cartella (con la data di oggi), non va nella seduta di oggi
+    await p.evaluate(() => { try { closePatients(); } catch (e) { /* già chiusa */ } });
+    await pulisciBozza();
+    await p.evaluate((nome) => TiceHome.vai('seduta', state.patients.find((x) => x.name === nome).id), nomeB); await attesa(400);
+    await scegliData(gPass2, '09:30');
+    ok(await p.evaluate(() => TiceHome.strumenti.bozza(TiceHome.strumenti.T.pid).ora) === '09:30', 'seduta in un giorno passato: si può scegliere anche l\'ora');
+    const nStorG = await p.evaluate((nome) => state.patients.find((x) => x.name === nome).history.length, nomeB);
+    await gioca(idB, 'tact', ['gs1'], [true, false, true]); await salvaGioco();
+    const gD = await p.evaluate(({ nome, n0 }) => { const l = state.patients.find((x) => x.name === nome); const b = JSON.parse(localStorage.getItem('tice_bozza_' + l.id) || 'null'); return { nuove: l.history.length - n0, data: b && b.data, temp: b ? b.temp.length : -1, g: TiceProgramma.giorno(l.history[l.history.length - 1].date) }; }, { nome: nomeB, n0: nStorG });
+    ok(gD.nuove === 1 && gD.temp === 0 && gD.data === gPass2 && gD.g === gOggi, 'gioco diretto con una seduta aperta per un altro giorno: resta nella cartella di oggi, la bozza di quel giorno non cambia');
+    ok(/Gioco salvato nella cartella di oggi/.test(await p.locator('.tice-avviso').first().innerText().catch(() => '')), 'gioco diretto con una seduta aperta per un altro giorno: un avviso lo dice');
+    // il gioco lanciato dalla seduta di quel giorno va in quel giorno
+    await p.evaluate(() => { try { TiceHome.apri(); } catch (e) { /* aperta */ } }); await attesa(400);
+    await p.evaluate(({ id, tid, nome }) => {
+      const pz = state.patients.find((x) => x.name === nome), a = pz.programma.attivita.find((y) => y.id === id), t = a.target.find((y) => y.id === tid) || P_t(a);
+      function P_t(x) { return (TiceProgramma.targetCorrente(x) || {}).target; }
+      TiceHome.strumenti.lancia(pz, a, t);
+    }, { id: att.id, tid: tIns.id, nome: nomeB }); await attesa(400);
+    await p.evaluate(() => { state.session.playItems.forEach((it, i) => { state.tactIndex = i; recordResponse(true); }); });
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1500);
+    const gL = await p.evaluate((nome) => { const l = state.patients.find((x) => x.name === nome); const s = l.history[l.history.length - 1]; return { fonte: s.fonte, g: TiceProgramma.giorno(s.date), date: s.date }; }, nomeB);
+    ok(gL.fonte === 'app-gioco' && gL.g === gPass2 && gL.date === gPass2 + 'T09:30:00', 'gioco lanciato dalla seduta di un giorno passato: il risultato va in quel giorno, all\'ora scelta (' + gL.date + ')');
+    await pulisciBozza();
+    await p.evaluate(() => { try { TiceHome.apri(); } catch (e) { /* aperta */ } }); await attesa(300);
+
+    // ---- cambiare la data a posteriori, dalla cartella ----
+    const stato = (nome) => p.evaluate((nm) => { const l = state.patients.find((x) => x.name === nm); const g = (iso) => TiceProgramma.giorno(iso); const per = {}; l.history.forEach((s) => { per[g(s.date)] = (per[g(s.date)] || 0) + 1; }); return { per, n: l.history.length, note: (l.diario || []).map((x) => x.data + ':' + x.testo), daily: Object.keys(l.dailyNotes || {}) }; }, nome);
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(200);
+    await p.evaluate((nome) => TiceHome.vai('cartella', state.patients.find((x) => x.name === nome).id), nomeB); await attesa(600);
+    await p.click('[data-a="cartella-tab"][data-tab="giornate"]'); await attesa(300);
+    const st0 = await stato(nomeB);
+    // una voce: dal dettaglio della seduta
+    const riga = p.locator(`.cr-giorno:has(.cr-giorno-titolo:has-text("${(await p.evaluate((g) => new Date(g + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }), gPass))}")) .cr-sed`).first();
+    await riga.click(); await attesa(400);
+    ok(await p.locator('.tice-foglio [data-foglio="data"]').count() === 1 && /Cambia data e ora/.test(await p.locator('.tice-foglio').innerText()), 'cartella: il dettaglio della seduta ha «Cambia data e ora»');
+    await foto('dettaglio-seduta');
+    await p.locator('.tice-foglio [data-foglio="data"]').click(); await attesa(400);
+    const gNuova = await giornoFa(30);
+    await p.fill('.tice-foglio [name=data]', gNuova); await p.fill('.tice-foglio [name=ora]', '16:45');
+    await foto('cambia-data-voce');
+    await p.locator('.tice-foglio .bottoni .bt.primario').last().click(); await attesa(400);
+    ok(/Spostare questa voce\?/.test(await p.locator('.tice-foglio').innerText()), 'cartella: il cambio data di una voce chiede conferma');
+    await p.locator('.tice-foglio [data-foglio="si"]').click(); await attesa(600);
+    const st1 = await stato(nomeB);
+    ok(st1.n === st0.n && st1.per[gNuova] === 1 && st1.per[gPass] === st0.per[gPass] - 1, 'cartella: la voce passa alla data scelta, le altre della giornata restano');
+    ok(await p.evaluate(({ nome, g }) => { const l = state.patients.find((x) => x.name === nome); const s = l.history.find((x) => TiceProgramma.giorno(x.date) === g); return s.date === g + 'T16:45:00' && s.correzioni.length === 1 && s.correzioni[0].campo === 'data' && !!s.id; }, { nome: nomeB, g: gNuova }), 'cartella: la voce ha la nuova ora e la correzione registrata');
+    // annulla (dall'avviso)
+    await p.locator('.tice-avviso.con-azione button').click(); await attesa(500);
+    const st2 = await stato(nomeB);
+    ok(!st2.per[gNuova] && st2.per[gPass] === st0.per[gPass], 'cartella: «Annulla» nell\'avviso riporta la voce com\'era');
+    // una giornata, data di arrivo vuota
+    const gVuota = await giornoFa(40);
+    const contaPass = st0.per[gPass];
+    await p.locator(`[data-a="cartella-giorno-data"][data-g="${gPass}"]`).click(); await attesa(400);
+    ok(/Cambia data della giornata/.test(await p.locator('.tice-foglio').innerText()), 'cartella: «Cambia data della giornata» dalla giornata');
+    await foto('cambia-data-giornata');
+    await p.fill('.tice-foglio [name=data]', gVuota); await p.locator('.tice-foglio .bottoni .bt.primario').last().click(); await attesa(400);
+    ok(/Spostare la giornata\?/.test(await p.locator('.tice-foglio').innerText()), 'cartella: spostare una giornata chiede conferma');
+    await p.locator('.tice-foglio [data-foglio="si"]').click(); await attesa(600);
+    const st3 = await stato(nomeB);
+    ok(st3.n === st0.n && !st3.per[gPass] && st3.per[gVuota] >= contaPass && st3.note.some((x) => x.startsWith(gVuota + ':Nota a posteriori.')) && st3.daily.includes(gVuota) && !st3.daily.includes(gPass), 'cartella: la giornata si sposta intera (voci, nota di seduta, testo del giorno), nessuna voce persa');
+    // una giornata, data di arrivo con già dei dati: si chiede se unire, e non si perde niente
+    await p.locator(`[data-a="cartella-giorno-data"][data-g="${gVuota}"]`).click(); await attesa(400);
+    await p.fill('.tice-foglio [name=data]', gOggi); await p.locator('.tice-foglio .bottoni .bt.primario').last().click(); await attesa(400);
+    const testoUnisci = await p.locator('.tice-foglio').innerText();
+    ok(/Unire alle voci del/.test(testoUnisci) && /Unisci/.test(testoUnisci), 'cartella: se nella data di arrivo ci sono già dati, chiede se unire');
+    await foto('unisci-giornata');
+    await p.locator('.tice-foglio [data-foglio="chiudi"]').click(); await attesa(400);
+    const st4 = await stato(nomeB);
+    ok(st4.per[gVuota] === st3.per[gVuota] && st4.n === st3.n, 'cartella: rifiutando di unire non cambia niente');
+    await p.locator(`[data-a="cartella-giorno-data"][data-g="${gVuota}"]`).click(); await attesa(400);
+    await p.fill('.tice-foglio [name=data]', gOggi); await p.locator('.tice-foglio .bottoni .bt.primario').last().click(); await attesa(400);
+    await p.locator('.tice-foglio [data-foglio="si"]').click(); await attesa(600);
+    const st5 = await stato(nomeB);
+    ok(st5.n === st0.n && !st5.per[gVuota] && st5.per[gOggi] === (st4.per[gOggi] || 0) + st4.per[gVuota] && st5.note.some((x) => x.startsWith(gOggi + ':Nota a posteriori.')), 'cartella: unite le due giornate, tutte le voci (e le note) stanno nella data di arrivo');
+    // telefono: il tasto sta nella testata del giorno e i fogli entrano nello schermo
+    await p.setViewportSize({ width: 390, height: 844 }); await attesa(400);
+    ok(await p.evaluate(() => { const m = document.querySelector('.cartella-main'); const b = document.querySelector('.cr-giorno-data'); return !!b && b.getBoundingClientRect().right <= innerWidth && m.scrollWidth <= m.clientWidth + 1; }), 'cartella, telefono: il tasto «Cambia data della giornata» entra nello schermo');
+    await p.locator('.cr-giorno-data').first().click(); await attesa(400);
+    ok(await p.evaluate(() => { const f = document.querySelector('.tice-foglio'); let fuori = 0; f.querySelectorAll('*').forEach((e) => { if (e.getBoundingClientRect().right > innerWidth + 1) fuori++; }); return fuori === 0; }), 'cartella, telefono: il foglio per cambiare data non esce dallo schermo');
+    await foto('cambia-data-telefono');
+    await p.keyboard.press('Escape'); await attesa(300);
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
     ok(errori.length === 0, 'nessun errore di pagina' + (errori.length ? ': ' + errori.join(' | ') : ''));
   } catch (e) { falliti++; console.log('  ✗ interrotta: ' + (e.message || e).split('\n')[0] + (errori.length ? ' · errori di pagina: ' + errori.join(' | ') : '')); }
   await b.close(); server.close();

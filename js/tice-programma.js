@@ -334,7 +334,7 @@
     // prossimoId: undefined = il prossimo in programma, null = nessuno
     var prossimo = prossimoId === undefined ? prossimoTarget(att)
       : prossimoId ? att.target.filter(function (x) { return x.id === prossimoId; })[0] : null;
-    if (prossimo) { prossimo.stato = 'attivo'; prossimo.inizio = prossimo.inizio || oggi(); prossimo.modificato = ora; }
+    if (prossimo) { prossimo.stato = 'attivo'; prossimo.inizio = prossimo.inizio || data || oggi(); prossimo.modificato = ora; }
     att.modificato = ora;
     return prossimo || null;
   }

@@ -88,7 +88,8 @@
     if (!testo) return null;
     allinea(p);
     p.diario = p.diario || [];
-    var il = d.il || new Date().toISOString();
+    // una nota di un giorno passato non porta l'ora di adesso: mezzogiorno di quel giorno
+    var il = d.il || (d.data && d.data !== giorno(new Date()) ? d.data + 'T12:00:00' : new Date().toISOString());
     var n = { id: nuovoId(), data: d.data || giorno(il), il: il, testo: testo.slice(0, 5000) };
     if (d.tag) n.tag = String(d.tag);
     if (d.autore) n.autore = String(d.autore).slice(0, 120);
@@ -114,6 +115,21 @@
     if (n.data !== prima) scriviCopia(p, n.data);
     return n;
   }
+  /** Sposta una nota a un altro giorno (e orario), a posteriori: stesso id, testo del giorno riscritto in entrambi i giorni. */
+  function sposta(p, id, data, il, adesso) {
+    var n = (p.diario || []).filter(function (x) { return x.id === id; })[0];
+    if (!n) return null;
+    var prima = n.data;
+    visto(p, prima, n.testo);
+    n.data = data;
+    if (il) n.il = il;
+    n.modificato = adesso || new Date().toISOString();
+    scriviCopia(p, prima);
+    scriviCopia(p, data);
+    return n;
+  }
+  /** Riscrive il testo del giorno (copia in dailyNotes) per questi giorni, dalle note. */
+  function riscrivi(p, giorni) { (giorni || []).forEach(function (d) { scriviCopia(p, d); }); }
   function togli(p, id) {
     var n = (p.diario || []).filter(function (x) { return x.id === id; })[0];
     if (!n) return false;
@@ -143,5 +159,5 @@
   }
 
   return { ETICHETTE_BASE: ETICHETTE_BASE, PALETTE: PALETTE, hash: hash, giorno: giorno, allinea: allinea, aggiungi: aggiungi, modifica: modifica,
-    togli: togli, elenco: elenco, fissate: fissate, diOggi: diOggi, etichette: etichette, copia: copia };
+    togli: togli, sposta: sposta, riscrivi: riscrivi, elenco: elenco, fissate: fissate, diOggi: diOggi, etichette: etichette, copia: copia };
 });

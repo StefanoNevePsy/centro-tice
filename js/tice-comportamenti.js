@@ -95,6 +95,14 @@
   }
   var haRaccolta = function (r) { return !!(r && (r.episodi.length || r.inCorso)); };
 
+  // lo stesso orario, sul giorno della seduta (una seduta registrata a posteriori non ha episodi «di oggi»)
+  function suGiornoDi(t, quando) {
+    var d = new Date(t), q = new Date(quando);
+    if (isNaN(d) || isNaN(q)) return t;
+    var g = function (x) { return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); };
+    if (g(d) === g(q)) return t;
+    return g(q) + 'T' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2);
+  }
   /** Le voci dello storico per una seduta salvata. */
   function sedute(p, bozza, quando, minuti, operatore) {
     var out = [];
@@ -108,7 +116,7 @@
         setId: 'comp_' + c.id, setName: c.nome, setCat: 'Comportamenti', misura: c.misura,
         episodi: ep.length, durataSecondi: ep.reduce(function (n, e) { return n + (e.s || 0); }, 0),
         minutiOsservati: minuti, dettaglio: ep.map(function (e) {
-          var d = { t: e.t };
+          var d = { t: suGiornoDi(e.t, quando) };
           ['s', 'i', 'a', 'c', 'nota'].forEach(function (k) { if (e[k] != null && e[k] !== '') d[k] = e[k]; });
           return d;
         }),

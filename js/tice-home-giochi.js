@@ -61,7 +61,9 @@
         DB._ticeGioco = true;
         DB.savePatient = async function (p) {
             let spostate = [];
+            let restaFuori = null;
             try {
+                if (p && !T.salvandoQui && Array.isArray(p.history) && eDelCentro(p) && !bozzaDiOggi(p) && p.history.some((s) => G.eSedutaGioco(s))) restaFuori = bozza(p.id).data;
                 if (p && !T.salvandoQui && Array.isArray(p.history) && eDelCentro(p) && bozzaDiOggi(p)) {
                     spostate = p.history.filter((s) => G.eSedutaGioco(s));
                     // sul posto: il gioco tiene il riferimento all'elenco (e lo usa se il salvataggio fallisce)
@@ -71,6 +73,8 @@
             let r;
             try { r = await originale(p); }
             catch (e) { spostate.forEach((s) => p.history.push(s)); throw e; }
+            // c'è una seduta aperta per un altro giorno: il gioco resta nella cartella, con la data di oggi
+            if (restaFuori) X.avviso('Gioco salvato nella cartella di oggi: la seduta aperta di ' + p.name + ' è del ' + X.formatoData(restaFuori) + '. Per cambiargli data, apri la cartella.');
             if (spostate.length) {
                 try { registra(p, spostate); }
                 catch (e) {

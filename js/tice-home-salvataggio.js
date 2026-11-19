@@ -95,7 +95,8 @@
         avviso(`«${t.nome}» → ${att.nome}`);
     }
     async function salvaSeduta(p, b, dati) {
-        const quando = b.data === oggi() ? new Date().toISOString() : b.data + 'T12:00:00';
+        // oggi: l'ora reale; un giorno passato (seduta registrata a posteriori): l'ora scelta, altrimenti mezzogiorno di quel giorno
+        const quando = window.TiceData ? TiceData.quando(b.data, b.ora) : (b.data === oggi() ? new Date().toISOString() : b.data + 'T12:00:00');
         const operatore = String(dati.operatore || '').trim();
         const nuove = [];
         const controlla = [];
@@ -155,7 +156,7 @@
                         const sb = marca(P.seduta(att, t, vb, quando));
                         const note = [];
                         if (i === 0 && prec && prec.seq) {
-                            note.push(`LU iniziata il ${formatoData(prec.dal)} (${prec.seq.length} prove) e completata oggi`);
+                            note.push(`LU iniziata il ${formatoData(prec.dal)} (${prec.seq.length} prove) e completata ${b.data === oggi() ? 'oggi' : 'il ' + formatoData(b.data)}`);
                             (prec.note || []).forEach((x) => note.push(x));
                         }
                         if (ultimo && testoOggi) note.push(testoOggi);
@@ -202,7 +203,7 @@
         if (nota) {
             if (window.TiceNote) {
                 const me = (window.TiceSync && TiceSync.attivo() && TiceSync.S.io) || {};
-                window.TiceNote.aggiungi(p, { testo: nota, data: b.data, tag: 'seduta', autore: operatore || me.nome || '', email: me.email || '', operatoriEmail: operatore && window.TiceSync && TiceSync.emailOperatori ? TiceSync.emailOperatori(operatore) : [] });
+                window.TiceNote.aggiungi(p, { testo: nota, data: b.data, il: quando, tag: 'seduta', autore: operatore || me.nome || '', email: me.email || '', operatoriEmail: operatore && window.TiceSync && TiceSync.emailOperatori ? TiceSync.emailOperatori(operatore) : [] });
             } else {
                 p.dailyNotes = p.dailyNotes || {};
                 p.dailyNotes[b.data] = p.dailyNotes[b.data] ? p.dailyNotes[b.data] + '\n\n' + nota : nota;
@@ -281,7 +282,8 @@
                 const comp = eGruppo(p) ? [] : C.attivi(p).filter((c) => !((b.comp || {})[c.id] || {}).nonOsservato);
                 const conComp = comp.length && (episodiBozza(b) || r0.n || await conferma('Salvare solo i comportamenti?', `Nessuna risposta registrata: si salvano ${comp.map((c) => c.nome).join(', ')} con zero episodi.`, { ok: 'Salva' }));
                 if (!r0.n && !conComp) { if (!comp.length) avviso('Nessuna risposta registrata.', 'errore'); return; }
-                const minutiDa = Math.max(5, Math.min(600, Math.round((Date.now() - Date.parse(b.inizio || new Date().toISOString())) / 60000)));
+                // per una seduta di un giorno passato non si sa quanto sia durata: un'ora, da correggere
+                const minutiDa = b.data !== oggi() ? 60 : Math.max(5, Math.min(600, Math.round((Date.now() - Date.parse(b.inizio || new Date().toISOString())) / 60000)));
                 const righe = Object.keys(b.voci).filter((k) => haDati(b.voci[k])).map((k) => {
                     const v = b.voci[k], a = attivitaDi(p, k), tot = v.v + v.p + v.x, pct = Math.round(100 * v.v / tot);
                     const tt = a && v.targetId ? (a.target || []).find((x) => x.id === v.targetId) : null;

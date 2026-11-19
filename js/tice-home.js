@@ -102,15 +102,19 @@
         if (!T.bozza || T.bozza.pid !== pid) {
             T.bozza = leggiBozza(pid) || { pid, data: oggi(), inizio: new Date().toISOString(), voci: {}, extra: [], temp: [] };
         }
-        // una bozza ancora vuota di un altro giorno (app rimasta aperta) diventa di oggi
+        // una bozza ancora vuota di un altro giorno (app rimasta aperta) diventa di oggi, a meno che
+        // il giorno non sia stato scelto a mano («scelta»): chi registra a posteriori non va rimesso a oggi
         const b = T.bozza;
-        if (b.data !== oggi() && !Object.values(b.voci).some(haDati) && !b.extra.length && !b.temp.length) { b.data = oggi(); b.inizio = new Date().toISOString(); }
+        if (b.data !== oggi() && !b.scelta && !bozzaConDati(b)) { b.data = oggi(); b.inizio = new Date().toISOString(); }
         return T.bozza;
     }
+    // la bozza ha qualcosa dentro (risposte, attività aggiunte, episodi)?
+    const bozzaConDati = (b) => !!b && (Object.values(b.voci || {}).some(haDati) || (b.extra || []).length > 0 || (b.temp || []).length > 0 || episodiBozza(b) > 0);
     function salvaBozza() {
         if (!T.bozza) return;
         const b = T.bozza;
-        const vuota = !Object.values(b.voci).some(haDati) && !b.extra.length && !b.temp.length && !episodiBozza(b);
+        // vuota ma con un giorno scelto a mano (non oggi): si tiene, il giorno scelto non deve andare perso
+        const vuota = !bozzaConDati(b) && !(b.scelta && b.data !== oggi());
         try {
             if (vuota) localStorage.removeItem(chiaveBozza(b.pid));
             else localStorage.setItem(chiaveBozza(b.pid), JSON.stringify(b));
@@ -415,7 +419,7 @@
             <main class="tice-main">
                 ${testata('Centro TICE · ' + pazientiAula().length + (pazientiAula().length === 1 ? ' bambino' : ' bambini'), 'Tutti i bambini')}
                 ${EST.banner ? EST.banner() : ''}
-                ${(() => { const vecchie = elenco.filter((x) => x.b && x.b.data < oggi()); return vecchie.length ? h`<div class="banda">${icona('hourglass-half')}<div><b>${vecchie.length === 1 ? 'Una seduta non salvata' : vecchie.length + ' sedute non salvate'} di giorni passati</b>: ${vecchie.map((x) => `${x.p.name} (${formatoData(x.b.data)})`).join(', ')}. Restano solo su questo dispositivo finché non le salvi o le scarti (⋮ nella seduta).</div></div>` : ''; })()}
+                ${(() => { const vecchie = elenco.filter((x) => x.b && x.b.data < oggi() && bozzaConDati(x.b)); return vecchie.length ? h`<div class="banda">${icona('hourglass-half')}<div><b>${vecchie.length === 1 ? 'Una seduta non salvata' : vecchie.length + ' sedute non salvate'} di giorni passati</b>: ${vecchie.map((x) => `${x.p.name} (${formatoData(x.b.data)})`).join(', ')}. Restano solo su questo dispositivo finché non le salvi o le scarti (⋮ nella seduta).</div></div>` : ''; })()}
                 ${pazienti().length > 6 ? h`<input class="cerca" type="search" placeholder="Cerca un bambino" value="${T.cerca}" data-cambio="cerca" aria-label="Cerca">` : ''}
                 ${righe.length ? h`<div class="scheda">${righe}</div>`
                     : h`<div class="vuoto">${q ? 'Nessun bambino con questo nome.' : 'Ancora nessun bambino.'}</div>`}
@@ -727,7 +731,7 @@
                     <button class="ib" data-a="menu-bambino" aria-label="Altro">${icona('ellipsis-vertical')}</button>` })}
             <main class="tice-main">
                 ${testata((eGruppo(p) ? 'Gruppo · ' : 'Seduta · ') + (nonOggi ? 'del ' : 'oggi, ') + new Date(b.data + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) + (chiDellaSeduta(p, b) ? ' · ' + chiDellaSeduta(p, b) : ''), p.name, { azione: 'data' })}
-                ${nonOggi ? h`<div class="banda">${icona('calendar-day')}<div>Stai registrando una seduta del <b>${formatoData(b.data, true)}</b>, non di oggi.</div></div>` : ''}
+                ${nonOggi ? h`<div class="banda">${icona('calendar-day')}<div>Stai registrando una seduta del <b>${formatoData(b.data, true)}${b.ora ? ' alle ' + b.ora : ''}</b>, non di oggi: tutto quello che segni va in quel giorno. <button type="button" class="link" data-a="data">Cambia</button></div></div>` : ''}
                 ${eGruppo(p) ? h`<div class="presenti"><span class="sotto piccolo">Presenti oggi</span>${membriDi(p).map((x) => h`<button class="pill-presenza ${presente(b, x.id) ? 'si' : ''}" data-a="presente" data-pid="${x.id}" aria-pressed="${presente(b, x.id) ? 'true' : 'false'}">${presente(b, x.id) ? icona('check') : icona('xmark')} ${x.name}</button>`)}</div>` : ''}
                 ${EST.noteSeduta ? EST.noteSeduta(p) : ''}
                 ${EST.striscia ? EST.striscia(p) : ''}
@@ -1351,12 +1355,20 @@
         data: async () => {
             const p = paz(T.pid);
             const b = bozza(p.id);
+            const D = window.TiceData;
             const r = await foglio(h`<form><h2>Data della seduta</h2>
-                <p class="sotto">Per registrare dal foglio una seduta di un altro giorno.</p>
+                <p class="sotto">Per registrare dal foglio una seduta di un altro giorno: tutto quello che segni (attività, comportamenti, note, giochi) va in quel giorno, non in quello di oggi.</p>
                 <label class="campo"><span>Data</span><input type="date" name="data" required value="${b.data}" max="${oggi()}"></label>
-                <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Conferma</button></div></form>`);
-            if (!r || !r.data) return;
+                <label class="campo"><span>Ora <small class="sotto">· facoltativa; senza, ${b.data === oggi() ? "l'ora di quando salvi" : 'mezzogiorno'}</small></span><input type="time" name="ora" value="${b.ora || ''}"></label>
+                <div class="bottoni">${b.data !== oggi() ? h`<button type="button" class="bt" data-foglio="oggi">Torna a oggi</button>` : ''}<button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Conferma</button></div></form>`);
+            if (!r) return;
+            if (r === 'oggi') { b.data = oggi(); delete b.scelta; delete b.ora; if (!bozzaConDati(b)) b.inizio = new Date().toISOString(); salvaBozza(); disegna(); return; }
+            if (!r.data) return;
+            if (r.data > oggi()) { avviso('La data non può essere nel futuro', 'errore'); return; }
             b.data = r.data;
+            if (r.data !== oggi()) b.scelta = true; else delete b.scelta;
+            const ora = D ? D.oraValida(r.ora) : '';
+            if (ora) b.ora = ora.slice(0, 5); else delete b.ora;
             salvaBozza();
             disegna();
         },
@@ -1365,7 +1377,10 @@
             const p = paz(T.pid);
             const n = provaNonSalvate(p), b = bozza(p.id);
             const att = Object.keys(b.voci).filter((k) => haDati(b.voci[k])).length;
-            if (!n && !b.temp.length && !b.extra.length) { avviso('Non c\'è niente da scartare'); return; }
+            if (!n && !b.temp.length && !b.extra.length) {
+                if (b.scelta) { b.data = oggi(); delete b.scelta; delete b.ora; b.inizio = new Date().toISOString(); salvaBozza(); disegna(); avviso('Si torna alla seduta di oggi'); return; }
+                avviso('Non c\'è niente da scartare'); return;
+            }
             if (!await conferma('Scartare la seduta non salvata?', `${n ? `Si cancellano ${n} ${n === 1 ? 'risposta' : 'risposte'} in ${att} ${att === 1 ? 'attività' : 'attività'}` : 'Si tolgono le attività aggiunte per oggi'}${b.data !== oggi() ? ' (seduta del ' + formatoData(b.data) + ')' : ''}. Le sedute già salvate e il programma restano come sono. Non si può annullare.`, { ok: 'Scarta la seduta', pericolo: true })) return;
             eliminaBozza(p.id);
             T.aperte = {};
@@ -1761,7 +1776,13 @@
             let nuove = [];
             if (L && p && p.id === L.pid && !T.salvandoQui) {
                 nuove = (p.history || []).slice(L.n).filter((s) => !s.attivitaId && (s.setId === L.setId || s.mode === L.mode));
-                nuove.forEach((s) => { s.attivitaId = L.attId; s.targetId = L.targetId; s.fonte = 'app-gioco'; });
+                // la seduta aperta è di un altro giorno (registrazione a posteriori): anche il gioco va in quel giorno
+                const bz = T.bozza && T.bozza.pid === L.pid ? T.bozza : leggiBozza(L.pid);
+                const giornoSeduta = bz && bz.data && bz.data !== oggi() ? bz : null;
+                nuove.forEach((s) => {
+                    s.attivitaId = L.attId; s.targetId = L.targetId; s.fonte = 'app-gioco';
+                    if (giornoSeduta && window.TiceData) s.date = TiceData.quando(giornoSeduta.data, giornoSeduta.ora);
+                });
             }
             const r = await originale(p);
             if (nuove.length) {

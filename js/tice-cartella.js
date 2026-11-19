@@ -7,7 +7,8 @@
  *   Attività       una scheda per attività del programma, con l'andamento; toccandola le sue sedute
  *   Comportamenti  il grafico di ciascun comportamento problema (non sono sedute)
  *
- * Solo lettura: i dati restano quelli di sempre (patient.history, programma, diario).
+ * Sola lettura, tranne le correzioni di data a posteriori (js/tice-data.js): la data e l'ora di una seduta
+ * (dettaglio della seduta) e la data di un'intera giornata (tasto del calendario nella testata del giorno).
  */
 (function () {
     'use strict';
@@ -193,7 +194,8 @@
         }).join('');
         await X.stampa(`<div class="st-foglio"><div class="st-bambino">${esc(p.name)}</div><p>Giornate · ${esc(per[1])}${s.chi ? ' · ' + esc(s.chi) : ''} · ${plurale(giorni.length, 'giorno', 'giorni')}</p>${blocchi}</div>`);
     }
-    function foglioSeduta(p, s) {
+    async function foglioSeduta(p, s) {
+        const puoCorreggere = !(X.limitato && X.limitato()) && window.TiceData;
         const att = attDi(p, s), t = att && s.targetId ? (att.target || []).find((x) => x.id === s.targetId) : null;
         const tot = s.total || 0, v = s.rawV != null ? s.rawV : (s.correct || 0), pr = s.rawP != null ? s.rawP : (s.prompts || 0), x = s.rawX != null ? s.rawX : Math.max(0, tot - v - pr);
         const pc = pctDi(s), td = s.sessionType === 'timedelay', mio = nomi(s), nota = pulita(s.note);
@@ -201,7 +203,7 @@
         const durT = dur != null && !isNaN(+dur) ? (+dur >= 60 ? Math.floor(+dur / 60) + ' min ' + (Math.round(+dur) % 60) + ' s' : Math.round(+dur) + ' s') : '';
         const riga = (et, val) => (val ? h`<tr><th scope="row" style="text-align:left;font-weight:600;color:var(--text-secondary);padding-right:12px;vertical-align:top;white-space:nowrap">${et}</th><td style="overflow-wrap:anywhere">${val}</td></tr>` : '');
         const corr = Array.isArray(s.correzioni) ? s.correzioni : [];
-        return X.foglio(h`<div class="cr-dettaglio"><h2>${s.setName || 'Seduta'}</h2>
+        const r = await X.foglio(h`<div class="cr-dettaglio"><h2>${s.setName || 'Seduta'}</h2>
             <table class="tabella cr-det-tab"><tbody>
                 ${riga('Data e ora', dataOra(s.date))}
                 ${riga('Svolta da', mio.length ? mio.join(' + ') : 'non indicato')}
@@ -217,8 +219,61 @@
             ${X.dettaglioRisultatoGioco && ((s.setBreakdown && s.setBreakdown.length) || (s.itemDetails && s.itemDetails.length)) ? h`<p class="sotto piccolo" style="margin:10px 0 4px">${s.setBreakdown && s.setBreakdown.length ? 'Dettaglio per set e per stimolo' : 'Stimoli'}</p>${X.dettaglioRisultatoGioco(s, { aperto: !!(s.setBreakdown && s.setBreakdown.length && s.setBreakdown.length <= 3) })}` : ''}
             ${s.sequenza ? h`<p class="sotto piccolo" style="margin:10px 0 4px">Sequenza delle risposte</p><div class="sequenza" role="img" aria-label="Sequenza: ${s.sequenza}">${String(s.sequenza).split('').map((r) => h`<i class="${r}"></i>`)}</div>` : ''}
             ${nota ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Nota</p><p class="cr-nota" style="font-size:0.95rem;color:var(--text-primary)">${nota}</p>` : ''}
-            ${corr.length ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Correzioni</p><ul class="cr-correzioni">${corr.map((c) => h`<li>${dataOra(c.il) || '—'}${c.chi ? ' · ' + c.chi : ''}: prima era «${c.da}»</li>`)}</ul>` : ''}
-            <div class="bottoni"><button type="button" class="bt primario" data-foglio="chiudi">Chiudi</button></div></div>`);
+            ${corr.length ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Correzioni</p><ul class="cr-correzioni">${corr.map((c) => h`<li>${dataOra(c.il) || '—'}${c.chi ? ' · ' + c.chi : ''}: ${c.campo === 'data' ? 'prima era del ' + (dataOra(c.da) || '—') : 'prima era «' + c.da + '»'}</li>`)}</ul>` : ''}
+            <div class="bottoni">${puoCorreggere ? h`<button type="button" class="bt" data-foglio="data">${icona('calendar-day')} Cambia data e ora</button>` : ''}<button type="button" class="bt primario" data-foglio="chiudi">Chiudi</button></div></div>`);
+        if (r === 'data') return cambiaDataVoce(p, s);
+    }
+
+    // ---------- cambiare la data a posteriori: una voce, o tutta la giornata ----------
+    const dataBreve = (g) => formatoData(g, true);
+    async function salvaESegnala(p, testo, res) {
+        await X.salvaPaziente(p);
+        T.mantieniScroll = true;
+        const annulla = async () => { try { res.annulla(); await X.salvaPaziente(p); X.avviso('Spostamento annullato'); } catch (e) { X.avviso(String(e.message || e), 'errore'); } ridisegna(); };
+        if (X.avvisoConAzione) X.avvisoConAzione(testo, 'Annulla', annulla); else X.avviso(testo);
+        ridisegna();
+    }
+    async function cambiaDataVoce(p, s) {
+        const D = window.TiceData;
+        if (!D || (X.limitato && X.limitato())) return;
+        const g0 = giornoDi(s), ora0 = D.oraCampo(s.date);
+        const r = await X.foglio(h`<form class="cr-sposta"><h2>Cambia data e ora</h2>
+            <p class="sotto">«${s.setName || 'Seduta'}»${s.total > 0 ? ' · ' + (s.correct || 0) + '/' + s.total : ''}: ora è del <b>${dataOra(s.date)}</b>. Cambia la data se è stata registrata nel giorno sbagliato.</p>
+            <label class="campo"><span>Data</span><input type="date" name="data" required value="${g0}" max="${oggiG()}"></label>
+            <label class="campo"><span>Ora</span><input type="time" name="ora" required value="${ora0}"></label>
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">${icona('calendar-day')} Avanti</button></div></form>`);
+        if (!r || !r.data) return;
+        if (r.data > oggiG()) { X.avviso('La data non può essere nel futuro', 'errore'); return; }
+        const nuova = D.suGiorno(s.date, r.data, r.ora);
+        if (nuova === s.date) { X.avviso('La data e l\'ora sono già queste'); return; }
+        const dest = D.contenuto(p, r.data);
+        if (!await X.conferma('Spostare questa voce?', `«${s.setName || 'Seduta'}» passa dal ${dataBreve(g0)} al ${dataBreve(r.data)}${r.ora ? ' alle ' + r.ora : ''}.${dest.totale && r.data !== g0 ? ` In quel giorno ci sono già ${dest.totale} ${dest.totale === 1 ? 'voce' : 'voci'}: restano dove sono e questa si aggiunge.` : ''} I conteggi non cambiano; la correzione resta scritta nella scheda.`, { ok: 'Sposta' })) return;
+        const res = D.spostaVoce(p, s, r.data, { ora: r.ora, chi: X.chiOpera() });
+        if (!res) return;
+        await salvaESegnala(p, `Voce spostata al ${formatoData(r.data)}`, res);
+    }
+    async function cambiaDataGiornata(p, g) {
+        const D = window.TiceData;
+        if (!D || (X.limitato && X.limitato())) return;
+        const c = D.contenuto(p, g);
+        if (!c.totale) return;
+        const parti = [c.attivita ? plurale(c.attivita, 'attività', 'attività') : '', c.comportamenti ? plurale(c.comportamenti, 'comportamento', 'comportamenti') : '', c.note ? plurale(c.note, 'nota', 'note') : '', c.tabelle ? plurale(c.tabelle, 'tabella importata', 'tabelle importate') : ''].filter(Boolean).join(', ');
+        const r = await X.foglio(h`<form class="cr-sposta"><h2>Cambia data della giornata</h2>
+            <p class="sotto">Il <b>${dataBreve(g)}</b> ci sono ${parti}. Si spostano tutte insieme, con chi le ha svolte.</p>
+            <label class="campo"><span>Nuova data</span><input type="date" name="data" required value="${g}" max="${oggiG()}"></label>
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">${icona('calendar-day')} Avanti</button></div></form>`);
+        if (!r || !r.data || r.data === g) return;
+        if (r.data > oggiG()) { X.avviso('La data non può essere nel futuro', 'errore'); return; }
+        const arrivo = D.contenuto(p, r.data);
+        let unisci = false;
+        if (arrivo.totale) {
+            const ha = [arrivo.attivita ? plurale(arrivo.attivita, 'attività', 'attività') : '', arrivo.comportamenti ? plurale(arrivo.comportamenti, 'comportamento', 'comportamenti') : '', arrivo.note ? plurale(arrivo.note, 'nota', 'note') : ''].filter(Boolean).join(', ');
+            if (!await X.conferma(`Unire alle voci del ${dataBreve(r.data)}?`, `Quel giorno ci sono già ${ha || plurale(arrivo.totale, 'voce', 'voci')}. Le voci del ${dataBreve(g)} si aggiungono a quelle, senza togliere niente: la giornata diventa una sola.`, { ok: 'Unisci' })) return;
+            unisci = true;
+        } else if (!await X.conferma('Spostare la giornata?', `Tutto quello del ${dataBreve(g)} (${parti}) passa al ${dataBreve(r.data)}. I conteggi non cambiano.`, { ok: 'Sposta' })) return;
+        const res = D.spostaGiornata(p, g, r.data, { unisci, chi: X.chiOpera() });
+        if (!res || res.occupata) return;
+        await salvaESegnala(p, `Giornata spostata al ${formatoData(r.data)}${unisci ? ' (unita)' : ''}`, res);
     }
     function vistaGiornate(p, sed, s) {
         const tuttiNomi = {};
@@ -230,6 +285,7 @@
         const filtrato = !!s.chi;
         const chip = (az, dati, on, testo) => h`<button type="button" class="cr-chip ${on ? 'on' : ''}" data-a="${az}" ${grezzo(dati)} aria-pressed="${on ? 'true' : 'false'}">${testo}</button>`;
         const note = (g) => (N ? N.elenco(p).filter((n) => n.data === g) : []);
+        const puoCorreggere = !(X.limitato && X.limitato()) && !!window.TiceData;
 
         return h`${persone.length > 1 || sed.length ? h`<div class="cr-filtri">
                 ${persone.length > 0 ? h`<div class="cr-filtro"><span class="cr-et">Chi</span><div class="cr-chips" data-scorri role="group" aria-label="Filtra per persona">
@@ -250,6 +306,7 @@
                         <header class="cr-giorno-testa">
                             <div class="cr-giorno-titolo"><b>${dataLunga(gi.g)}</b><span class="sotto piccolo">${quando(gi.g)}</span></div>
                             ${t.tot ? h`<div class="cr-giorno-tot"><b>${pct}%</b><span class="sotto piccolo">${plurale(t.tot, 'prova', 'prove')}</span></div>` : ''}
+                            ${puoCorreggere ? h`<button type="button" class="ib cr-giorno-data" data-a="cartella-giorno-data" data-g="${gi.g}" aria-label="Cambia data della giornata del ${formatoData(gi.g)}" title="Cambia data della giornata">${icona('calendar-day')}</button>` : ''}
                         </header>
                         <div class="cr-svolta ${dn.length ? '' : 'manca'}">${icona(dn.length > 1 ? 'user-group' : 'user')}<span>${dn.length ? h`Svolta da <b>${dn.join(' + ')}</b>` : 'Svolta da: non indicato'}</span></div>
                         <div class="cr-sedute">${gi.sedute.map((x) => rigaSeduta(p, x, { nomiGiorno: dn }))}</div>
@@ -447,6 +504,7 @@
             'cartella-riep': () => { const s = stato(T.pid); s.riep = s.riep === false; ridisegna(); },
             'cartella-chi-riep': (b) => { const s = stato(T.pid), n = b.dataset.chi || ''; s.chi = s.chi && chiave(s.chi) === chiave(n) ? '' : n; s.giorni = BLOCCO; ridisegna(); },
             'cartella-stampa': () => stampaGiornate(paz(T.pid)),
+            'cartella-giorno-data': (b) => { const p = paz(T.pid); if (p && b.dataset.g) return cambiaDataGiornata(p, b.dataset.g); },
             'cartella-seduta': (b) => { const p = paz(T.pid), s = p && (p.history || [])[+b.dataset.i]; if (s) return foglioSeduta(p, s); },
             'cartella-tab': (b) => { stato(T.pid).tab = b.dataset.tab; ridisegna(); },
             'cartella-chi': (b) => { const s = stato(T.pid); s.chi = b.dataset.chi || ''; s.giorni = BLOCCO; ridisegna(); },

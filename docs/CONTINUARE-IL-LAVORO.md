@@ -63,6 +63,7 @@ CSS in `index.html`: `styles.css` (app personale), `tice.css`, font Taccuino, `t
 | `js/tice-home-*.js` | Pezzi spostati fuori dal nucleo: comportamenti (striscia, foglio, sezione), correzione dati a posteriori, grafici, tastiera di seduta, modalità, import, riordino modalità, modulo attività e target, programma, salvataggio e fine seduta. |
 | `js/tice-programma.js` | Programma, attività, target, criterio, `seduta(...)` (crea la voce di `history`), task analysis, time delay. Puro. |
 | `js/tice-gioco.js` / `js/tice-home-giochi.js` | Giochi con **più set insieme** (`setIds` nel target, `unisciSet`, `dettaglio` per set e per stimolo) e **gioco avviato direttamente** (la seduta salvata dal gioco entra nella bozza di oggi come attività una tantum, `aggiungiInBozza`/`applicaGioco`). Il primo è puro; il secondo ha il gancio su `DB.savePatient`, l'avviso con «Apri» e la scheda del risultato in seduta. Vedi la sezione «Giochi» più sotto. |
+| `js/tice-data.js` | La data delle voci: `quando(giorno, ora)` (il momento da scrivere in una seduta salvata: ora reale solo se il giorno è oggi, altrimenti l'ora scelta o le 12:00), `spostaVoce`, `spostaGiornata` (voci, episodi dei comportamenti, note, `dailyNotes`, tabelle importate; con `annulla()`), `contenuto`. Puro, provato in `tools/test-tice-data.js`. Le voci senza `id` lo ricevono prima dello spostamento (`TiceUnisci.assegnaId`), altrimenti sull'altro dispositivo restano in doppio. |
 | `js/tice-modalita.js` | Dizionario modalità/categorie/sinonimi (di serie + del centro). Puro. |
 | `js/tice-comportamenti.js`, `js/tice-note.js` | Dati e calcoli di comportamenti e diario. Puri. |
 | `js/tice-import.js`, `js/numbers-reader.js` | Lettura dei file `.numbers` e trasformazione in programma e sedute. Puri. |
@@ -155,6 +156,12 @@ Oggetto con i campi dell'app personale più quelli del Centro:
 Le liste con `id` si uniscono per id (nessuna seduta si perde; cancellata da una parte e non toccata dall'altra resta cancellata). Gli oggetti si uniscono chiave per chiave; se cambia da entrambe le parti vince chi sta salvando. **Se aggiungi un array di oggetti con `id` al bambino, aggiungilo a `PER_ID` in `js/tice-unisci.js`** e prova con `tools/test-tice-sync.js`, altrimenti due dispositivi si sovrascrivono.
 
 ---
+
+### Data della seduta e correzioni di data
+
+- La bozza ha `data` e, se scelte a mano, `scelta: true` (giorno non di oggi: la bozza si salva anche vuota e `bozza()` non la riporta a oggi) e `ora` ('HH:MM', facoltativa). `salvaSeduta` usa `TiceData.quando(b.data, b.ora)` per attività, comportamenti (anche gli orari degli episodi, in `TiceComportamenti.sedute`), giochi lanciati dalla seduta, note (`il`). Un gioco avviato direttamente con una seduta aperta per un altro giorno resta nella cartella con la data di oggi (avviso).
+- Cartella: «Cambia data e ora» nel dettaglio della seduta, «Cambia data della giornata» (icona calendario) nella testata del giorno; conferma, «unisci» se nella data di arrivo ci sono già dati, «Annulla» nell'avviso. Ogni voce spostata ha in `correzioni` `{ campo: 'data', da, a, chi, il }`.
+- Prove: `tools/test-tice-data.js` (logica e fusione fra due dispositivi), passi «seduta in un giorno passato» e «cartella» in `tools/test-app-browser.js`.
 
 ### Giochi: più set insieme e gioco avviato direttamente
 
