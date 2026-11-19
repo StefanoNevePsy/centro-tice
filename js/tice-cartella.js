@@ -306,7 +306,7 @@
                         <header class="cr-giorno-testa">
                             <div class="cr-giorno-titolo"><b>${dataLunga(gi.g)}</b><span class="sotto piccolo">${quando(gi.g)}</span></div>
                             ${t.tot ? h`<div class="cr-giorno-tot"><b>${pct}%</b><span class="sotto piccolo">${plurale(t.tot, 'prova', 'prove')}</span></div>` : ''}
-                            ${puoCorreggere ? h`<button type="button" class="ib cr-giorno-data" data-a="cartella-giorno-data" data-g="${gi.g}" aria-label="Cambia data della giornata del ${formatoData(gi.g)}" title="Cambia data della giornata">${icona('calendar-day')}</button>` : ''}
+                            ${puoCorreggere ? h`<button type="button" class="bt piccolo cr-giorno-data" data-a="cartella-giorno-data" data-g="${gi.g}" aria-label="Cambia data della giornata del ${formatoData(gi.g)}" title="Cambia data della giornata">${icona('calendar-day')} Cambia data</button>` : ''}
                         </header>
                         <div class="cr-svolta ${dn.length ? '' : 'manca'}">${icona(dn.length > 1 ? 'user-group' : 'user')}<span>${dn.length ? h`Svolta da <b>${dn.join(' + ')}</b>` : 'Svolta da: non indicato'}</span></div>
                         <div class="cr-sedute">${gi.sedute.map((x) => rigaSeduta(p, x, { nomiGiorno: dn }))}</div>
