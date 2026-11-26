@@ -20,7 +20,7 @@ prova('più LU nello stesso giorno', () => {
   assert.strictEqual(d.resto.length, 3);
 });
 prova('conteggio delle risposte di un blocco', () => {
-  assert.deepStrictEqual(P.contaRisposte('VVPXV'), { v: 3, p: 1, x: 1 });
+  assert.deepStrictEqual(P.contaRisposte('VVPXV'), { v: 3, p: 1, e: 0, x: 1 });
 });
 prova('aspettano le attività con le prove per LU, con o senza stimoli', () => {
   const pz = {};

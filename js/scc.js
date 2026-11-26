@@ -58,7 +58,8 @@
   /** Conteggi di una seduta dell'app: V, P, X e minuti (se cronometrata). */
   function conteggi(h) {
     var v, p, x;
-    if (h.rawV != null || h.rawP != null || h.rawX != null) { v = h.rawV || 0; p = h.rawP || 0; x = h.rawX || 0; }
+    // E- dell'echo to tact (rawE) è una risposta non corretta: la celeration chart ha tre serie, qui conta fra gli errori
+    if (h.rawV != null || h.rawP != null || h.rawX != null) { v = h.rawV || 0; p = h.rawP || 0; x = (h.rawX || 0) + (h.rawE || 0); }
     else {
       v = h.correct || 0; p = h.prompts || 0;
       x = Math.max(0, (h.total || 0) - v - p);

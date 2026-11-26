@@ -100,9 +100,10 @@
         const tot = s.total || 0;
         if (!(tot > 0)) return '';
         const v = s.rawV != null ? s.rawV : (s.correct || 0), pr = s.rawP != null ? s.rawP : (s.prompts || 0);
-        const x = s.rawX != null ? s.rawX : Math.max(0, tot - v - pr);
+        const e = s.rawE || 0;   // E- dell'echo to tact (assente nelle sedute senza)
+        const x = s.rawX != null ? s.rawX : Math.max(0, tot - v - pr - e);
         const w = (n) => Math.round(1000 * n / tot) / 10;
-        return h`<span class="cr-barra" role="img" aria-label="${v} corrette, ${pr} con aiuto, ${x} errori"><i class="V" style="width:${w(v)}%"></i><i class="P" style="width:${w(pr)}%"></i><i class="X" style="width:${w(x)}%"></i></span>`;
+        return h`<span class="cr-barra" role="img" aria-label="${v} corrette, ${pr} con aiuto${e ? ', ' + e + ' ecoiche errate (E-)' : ''}, ${x} errori"><i class="V" style="width:${w(v)}%"></i><i class="P" style="width:${w(pr)}%"></i>${e ? h`<i class="E" style="width:${w(e)}%"></i>` : ''}<i class="X" style="width:${w(x)}%"></i></span>`;
     }
     function rigaSeduta(p, s, o) {
         o = o || {};
@@ -125,6 +126,7 @@
                 ${s.misuraNome ? h`<span class="pill grigia">${s.misuraNome}</span>` : ''}
                 ${s.mode === 'quaderno_task' ? h`<span class="pill grigia">task analysis</span>` : ''}
                 ${Array.isArray(s.setBreakdown) && s.setBreakdown.length > 1 ? h`<span class="pill grigia">${s.setBreakdown.length} set</span>` : ''}
+                ${(s.rawE > 0 || (att && att.risposte === 'ecoico')) && s.total > 0 ? h`<span class="pill grigia cr-eco" title="Echo to tact">✓ ${s.rawV != null ? s.rawV : (s.correct || 0)} · E+ ${s.rawP != null ? s.rawP : (s.prompts || 0)} · E- ${s.rawE || 0} · ✗ ${s.rawX || 0}</span>` : ''}
                 ${barretta(s)}
                 ${chi.length ? h`<span class="cr-chi-riga">${icona('user')} ${chi.join(' + ')}</span>` : ''}
             </div>
@@ -197,7 +199,8 @@
     async function foglioSeduta(p, s) {
         const puoCorreggere = !(X.limitato && X.limitato()) && window.TiceData;
         const att = attDi(p, s), t = att && s.targetId ? (att.target || []).find((x) => x.id === s.targetId) : null;
-        const tot = s.total || 0, v = s.rawV != null ? s.rawV : (s.correct || 0), pr = s.rawP != null ? s.rawP : (s.prompts || 0), x = s.rawX != null ? s.rawX : Math.max(0, tot - v - pr);
+        const tot = s.total || 0, v = s.rawV != null ? s.rawV : (s.correct || 0), pr = s.rawP != null ? s.rawP : (s.prompts || 0), e = s.rawE || 0, x = s.rawX != null ? s.rawX : Math.max(0, tot - v - pr - e);
+        const eco = e > 0 || (att && att.risposte === 'ecoico');
         const pc = pctDi(s), td = s.sessionType === 'timedelay', mio = nomi(s), nota = pulita(s.note);
         const dur = s.durataSecondi != null ? s.durataSecondi : s.durationSeconds != null ? s.durationSeconds : s.durata != null ? s.durata : s.duration;
         const durT = dur != null && !isNaN(+dur) ? (+dur >= 60 ? Math.floor(+dur / 60) + ' min ' + (Math.round(+dur) % 60) + ' s' : Math.round(+dur) + ' s') : '';
@@ -210,7 +213,7 @@
                 ${riga('Attività', att ? att.nome : 'non collegata al programma')}
                 ${riga('Target', t ? t.testo : '')}
                 ${riga('Tipo', (td ? 'Time delay' + (s.timeDelaySeconds != null ? ' · ' + s.timeDelaySeconds + ' s' : '') : s.scala === 'percentuale' ? 'Percentuale' : 'Indipendente') + (s.mantenimento ? ' · mantenimento' : '') + (s.mode === 'quaderno_task' ? ' · task analysis' : ''))}
-                ${riga('Esito', tot > 0 ? h`${v} ${v === 1 ? 'corretta' : 'corrette'} (V) · ${pr} con aiuto (P) · ${x} ${x === 1 ? 'errore' : 'errori'} (X) — su ${tot}${pc != null ? ' · ' + pc + '%' : ''}` : (pc != null ? pc + '%' : ''))}
+                ${riga('Esito', tot > 0 ? eco ? h`✓ ${v} · E+ ${pr} · E- ${e} · ✗ ${x} — su ${tot}${pc != null ? ' · ' + pc + '%' : ''}` : h`${v} ${v === 1 ? 'corretta' : 'corrette'} (V) · ${pr} con aiuto (P) · ${x} ${x === 1 ? 'errore' : 'errori'} (X) — su ${tot}${pc != null ? ' · ' + pc + '%' : ''}` : (pc != null ? pc + '%' : ''))}
                 ${riga('Gioco', s.mode && !['quaderno', 'quaderno_task', 'comportamento'].includes(s.mode) && X.etichettaModo ? X.etichettaModo(s.mode) : '')}
                 ${riga('Misura', s.misuraNome || '')}
                 ${riga('Durata', durT)}

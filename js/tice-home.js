@@ -125,7 +125,7 @@
         if (T.ta && T.ta.pid === pid) T.ta = null;
         if (T.bozza && T.bozza.pid === pid) T.bozza = null;
     }
-    const haDati = (v) => v && (v.v + v.p + v.x) > 0;
+    const haDati = (v) => v && (v.v + v.p + (v.e || 0) + v.x) > 0;
     // episodi di comportamenti nella bozza (o uno in corso)
     const episodiBozza = (b) => Object.values((b && b.comp) || {}).reduce((n, r) => n + r.episodi.length + (r.inCorso ? 1 : 0), 0);
 
@@ -227,13 +227,13 @@
             const passi = passiVoce(att, v);
             const ps = passi.length && v.ordine ? passi.find((x) => x.id === v.ordine[v.ordine.length - 1]) : null;
             const m = misure(att).find((x) => x.id === msDi(u[k]));
-            return { att, r, testo: att.nome + (m ? ' · ' + m.nome : '') + (ps ? ' · ' + ps.testo : '') };
+            return { att, r, eco: ecoico(att), testo: att.nome + (m ? ' · ' + m.nome : '') + (ps ? ' · ' + ps.testo : '') };
         }
         return null;
     }
     function tastoAnnulla(p) {
         const d = descriviUltima(p);
-        const SEGNO = { V: '✓', P: 'P', X: '✗', C: '+1' };
+        const SEGNO = { V: '✓', P: d && d.eco ? 'E+' : 'P', E: 'E-', X: '✗', C: '+1' };
         return h`<button id="tice-annulla" class="tice-annulla ${d ? '' : 'nascosto'}" data-a="annulla-ultima" ${d ? '' : grezzo('hidden')}
             aria-label="${d ? 'Annulla l\'ultima: ' + SEGNO[d.r] + ' ' + d.testo : 'Annulla'}" title="${d ? 'Annulla: ' + d.testo : ''}">
             ${icona('rotate-left')}<span class="cosa"><b class="${d ? d.r : ''}">${d ? SEGNO[d.r] : ''}</b> ${d ? d.testo : ''}</span></button>`;
@@ -253,7 +253,7 @@
             return h`<div id="tice-ta"><button class="ta-linguetta" data-a="mostra-ta">${icona('list-ol')}
                 <span><b>${t.testo}</b><br><small>passo ${st.i + 1} di ${passi.length} · ${st.passo.testo}</small></span>${icona('chevron-up')}</button></div>`;
         }
-        const tot = v ? v.v + v.p + v.x : 0;
+        const tot = v ? v.v + v.p + (v.e || 0) + v.x : 0;
         const anima = T.ta.anima;
         T.ta.anima = false;   // solo all'apertura, non a ogni punteggio
         return h`<div id="tice-ta" class="ta-strato ${anima ? 'anima' : ''}" role="dialog" aria-label="Task analysis ${t.testo}">
@@ -403,7 +403,7 @@
             .sort((a, b) => (!!b.b - !!a.b) || String(b.u || '').localeCompare(String(a.u || '')) || String(a.p.name).localeCompare(String(b.p.name), 'it'));
         const righe = elenco.map(({ p, b, u }) => {
             const attive = P.attiveOggi(p).length;
-            const risposte = b ? Object.values(b.voci).reduce((n, v) => n + v.v + v.p + v.x, 0) : 0;
+            const risposte = b ? Object.values(b.voci).reduce((n, v) => n + v.v + v.p + (v.e || 0) + v.x, 0) : 0;
             return h`<div class="riga-con"><button class="riga" data-a="apri-bambino" data-pid="${p.id}">
                 <span class="avatar ${eGruppo(p) ? 'gruppo' : ''}">${eGruppo(p) ? icona('users') : p.photo ? h`<img src="${p.photo}" alt="">` : iniziali(p.name)}</span>
                 <span class="corpo"><span class="t1">${p.name}</span>
@@ -463,7 +463,7 @@
     function statoLU(att, v, t, ms) {
         if (!P.conAttesa(att, t)) return null;
         const n = +att.prove, prec = P.inAttesaDi(att, t, ms);
-        const seq = v ? ((v.sequenza || '').length === v.v + v.p + v.x ? v.sequenza : 'V'.repeat(v.v) + 'P'.repeat(v.p) + 'X'.repeat(v.x)) : '';
+        const seq = v ? ((v.sequenza || '').length === v.v + v.p + (v.e || 0) + v.x ? v.sequenza : 'V'.repeat(v.v) + 'P'.repeat(v.p) + 'E'.repeat(v.e || 0) + 'X'.repeat(v.x)) : '';
         const d = P.dividiLU(prec && prec.seq, seq, n);
         return { n, prec, oggi: seq.length, blocchi: d.blocchi, resto: d.resto.length };
     }
@@ -477,19 +477,26 @@
         if (P.criterioRaggiunto(serie, att.criterio)) return null;
         const lu = statoLU(att, v, t);
         const oggiS = lu ? lu.blocchi.map((bl) => ({ date: b.data + 'T12:00:00', percentage: Math.round(100 * P.contaRisposte(bl).v / bl.length) }))
-            : [{ date: b.data + 'T12:00:00', percentage: Math.round(100 * v.v / (v.v + v.p + v.x)) }];
+            : [{ date: b.data + 'T12:00:00', percentage: Math.round(100 * v.v / (v.v + v.p + (v.e || 0) + v.x)) }];
         return oggiS.length && P.criterioRaggiunto(serie.concat(oggiS), att.criterio) === b.data ? 'Con questi dati oggi raggiunge il criterio.' : null;
     }
     // In time delay la risposta non corretta è quella promptata, in indipendente è l'errore:
     // si punteggia solo corretta / promptata oppure corretta / errata
     const nonCorretta = (tipo) => (tipo === 'timedelay' ? 'P' : 'X');
-    // Echo to tact: si segna se lo dice da solo (✓), se lo ripete in ecoico (e+) o se no (✗)
+    // Echo to tact: ✓ lo dice da solo, E+ lo ripete in ecoico, E- ecoico richiesto ma non ripetuto bene (sequenza 'E', campo e), ✗ errata
     const ecoico = (att) => att && att.risposte === 'ecoico';
+    // Echo to tact: «✓ 6 · E+ 2 · E- 1 · ✗ 1» (solo le voci presenti; la percentuale corretta resta ✓ / prove)
+    function riepilogoEco(v) {
+        if (!v || !(v.v + v.p + (v.e || 0) + v.x)) return '';
+        return [['✓', v.v, 'v'], ['E+', v.p, 'p'], ['E-', v.e || 0, 'e'], ['✗', v.x, 'x']].filter((r) => r[1] > 0)
+            .map((r) => `${r[0]} ${r[1]}`).join(' · ');
+    }
     function tasti(att, tipo, k) {
         k = k || att.id;
-        if (ecoico(att)) return h`<div class="tasti">
+        if (ecoico(att)) return h`<div class="tasti eco4">
             <button class="tasto v" data-a="segna" data-id="${k}" data-r="V">✓<small>Autonoma</small></button>
-            <button class="tasto p" data-a="segna" data-id="${k}" data-r="P">e+<small>Ecoica</small></button>
+            <button class="tasto p" data-a="segna" data-id="${k}" data-r="P">E+<small>Ecoica</small></button>
+            <button class="tasto en" data-a="segna" data-id="${k}" data-r="E">E-<small>Eco errata</small></button>
             <button class="tasto x" data-a="segna" data-id="${k}" data-r="X">✗<small>Errata</small></button>
         </div>`;
         return h`<div class="tasti due">
@@ -520,7 +527,7 @@
         const t = v && v.targetId ? att.target.find((x) => x.id === v.targetId) : (c && c.target);
         const mant = att.mantenimento || (v ? v.mantenimento : (c && c.mantenimento));
         const aperta = T.aperte[att.id];
-        const tot = !ms.length && v ? v.v + v.p + v.x : 0;
+        const tot = !ms.length && v ? v.v + v.p + (v.e || 0) + v.x : 0;
         const pct = tot ? Math.round(100 * v.v / tot) : null;
         const soglia = (att.criterio && att.criterio.soglia) || 90;
         const tipo = (v && v.sessionType) || att.sessionType;
@@ -539,7 +546,7 @@
         const st = passi.length ? statoTA(v, passi) : null;
         const tdS = tipo === 'timedelay' ? tdOggi(att, v, t || null) : null;
         const lu = ms.length ? null : statoLU(att, v, t || null);
-        return h`<div class="att ${haDati(v) || vm.some(haDati) ? 'con-dati' : ''} ${hint ? 'con-hint' : ''} ${T.tastiera && baseId(T.tastiera) === att.id ? 'da-tastiera' : ''}" data-att="${att.id}" style="--col:${P.coloreDi(p, att)}">
+        return h`<div class="att ${ecoico(att) ? 'att-eco' : ''} ${haDati(v) || vm.some(haDati) ? 'con-dati' : ''} ${hint ? 'con-hint' : ''} ${T.tastiera && baseId(T.tastiera) === att.id ? 'da-tastiera' : ''}" data-att="${att.id}" style="--col:${P.coloreDi(p, att)}">
             ${hint ? h`<button class="ib hint-tasto ${T.suggerimenti[att.id] ? 'on' : ''}" data-a="suggerimenti" data-id="${att.id}" aria-expanded="${T.suggerimenti[att.id] ? 'true' : 'false'}" aria-label="Suggerimenti" title="Suggerimenti per chi somministra">${icona('lightbulb')}</button>` : ''}
             <button class="att-testa" data-a="apri-att" data-id="${att.id}" aria-expanded="${aperta ? 'true' : 'false'}">
                 <span class="corpo">
@@ -559,7 +566,7 @@
                     ${lu && (lu.prec || lu.oggi) ? h`<span class="target lu-attesa">${icona('hourglass-half')} ${testoLU(lu)}</span>` : ''}
                     ${oggiT ? h`<span class="target">${icona('circle-check')} già oggi: ${oggiV}/${oggiT} (${Math.round(100 * oggiV / oggiT)}%)${(() => { const chi = [...new Set(giaOggi.map((x) => (window.TiceSync && TiceSync.nomiSeduta ? TiceSync.nomiSeduta(x).join(' + ') : x.operatore)).filter(Boolean))]; return chi.length ? h` <span class="chi">· ${chi.join(', ')}</span>` : ''; })()}</span>` : ''}
                 </span>
-                <span class="conto">${ms.length ? h`<span class="piccolo sotto conto-ms">${ms.map((m, i) => { const x = vm[i], n = x ? x.v + x.p + x.x : 0; return h`<span>${m.nome}: <b class="${n ? classePct(Math.round(100 * x.v / n), soglia) : ''}">${n ? Math.round(100 * x.v / n) + '%' : '—'}</b></span>`; })}</span>` : tot ? h`<b class="${classePct(pct, soglia)}">${pct}%</b><br><span class="piccolo sotto">${v.v}/${tot}${att.prove ? ' di ' + att.prove : ''}</span>`
+                <span class="conto">${ms.length ? h`<span class="piccolo sotto conto-ms">${ms.map((m, i) => { const x = vm[i], n = x ? x.v + x.p + (x.e || 0) + x.x : 0; return h`<span>${m.nome}: <b class="${n ? classePct(Math.round(100 * x.v / n), soglia) : ''}">${n ? Math.round(100 * x.v / n) + '%' : '—'}</b></span>`; })}</span>` : tot ? h`<b class="${classePct(pct, soglia)}">${pct}%</b><br><span class="piccolo sotto">${v.v}/${tot}${att.prove ? ' di ' + att.prove : ''}</span>`
                     : h`<span class="piccolo sotto prove-n" title="${att.prove ? 'LU da ' + att.prove + ' prove' : 'Dato in percentuale a ogni seduta'}">${att.prove ? h`${icona('layer-group')} ${att.prove}` : icona('percent')}</span>`}</span>
             </button>
             ${hint && T.suggerimenti[att.id] ? h`<div class="att-suggerimenti aperti">
@@ -580,6 +587,7 @@
                 </div>` : ''}
                 ${ms.length ? ms.map((m, i) => presaDati(p, att, t, tipo, m, vm[i], critM[i], soglia)) : h`${tasti(att, tipo)}
                 ${righeCondizioni(condizioniDi(att, t), tipo, ecoico(att))}
+                ${ecoico(att) && tot ? h`<p class="sotto piccolo riepilogo-eco">${riepilogoEco(v)}</p>` : ''}
                 <div class="sotto-tasti">
                     <div class="sequenza ${ecoico(att) ? 'eco' : ''}" aria-label="Sequenza delle risposte">${(v ? v.sequenza : '').split('').map((r) => h`<i class="${r}"></i>`)}</div>
                     ${st ? h`<button class="ib" data-a="salta-passo" data-id="${att.id}" aria-label="Salta il passo" title="Salta il passo">${icona('forward')}</button>
@@ -638,7 +646,7 @@
         const k = att.id + '~' + m.id;
         const attM = attPerVoce(att, k), tm = tipoMisura(att, m);
         const tipoM = (v && v.sessionType) || tm.sessionType;
-        const tot = v ? v.v + v.p + v.x : 0;
+        const tot = v ? v.v + v.p + (v.e || 0) + v.x : 0;
         const lu = statoLU(attM, v, t || null, m.id);
         return h`<div class="presa ${crit ? 'a-criterio' : ''} ${m.bambino ? 'compatta' : ''}">
             <div class="presa-testa"><b>${m.nome}</b>
@@ -650,6 +658,7 @@
             ${lu && (lu.prec || lu.oggi) ? h`<p class="sotto piccolo lu-attesa">${icona('hourglass-half')} ${testoLU(lu)}</p>` : ''}
             ${tasti(attM, tipoM, k)}
             ${righeCondizioni(Object.assign({}, condizioniDi(att, t), m.condizioni || {}), tipoM, tm.eco)}
+            ${tm.eco && tot ? h`<p class="sotto piccolo riepilogo-eco">${riepilogoEco(v)}</p>` : ''}
             <div class="sotto-tasti">
                 <div class="sequenza ${tm.eco ? 'eco' : ''}" aria-label="Sequenza delle risposte">${(v ? v.sequenza : '').split('').map((r) => h`<i class="${r}"></i>`)}</div>
                 <button class="ib" data-a="annulla" data-id="${k}" aria-label="Annulla l'ultima di ${m.nome}" title="Annulla l'ultima">${icona('rotate-left')}</button>
@@ -692,7 +701,7 @@
         const p = paz(pid);
         if (!p) return null;
         const b = T.bozza && T.bozza.pid === pid ? T.bozza : leggiBozza(pid);
-        const prove = b && b.data === g ? Object.values(b.voci).filter(haDati).reduce((n, v) => n + v.v + v.p + v.x, 0) : 0;
+        const prove = b && b.data === g ? Object.values(b.voci).filter(haDati).reduce((n, v) => n + v.v + v.p + (v.e || 0) + v.x, 0) : 0;
         const ultima = (p.history || []).map((x) => String(x.date || '')).filter((d) => d && P.giorno(d) === g).sort().pop();
         const ora = ultima && !/T12:00:00(\.000)?Z?$/.test(ultima) ? new Date(ultima).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
         return { prove, salvata: !!ultima, ora };
@@ -701,11 +710,11 @@
         const b = bozza(p.id);
         let corrette = 0, prove = 0, n = 0;
         // le attività in mantenimento non entrano nel conto delle LU della giornata
-        Object.keys(b.voci).forEach((k) => { const v = b.voci[k], a = attivitaDi(p, k), mm = a ? misure(a).find((x) => x.id === msDi(k)) : null; if (haDati(v) && !(a && a.mantenimento) && !(mm && mm.mantenimento)) { n++; corrette += v.v; prove += v.v + v.p + v.x; } });
+        Object.keys(b.voci).forEach((k) => { const v = b.voci[k], a = attivitaDi(p, k), mm = a ? misure(a).find((x) => x.id === msDi(k)) : null; if (haDati(v) && !(a && a.mantenimento) && !(mm && mm.mantenimento)) { n++; corrette += v.v; prove += v.v + v.p + (v.e || 0) + v.x; } });
         return { corrette, prove, n };
     }
     // tutte le risposte della bozza, anche quelle in mantenimento
-    const provaNonSalvate = (p) => { const b = leggiBozza(p.id) || (T.bozza && T.bozza.pid === p.id ? T.bozza : null); return b ? Object.values(b.voci).reduce((n, v) => n + (haDati(v) ? v.v + v.p + v.x : 0), 0) + episodiBozza(b) : 0; };
+    const provaNonSalvate = (p) => { const b = leggiBozza(p.id) || (T.bozza && T.bozza.pid === p.id ? T.bozza : null); return b ? Object.values(b.voci).reduce((n, v) => n + (haDati(v) ? v.v + v.p + (v.e || 0) + v.x : 0), 0) + episodiBozza(b) : 0; };
     function testoPiede(p) {
         const r = riassunto(p), ep = episodiBozza(bozza(p.id));
         const epT = ep ? `<b>${ep}</b> ${ep === 1 ? 'episodio' : 'episodi'}` : '';
@@ -756,7 +765,7 @@
         if (!v || !v.sequenza) return;
         const u = v.sequenza.slice(-1);
         v.sequenza = v.sequenza.slice(0, -1);
-        v[u.toLowerCase()] = Math.max(0, v[u.toLowerCase()] - 1);
+        v[u.toLowerCase()] = Math.max(0, (v[u.toLowerCase()] || 0) - 1);
         // task analysis: si torna sul passo annullato, da risegnare
         if (v.ordine && v.ordine.length) {
             const ps = v.ordine.pop(), giri = (v.giriPrima || []).pop();
@@ -1110,7 +1119,7 @@
             if (!att) return;
             const v = voce(p, att, b.dataset.id);
             const r = b.dataset.r;
-            v[r.toLowerCase()] += 1;
+            v[r.toLowerCase()] = (v[r.toLowerCase()] || 0) + 1;
             v.sequenza += r;
             ultimeDi(bozza(p.id)).push(b.dataset.id);
             // task analysis: si segna il passo corrente e si passa al successivo
@@ -1264,10 +1273,11 @@
                     </div><span class="sotto piccolo avviso-doppione" data-conversione></span></div>`}
                     <div class="riga-campi conteggi">
                         <label class="campo"><span>✓ ${eco ? 'Autonome' : 'Corrette'}</span><input name="v" type="number" min="0" max="999" inputmode="numeric" value="${v.v}"></label>
-                        ${eco ? h`<label class="campo"><span>e+ Ecoiche</span><input name="eco" type="number" min="0" max="999" inputmode="numeric" value="${v.p}"></label>
+                        ${eco ? h`<label class="campo"><span>E+ Ecoiche</span><input name="eco" type="number" min="0" max="999" inputmode="numeric" value="${v.p}"></label>
+                        <label class="campo"><span>E- Ecoiche errate</span><input name="ecoNo" type="number" min="0" max="999" inputmode="numeric" value="${v.e || 0}"></label>
 `
                             : ''}
-                        <label class="campo"><span>Totale</span><input name="tot" type="number" min="0" max="999" inputmode="numeric" value="${v.v + v.p + v.x}"></label>
+                        <label class="campo"><span>Totale</span><input name="tot" type="number" min="0" max="999" inputmode="numeric" value="${v.v + v.p + (v.e || 0) + v.x}"></label>
                     </div>
                     ${attesaV ? h`<label class="spunta-riga"><input type="checkbox" name="scarta"> <span><b>Scarta le ${attesaV.seq.length} prove in attesa</b><br><span class="sotto piccolo">Registrate dal ${formatoData(attesaV.dal)} senza arrivare a una LU da ${attV.prove}: non entreranno nei dati.</span></span></label>` : ''}
                 </details>
@@ -1300,7 +1310,7 @@
             });
             if (r === 'togli') {
                 // il risultato di un gioco non si perde per un tocco
-                if (v.gioco && !await conferma(`Togliere «${att.nome}» dalla seduta?`, 'Il risultato del gioco (' + v.v + '/' + (v.v + v.p + v.x) + ') non viene salvato da nessuna parte.', { ok: 'Togli', pericolo: true })) return;
+                if (v.gioco && !await conferma(`Togliere «${att.nome}» dalla seduta?`, 'Il risultato del gioco (' + v.v + '/' + (v.v + v.p + (v.e || 0) + v.x) + ') non viene salvato da nessuna parte.', { ok: 'Togli', pericolo: true })) return;
                 const bz = bozza(p.id);
                 bz.temp = bz.temp.filter((x) => x.id !== att.id);
                 delete bz.voci[att.id];
@@ -1333,13 +1343,14 @@
             const ne = ecoico(attV) ? Math.max(0, Math.min(999, parseInt(r.eco, 10) || 0)) : v.p;
             // le risposte dell'altro tipo (P in una seduta indipendente, ✗ in time delay: arrivano da un gioco) non si toccano
             const altro = ecoico(attV) ? 0 : (no === 'x' ? v.p : v.x);
-            const ntot = Math.max(nv + (ecoico(attV) ? ne : 0) + altro, Math.min(999, parseInt(r.tot, 10) || 0));
-            const nn = ntot - nv - (ecoico(attV) ? ne : 0) - altro;
-            if (nv !== v.v || nn !== v[no] || ne !== v.p) {
-                v.p = ne;
+            const nE = ecoico(attV) ? Math.max(0, Math.min(999, parseInt(r.ecoNo, 10) || 0)) : (v.e || 0);
+            const ntot = Math.max(nv + (ecoico(attV) ? ne + nE : 0) + altro, Math.min(999, parseInt(r.tot, 10) || 0));
+            const nn = ntot - nv - (ecoico(attV) ? ne + nE : 0) - altro;
+            if (nv !== v.v || nn !== v[no] || ne !== v.p || nE !== (v.e || 0)) {
+                v.p = ne; v.e = nE;
                 // la sequenza non corrisponde più ai conteggi: la si ricostruisce in blocco
                 v.v = nv; v[no] = nn;
-                v.sequenza = 'V'.repeat(v.v) + 'P'.repeat(v.p) + 'X'.repeat(v.x);
+                v.sequenza = 'V'.repeat(v.v) + 'P'.repeat(v.p) + 'E'.repeat(v.e || 0) + 'X'.repeat(v.x);
             }
             v.decisione = r.decisione.trim();
             v.nota = r.nota.trim();
@@ -1489,7 +1500,7 @@
             const c = P.targetCorrente(att), bz = bozza(p.id);
             const giaOggi = Object.keys(bz.voci).filter((k) => baseId(k) === att.id && bz.voci[k].targetId === t.id && haDati(bz.voci[k]));
             if (c && !c.mantenimento && c.target.id !== t.id && giaOggi.length) {
-                const n = giaOggi.reduce((x, k) => x + bz.voci[k].v + bz.voci[k].p + bz.voci[k].x, 0);
+                const n = giaOggi.reduce((x, k) => x + bz.voci[k].v + bz.voci[k].p + (bz.voci[k].e || 0) + bz.voci[k].x, 0);
                 const r = await foglio(h`<div><h2>Le risposte di oggi</h2>
                     <p>Oggi hai già segnato ${n} ${n === 1 ? 'risposta' : 'risposte'} su <b>${t.testo}</b>. Dove vanno?</p>
                     <div class="opzioni"><button type="button" class="opzione" data-foglio="nuovo">${icona('arrow-right')}<span class="corpo">Su «${c.target.testo}»<small>Il nuovo target: si continua da qui</small></span></button>
@@ -1631,9 +1642,9 @@
         const parti = String(pv || '').split(/[|,·]/).map((x) => x.trim()).filter(Boolean);
         return h`<span class="caselle-prompt" title="Prompt visivo">${parti.length > 1 ? parti.map(casella) : h`<span class="casella-testo">${pv}</span>`}</span>`;
     };
-    // Cosa vale come ✓, P/e+ e ✗: per attività e sottoattività (vuoto = nessuna indicazione)
-    function impostaCondizioni(o, v, pp, x) {
-        const c = {}; [['V', v], ['P', pp], ['X', x]].forEach(([k, t]) => { t = String(t || '').trim().slice(0, 200); if (t) c[k] = t; });
+    // Cosa vale come ✓, P/E+, E- (echo to tact) e ✗: per attività e sottoattività (vuoto = nessuna indicazione)
+    function impostaCondizioni(o, v, pp, x, e) {
+        const c = {}; [['V', v], ['P', pp], ['E', e], ['X', x]].forEach(([k, t]) => { t = String(t || '').trim().slice(0, 200); if (t) c[k] = t; });
         if (Object.keys(c).length) o.condizioni = c; else delete o.condizioni;
     }
     // in seduta, sotto i tasti: solo le risposte che quell'attività usa
@@ -1641,8 +1652,8 @@
     const condizioniDi = (att, t) => (att.condizioni || (t && t.condizioni) ? Object.assign({}, att.condizioni || {}, (t && t.condizioni) || {}) : null);
     function righeCondizioni(c, tipo, eco) {
         if (!c) return '';
-        const usate = eco ? ['V', 'P', 'X'] : ['V', nonCorretta(tipo)];
-        const segno = { V: '✓', P: eco ? 'e+' : 'P', X: '✗' };
+        const usate = eco ? ['V', 'P', 'E', 'X'] : ['V', nonCorretta(tipo)];
+        const segno = { V: '✓', P: eco ? 'E+' : 'P', E: 'E-', X: '✗' };
         const r = usate.filter((k) => c[k]);
         return r.length ? h`<p class="condizioni">${r.map((k) => h`<span class="cond ${k.toLowerCase()}"><b>${segno[k]}</b> ${conCaselle(c[k])}</span>`)}</p>` : '';
     }
@@ -2002,7 +2013,7 @@
             if (T.tocco) { T.ridisegnaDopo = true; return; }
             T.mantieniScroll = true; disegna();
         },
-        strumenti: { agganci: EST, haDati, misure, convertiVoce, oggi, msDi, eliminaBozza, timbro, riassunto, episodiBozza, statoLU, classePct, sceltePersone, agganciaChi, celerazioneTarget, stampa, lancia, graficoSCC, proponiProssimo: (...a) => proponiProssimo(...a), perCategoria, opzioniModalita, scegliModalita, rinominaSedute, setArchivio, etichettaModo, impostaCondizioni, allineaMembri, sec, nuovoBambino: (...a) => (EST.nuovoBambino ? EST.nuovoBambino(...a) : undefined), salvaDizionario, sceltaCategoria, campoNuovaCategoria, agganciaNuove, stessaModalita, stessaCategoria, nomeCategoria, categoriaDalModulo, creaModalita, creaCategoria, viste: VISTE, iniziali, pazientiAula, azioni, attivitaDi, voce, ecoico, attPerVoce, passiVoce, statoTA, aggiornaScheda, annullaUltima, baseId, dizionario: () => dizionario(), ETICHETTE_STATO, moduloAttivita: (p, att, base) => moduloAttivita(p, att, base), creaAttivitaDaModulo: (p, r) => creaAttivitaDaModulo(p, r), bozza, salvaBozza, ultimeDi, eGruppo, testoPiede, tastoAnnulla, secMmss, radice, disegna, h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, esc, chiOpera: () => chiOpera(), puoProgrammi: (p) => puoProgrammi(p), formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
+        strumenti: { agganci: EST, riepilogoEco, haDati, misure, convertiVoce, oggi, msDi, eliminaBozza, timbro, riassunto, episodiBozza, statoLU, classePct, sceltePersone, agganciaChi, celerazioneTarget, stampa, lancia, graficoSCC, proponiProssimo: (...a) => proponiProssimo(...a), perCategoria, opzioniModalita, scegliModalita, rinominaSedute, setArchivio, etichettaModo, impostaCondizioni, allineaMembri, sec, nuovoBambino: (...a) => (EST.nuovoBambino ? EST.nuovoBambino(...a) : undefined), salvaDizionario, sceltaCategoria, campoNuovaCategoria, agganciaNuove, stessaModalita, stessaCategoria, nomeCategoria, categoriaDalModulo, creaModalita, creaCategoria, viste: VISTE, iniziali, pazientiAula, azioni, attivitaDi, voce, ecoico, attPerVoce, passiVoce, statoTA, aggiornaScheda, annullaUltima, baseId, dizionario: () => dizionario(), ETICHETTE_STATO, moduloAttivita: (p, att, base) => moduloAttivita(p, att, base), creaAttivitaDaModulo: (p, r) => creaAttivitaDaModulo(p, r), bozza, salvaBozza, ultimeDi, eGruppo, testoPiede, tastoAnnulla, secMmss, radice, disegna, h, grezzo, icona, foglio, conferma, avviso, barra, vai: (v, pid) => vai(v, pid), paz, pazienti, pazientiAula, salvaPaziente, esc, chiOpera: () => chiOpera(), puoProgrammi: (p) => puoProgrammi(p), formatoData, T, stampa, statoSeduta, testata, limitato: () => limitato(), banner: () => (EST.banner ? EST.banner() : '') }
     };
     if (document.readyState === 'complete') avvia();
     else window.addEventListener('load', avvia);

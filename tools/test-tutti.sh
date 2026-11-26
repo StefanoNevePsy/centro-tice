@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")/.."
 node tools/componi-custode.js --verifica
-for t in custode appsscript tice-gioco tice-azioni tice-collega tice-veloce tice-note tice-sync accesso-desktop tice-import tice-modalita tice-stampa orario tice-turni tice-ta tice-td tice-lu tice-comportamenti tice-data scc; do
+for t in custode appsscript tice-gioco tice-azioni tice-collega tice-veloce tice-note tice-sync accesso-desktop tice-import tice-modalita tice-stampa orario tice-turni tice-ta tice-td tice-lu tice-eco tice-comportamenti tice-data scc; do
   echo "== $t"
   node "tools/test-$t.js"
 done

@@ -59,6 +59,7 @@
     --t-v: var(--success-color);
     --t-p: var(--warning-color);
     --t-x: var(--danger-color);
+    --t-e: var(--cat-5, #6d5bd0);   /* E- (echo to tact, ecoico richiesto ma non corretto): viola, distinto da E+ (ambra) e da ✗ (rosso) */
     --t-arancio: var(--tice-arancio, #fb8e28);
     --t-sup: var(--glass-bg);
     --t-sup-2: rgba(var(--ink-rgb), 0.05);
@@ -200,6 +201,8 @@ body.tice-aperto #notebook-tab-handle { display: none !important; }
 .tice .att-corpo { padding: 0 12px 12px; }
 .tice .tasti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .tice .tasti.due { grid-template-columns: 1fr 1fr; }
+.tice .tasti.eco4 { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tice .tasti.eco4 .tasto small { font-size: 0.64rem; letter-spacing: 0; white-space: nowrap; }
 .tice .tasto {
     min-height: 74px; border-radius: 14px; border: 0; cursor: pointer;
     font: inherit; font-size: 1.7rem; font-weight: 800; color: #fff;
@@ -210,6 +213,7 @@ body.tice-aperto #notebook-tab-handle { display: none !important; }
 .tice .tasto.v { background: var(--t-v); }
 .tice .tasto.p { background: var(--t-p); }
 .tice .tasto.x { background: var(--t-x); }
+.tice .tasto.en { background: var(--t-e); }
 .tice .tasto.e { background: var(--t-sup-2); color: var(--text-primary); font-size: 1rem; min-height: 54px; }
 .tice .tasto:active { filter: brightness(0.9); transform: scale(0.97); }
 .tice .sotto-tasti { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
@@ -256,6 +260,7 @@ body.tice-aperto #notebook-tab-handle { display: none !important; }
 .tice .sequenza i.V { background: var(--t-v); }
 .tice .sequenza i.P { background: var(--t-p); }
 .tice .sequenza i.X { background: var(--t-x); }
+.tice .sequenza i.E { background: var(--t-e); }
 .tice .avviso-criterio { margin: 10px 0 0; padding: 8px 10px; border-radius: 10px; background: rgba(251,142,40,0.16); font-size: 0.86rem; }
 .tice .nota-voce { margin: 8px 0 0; font-size: 0.85rem; color: var(--text-secondary); }
 
@@ -512,6 +517,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .tice-annulla .cosa b.V { background: var(--t-v); }
 .tice .tice-annulla .cosa b.P { background: var(--t-p); }
 .tice .tice-annulla .cosa b.X { background: var(--t-x); }
+.tice .tice-annulla .cosa b.E { background: var(--t-e); }
 .tice .tice-annulla .cosa b.C { background: var(--danger-color, #b3261e); font-size: 0.72rem; }
 .tice .tice-annulla:active { transform: scale(0.97); }
 .tice:has(.ta-linguetta) .tice-annulla { bottom: calc(env(safe-area-inset-bottom, 0px) + 146px); }
@@ -529,6 +535,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .ta-punti i.V { background: var(--t-v); }
 .tice .ta-punti i.P { background: var(--t-p); }
 .tice .ta-punti i.X { background: var(--t-x); }
+.tice .ta-punti i.E { background: var(--t-e); }
 .tice .ta-punti i.qui { outline: 2px solid var(--accent-color); outline-offset: 1px; }
 
 .tice .ta-strato {
@@ -558,6 +565,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .ta-passo .esiti i.V { background: var(--t-v); }
 .tice .ta-passo .esiti i.P { background: var(--t-p); }
 .tice .ta-passo .esiti i.X { background: var(--t-x); }
+.tice .ta-passo .esiti i.E { background: var(--t-e); }
 .tice .ta-passi li.corrente .ta-passo { border-color: var(--accent-color); box-shadow: 0 0 0 2px var(--accent-color) inset; }
 .tice .ta-passi li.corrente .n { background: var(--accent-color); color: #fff; }
 .tice .ta-piede {
@@ -806,7 +814,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 /* cosa vale come ✓ / P / ✗ */
 .tice .condizioni { display: flex; flex-direction: column; gap: 2px; margin: 8px 2px 0; font-size: .84rem; color: var(--text-secondary); user-select: text; }
 .tice .condizioni b { display: inline-block; min-width: 1.6em; }
-.tice .condizioni .v b { color: var(--t-v); } .tice .condizioni .p b { color: var(--t-p); } .tice .condizioni .x b { color: var(--t-x); }
+.tice .condizioni .v b { color: var(--t-v); } .tice .condizioni .p b { color: var(--t-p); } .tice .condizioni .x b { color: var(--t-x); } .tice .condizioni .e b { color: var(--t-e); }
 .tice .presa.compatta .condizioni { grid-column: 1 / -1; order: 11; margin: 0; }
 .tice-foglio .campi-cond { flex-wrap: wrap; }
 .tice-foglio .campi-cond > * { min-width: 140px; }
@@ -878,6 +886,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
         content: 'Tastiera: 1 · 2 · 3 per segnare · Z annulla · S o → salta il passo · ← passo prima · Maiusc+1…9 comportamenti';
         display: block; margin-top: 8px; font-size: 0.72rem; color: var(--text-secondary); text-align: right;
     }
+    .tice .att.att-eco.da-tastiera .att-corpo::after { content: 'Tastiera: 1 ✓ · 2 E+ · 3 E- · 4 ✗ (o V · P · E · X) · Z annulla · Maiusc+1…9 comportamenti'; }
 }
 .tice .tasto.premuto { transform: scale(0.96); filter: brightness(1.15); }
 
@@ -943,7 +952,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice-foglio .ma .ma-tile:has(input:focus-visible) { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 .tice-foglio .ma .ma-mini { display: flex; gap: 3px; }
 .tice-foglio .ma .ma-mini i, .tice-foglio .ma .ma-prev-tasti i { display: grid; place-items: center; min-width: 26px; height: 20px; padding: 0 4px; border-radius: 5px; color: #fff; font: 700 0.7rem/1 inherit; font-style: normal; }
-.tice-foglio .ma .mv { background: var(--t-v, #3b7a4a); } .tice-foglio .ma .mp { background: var(--t-p, #a86b10); } .tice-foglio .ma .mx { background: var(--t-x, #a3212e); } .tice-foglio .ma .me { background: #5d4aa8; }
+.tice-foglio .ma .mv { background: var(--t-v, #3b7a4a); } .tice-foglio .ma .mp { background: var(--t-p, #a86b10); } .tice-foglio .ma .mx { background: var(--t-x, #a3212e); } .tice-foglio .ma .me { background: #5d4aa8; } .tice-foglio .ma .mm { background: var(--t-e, #6d5bd0); }
 .tice-foglio .ma .ma-grande { font-size: 1.35rem; color: var(--accent-color); }
 .tice-foglio .ma .ma-modi, .tice-foglio .ma .ma-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
 .tice-foglio .ma .ma-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--glass-border); border-radius: 999px; background: transparent; color: var(--text-primary); font: inherit; font-size: 0.84rem; cursor: pointer; }
@@ -1079,6 +1088,7 @@ body.tice-tirocinante [onclick^="openDayTagPicker"] { display: none !important; 
 .tice .cr-barra i.V { background: var(--t-v); }
 .tice .cr-barra i.P { background: var(--t-p); }
 .tice .cr-barra i.X { background: var(--t-x); }
+.tice .cr-barra i.E { background: var(--t-e); }
 .tice .cr-chi-riga { font-size: 0.82rem; color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
 .tice .cr-chi-riga i { color: var(--accent-color); font-size: 0.72rem; }
 .tice .cr-nota { margin: 4px 0 0; font-size: 0.85rem; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }

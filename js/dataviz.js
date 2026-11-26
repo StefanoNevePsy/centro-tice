@@ -110,15 +110,15 @@ function vizDailyData(patient) {
         const totalLU = lu.tot;
         const correctLU = lu.ok;
         // V/P/X: prefer raw fields, fall back to correct/error split.
-        let v = 0, p = 0, x = 0;
+        let v = 0, p = 0, x = 0, e = 0;   // e = E- dell'echo to tact (rawE)
         ss.forEach(srec => {
             const hasRaw = srec.rawV != null || srec.rawP != null || srec.rawX != null;
-            if (hasRaw) { v += srec.rawV || 0; p += srec.rawP || 0; x += srec.rawX || 0; }
+            if (hasRaw) { v += srec.rawV || 0; p += srec.rawP || 0; x += srec.rawX || 0; e += srec.rawE || 0; }
             else { v += srec.correct || 0; x += (srec.total || 0) - (srec.correct || 0); }
         });
         return {
             date: dk, totalLU, correctLU, incorrectLU: totalLU - correctLU,
-            v, p, x, sessions: ss.length,
+            v, p, x, e, sessions: ss.length,
             pct: totalLU > 0 ? Math.round(correctLU / totalLU * 100) : 0,
             hasNote: !!dailyNotes[dk] || ss.some(srec => srec.note),
             tag: dayTags[dk] && DAY_TAGS[dayTags[dk]] ? { key: dayTags[dk], ...DAY_TAGS[dayTags[dk]] } : null,
@@ -382,17 +382,20 @@ function _vizLegendGradient(container, s, lo, hi) {
     container.appendChild(wrap);
 }
 
+// Colore di E- (echo to tact): viola, come --t-e in css/tice.css; chiaro più luminoso sul fondo scuro
+function colE(s) { return s.e || ((document.documentElement.getAttribute('data-theme') || '').indexOf('scuro') >= 0 ? '#b3a3f5' : '#6d5bd0'); }
+
 // 2) INDEPENDENCE AREA — stacked V/P/X per day (prompt-fading made visible)
 function vizIndependenceArea(container, patient) {
     const s = skin();
-    const daily = vizDailyData(patient).filter(d => (d.v + d.p + d.x) > 0);
+    const daily = vizDailyData(patient).filter(d => (d.v + d.p + (d.e || 0) + d.x) > 0);
     if (!daily.length) { container.innerHTML = '<p style="color:var(--text-secondary); text-align:center; padding:20px;">Nessun dato V/P/X disponibile.</p>'; return; }
     const pad = { l: 34, r: 12, t: 14, b: 30 };
     const barW = 22, gap = 6;
     const plotH = 170;
     const w = Math.max(300, pad.l + pad.r + daily.length * (barW + gap));
     const h = pad.t + plotH + pad.b;
-    const maxLU = Math.max(...daily.map(d => d.v + d.p + d.x), 1);
+    const maxLU = Math.max(...daily.map(d => d.v + d.p + (d.e || 0) + d.x), 1);
     const svg = svgRoot(container, w, h, { bg: s.bg, cssHeight: h, maxWidth: w, preserveAspectRatio: 'xMinYMid meet' });
 
     // y gridlines
@@ -404,20 +407,20 @@ function vizIndependenceArea(container, patient) {
     }
     daily.forEach((d, i) => {
         const x = pad.l + i * (barW + gap);
-        const tot = d.v + d.p + d.x;
+        const tot = d.v + d.p + (d.e || 0) + d.x;
         let yCursor = pad.t + plotH;
-        const segs = [['x', d.x, s.bad], ['p', d.p, s.p], ['v', d.v, s.v]]; // errors bottom, independent top
+        const segs = [['x', d.x, s.bad], ['e', d.e || 0, colE(s)], ['p', d.p, s.p], ['v', d.v, s.v]]; // errors bottom, independent top
         segs.forEach(([k, val, col]) => {
             if (val <= 0) return;
             const segH = plotH * val / maxLU;
             yCursor -= segH;
             const r = svgEl('rect', { x, y: yCursor, width: barW, height: segH, fill: col, rx: s.organic ? 4 : 2, opacity: 0.92 }, svg);
-            _title(r, `${formatDateEU(d.date + 'T00:00:00')}\nIndip.(V): ${d.v}  Prompt(P): ${d.p}  Err.(X): ${d.x}`);
+            _title(r, `${formatDateEU(d.date + 'T00:00:00')}\nIndip.(V): ${d.v}  Prompt(P): ${d.p}${d.e ? '  Eco err.(E-): ' + d.e : ''}  Err.(X): ${d.x}`);
         });
         if (i % Math.ceil(daily.length / 12 || 1) === 0)
             svgEl('text', { x: x + barW / 2, y: h - pad.b + 14, 'text-anchor': 'middle', 'font-size': 7.5, fill: s.textDim, text: d.date.slice(8) + '/' + d.date.slice(5, 7) }, svg);
     });
-    _vizLegendChips(container, [['Indipendente', s.v], ['Con prompt', s.p], ['Errore', s.x]]);
+    _vizLegendChips(container, [['Indipendente', s.v], ['Con prompt', s.p]].concat(daily.some(d => d.e) ? [['E- (eco errata)', colE(s)]] : []).concat([['Errore', s.x]]));
 }
 
 function _vizLegendChips(container, items) {
@@ -843,34 +846,34 @@ function vizDailyRose(container, patient) {
 // 9) INDEPENDENCE STREAM — flowing streamgraph of V/P/X (organic alt to bars).
 function vizIndependenceStream(container, patient) {
     const s = skin();
-    const daily = vizDailyData(patient).filter(d => (d.v + d.p + d.x) > 0);
+    const daily = vizDailyData(patient).filter(d => (d.v + d.p + (d.e || 0) + d.x) > 0);
     if (daily.length < 2) { container.innerHTML = '<p style="color:var(--text-secondary); text-align:center; padding:20px;">Servono almeno 2 giornate con dati V/P/X.</p>'; return; }
     const pad = { l: 12, r: 12, t: 16, b: 30 };
     const plotW = Math.max(280, daily.length * 26), plotH = 180;
     const w = pad.l + plotW + pad.r, h = pad.t + plotH + pad.b;
     const svg = svgRoot(container, w, h, { bg: s.bg, maxWidth: Math.max(w, 680) });
-    const maxTot = Math.max(...daily.map(d => d.v + d.p + d.x), 1);
+    const maxTot = Math.max(...daily.map(d => d.v + d.p + (d.e || 0) + d.x), 1);
     const mid = pad.t + plotH / 2;
     const sc = (plotH * 0.86) / maxTot;
     const stepX = daily.length > 1 ? plotW / (daily.length - 1) : 0;
     const xAt = i => pad.l + (daily.length > 1 ? i * stepX : plotW / 2);
     // layer order bottom→top: x (errors), p (prompt), v (independent), centered baseline
-    const layers = [['x', s.x], ['p', s.p], ['v', s.v]];
+    const layers = [['x', s.x], ['e', colE(s)], ['p', s.p], ['v', s.v]];
     // baseline: centre the total stack
-    const base = daily.map(d => mid + (d.v + d.p + d.x) * sc / 2);
+    const base = daily.map(d => mid + (d.v + d.p + (d.e || 0) + d.x) * sc / 2);
     let cursor = base.slice();
     layers.forEach(([key, col]) => {
         const bot = daily.map((d, i) => [xAt(i), cursor[i]]);
         const top = daily.map((d, i) => { cursor[i] -= d[key] * sc; return [xAt(i), cursor[i]]; });
         const d = _smooth(top) + ' ' + _smooth(bot.slice().reverse(), true) + ' Z';
         const area = svgEl('path', { d, fill: col, opacity: 0.9 }, svg);
-        _title(area, key === 'v' ? 'Indipendente (V)' : key === 'p' ? 'Con prompt (P)' : 'Errore (X)');
+        _title(area, key === 'v' ? 'Indipendente (V)' : key === 'p' ? 'Con prompt (P)' : key === 'e' ? 'Ecoica errata (E-)' : 'Errore (X)');
     });
     daily.forEach((d, i) => {
         if (i % Math.ceil(daily.length / 10 || 1) === 0)
             svgEl('text', { x: xAt(i), y: h - pad.b + 16, 'text-anchor': 'middle', 'font-size': 7.5, fill: s.textDim, text: d.date.slice(8) + '/' + d.date.slice(5, 7) }, svg);
     });
-    _vizLegendChips(container, [['Indipendente', s.v], ['Con prompt', s.p], ['Errore', s.x]]);
+    _vizLegendChips(container, [['Indipendente', s.v], ['Con prompt', s.p]].concat(daily.some(d => d.e) ? [['E- (eco errata)', colE(s)]] : []).concat([['Errore', s.x]]));
     _caption(container, 'Il flusso si allarga con il volume · lo strato verde che cresce = più autonomia');
 }
 

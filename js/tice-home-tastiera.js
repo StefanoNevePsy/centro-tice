@@ -50,12 +50,12 @@
         if (!k) return;
         const tasto = e.key.length === 1 ? e.key.toLowerCase() : e.key;
         const fai = (azione, extra) => { e.preventDefault(); T.tastiera = k; T.mantieniScroll = true; azioni[azione]({ dataset: Object.assign({ id: k }, extra || {}) }); segnaScelta(); };
-        if (['1', '2', '3', 'v', 'p', 'x'].includes(tasto)) {
+        if (['1', '2', '3', '4', 'v', 'p', 'e', 'x'].includes(tasto)) {
             // i tasti dell'attività, così come sono a schermo (con il tipo di oggi)
             const att = attivitaDi(p, k), v = voce(p, att, k);
             const eco = ecoico(attPerVoce(att, k)), tipo = v.sessionType || att.sessionType;
-            const ris = eco ? ['V', 'P', 'X'] : ['V', tipo === 'timedelay' ? 'P' : 'X'];
-            const rr = /[123]/.test(tasto) ? ris[+tasto - 1] : ris.find((x) => x.toLowerCase() === tasto);
+            const ris = eco ? ['V', 'P', 'E', 'X'] : ['V', tipo === 'timedelay' ? 'P' : 'X'];
+            const rr = /[1234]/.test(tasto) ? ris[+tasto - 1] : ris.find((x) => x.toLowerCase() === tasto);
             if (!rr) return;
             fai('segna', { r: rr });
             const bt = r.querySelector(`[data-a="segna"][data-id="${CSS.escape(k)}"][data-r="${rr}"]`) || document.querySelector(`#tice-ta [data-a="segna"][data-r="${rr}"]`);

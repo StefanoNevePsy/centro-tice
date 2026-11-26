@@ -901,6 +901,72 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
     await p.locator('.tice-foglio [data-foglio="chiudi"]').last().click(); await attesa(300);
     await p.locator('.tice-foglio [data-foglio="chiudi"]').last().click(); await attesa(300);
+    // ---- Echo to tact: ✓ / E+ / E- / ✗ (E- = ecoico richiesto ma non corretto) ----
+    const eco = await p.evaluate(async () => {
+      const pz = { id: 'p-eco', name: 'Eco E.', history: [], programma: { attivita: [] } };
+      const a = TiceProgramma.nuovaAttivita(pz, { nome: 'Tact eco', modalita: 'tact', target: 'Animali', prove: 4 });
+      a.risposte = 'ecoico'; a.nomeP = 'Ecoica'; if (!pz.programma.attivita.includes(a)) pz.programma.attivita.push(a);
+      state.patients.push(pz); await DB.savePatient(pz);
+      TiceHome.vai('seduta', pz.id); return { pid: pz.id, att: a.id };
+    }); await attesa(600);
+    await p.setViewportSize({ width: 390, height: 844 }); await attesa(300);
+    await p.click(`.att[data-att="${eco.att}"]`); await attesa(300);
+    ok(await p.locator(`.att[data-att="${eco.att}"] .tasti.eco4 .tasto`).count() === 4, 'echo to tact: quattro tasti ✓ / E+ / E- / ✗');
+    ok((await p.locator(`.att[data-att="${eco.att}"] .tasto`).allTextContents()).map((t) => t.split(/\s/)[0].replace(/(Autonoma|Ecoica|Eco|Errata).*/, '')).join('|') === '✓|E+|E-|✗', 'echo to tact: le etichette dei tasti');
+    ok(await p.evaluate((id) => [...document.querySelectorAll(`.att[data-att="${id}"] .tasto`)].every((b) => { const r = b.getBoundingClientRect(); return r.height >= 74 && r.width >= 60 && r.right <= innerWidth && b.scrollWidth <= b.clientWidth + 1; }), eco.att), 'echo to tact, telefono: tasti alti almeno 74 px, dentro lo schermo, senza testo tagliato');
+    await foto('eco-tasti-chiaro');
+    await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'taccuino-scuro')); await attesa(300);
+    await foto('eco-tasti-scuro');
+    ok(await p.evaluate((id) => { const c = (r) => getComputedStyle(document.querySelector(`.att[data-att="${id}"] .tasto[data-r="${r}"]`)).backgroundColor; return c('E') !== c('P') && c('E') !== c('X') && c('E') !== c('V'); }, eco.att), 'echo to tact, tema scuro: E- ha un colore proprio, diverso da ✓, E+ e ✗');
+    await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'taccuino')); await attesa(300);
+    for (const r of ['V', 'P', 'E', 'X', 'E']) await p.click(`.att[data-att="${eco.att}"] [data-a="segna"][data-r="${r}"]`);
+    let v = await p.evaluate((id) => { const x = TiceHome.strumenti.T.bozza.voci[id]; return { v: x.v, p: x.p, e: x.e, x: x.x, seq: x.sequenza }; }, eco.att);
+    ok(v.v === 1 && v.p === 1 && v.e === 2 && v.x === 1 && v.seq === 'VPEXE', 'echo to tact: segnare ✓/E+/E-/✗ (' + JSON.stringify(v) + ')');
+    ok(/✓ 1 · E\+ 1 · E- 2 · ✗ 1/.test(await p.locator(`.att[data-att="${eco.att}"] .riepilogo-eco`).innerText()) && /20%/.test(await p.locator(`.att[data-att="${eco.att}"] .att-testa .conto`).first().innerText()), 'echo to tact: riepilogo «✓ 1 · E+ 1 · E- 2 · ✗ 1» e percentuale ✓/prove (1/5 = 20%)');
+    ok(await p.locator(`.att[data-att="${eco.att}"] .sequenza i.E`).count() === 2, 'echo to tact: la sequenza mostra i due E-');
+    ok(/E-/.test(await p.locator('#tice-annulla').innerText()), 'echo to tact: «annulla» dice che l\'ultima è un E-');
+    await p.click('#tice-annulla'); await attesa(200);
+    v = await p.evaluate((id) => { const x = TiceHome.strumenti.T.bozza.voci[id]; return { e: x.e, seq: x.sequenza }; }, eco.att);
+    ok(v.e === 1 && v.seq === 'VPEX', 'echo to tact: annulla toglie anche un E-');
+    // tastiera: 3 = E-, e = E-, 4 = ✗; non attiva mentre si scrive
+    await p.click(`.att[data-att="${eco.att}"] .att-testa`); await attesa(100); await p.click(`.att[data-att="${eco.att}"] .att-testa`); await attesa(200);
+    await p.keyboard.press('3'); await p.keyboard.press('e'); await p.keyboard.press('4'); await attesa(150);
+    v = await p.evaluate((id) => TiceHome.strumenti.T.bozza.voci[id].sequenza, eco.att);
+    ok(v === 'VPEXEEX', 'echo to tact, tastiera: 3 e «e» segnano E-, 4 segna ✗ (' + v + ')');
+    await p.evaluate(() => { window.staScrivendo = () => true; }); await p.keyboard.press('e'); await attesa(100);
+    ok(await p.evaluate((id) => TiceHome.strumenti.T.bozza.voci[id].sequenza, eco.att) === 'VPEXEEX', 'echo to tact, tastiera: mentre si scrive «e» non segna');
+    await p.evaluate(() => { delete window.staScrivendo; });
+    // correzione a mano: il campo E- nel foglio della voce
+    await p.click(`.att[data-att="${eco.att}"] [data-a="nota-voce"]`); await attesa(300);
+    await p.locator('.tice-foglio details.apribile summary').first().click(); await attesa(150);
+    ok(await p.locator('.tice-foglio [name=ecoNo]').count() === 1 && await p.inputValue('.tice-foglio [name=ecoNo]') === '3', 'echo to tact: il foglio «Correggi i dati» ha il campo E- (3)');
+    await p.fill('.tice-foglio [name=ecoNo]', '2'); await p.fill('.tice-foglio [name=tot]', '8'); await salvaFoglio(); await attesa(300);
+    v = await p.evaluate((id) => { const x = TiceHome.strumenti.T.bozza.voci[id]; return { v: x.v, p: x.p, e: x.e, x: x.x }; }, eco.att);
+    ok(v.v === 1 && v.p === 1 && v.e === 2 && v.x === 4, 'echo to tact: correzione a mano di E- e totale (' + JSON.stringify(v) + ')');
+    await p.click(`.att[data-att="${eco.att}"] [data-a="nota-voce"]`); await attesa(300);
+    await p.locator('.tice-foglio details.apribile summary').first().click(); await attesa(100);
+    await p.fill('.tice-foglio [name=ecoNo]', '3'); await p.fill('.tice-foglio [name=tot]', '0'); await salvaFoglio(); await attesa(300);
+    // salvataggio: quattro prove per LU (V P E E) + resto in attesa
+    await p.evaluate((id) => { const x = TiceHome.strumenti.T.bozza.voci[id]; x.v = 1; x.p = 1; x.e = 2; x.x = 0; x.sequenza = 'VPEE'; TiceHome.strumenti.salvaBozza(); TiceHome.ridisegna(); }, eco.att); await attesa(300);
+    await p.click('[data-a="termina"]'); await attesa(400);
+    await p.fill('.tice-foglio [name=operatore]', 'Prova'); await salvaFoglio(); await attesa(500);
+    while (await p.locator('.tice-foglio').count()) { await p.keyboard.press('Escape'); await attesa(200); }
+    const sal = await p.evaluate(() => { const l = state.patients.find((x) => x.id === 'p-eco').history; return l.map((h) => ({ v: h.rawV, p: h.rawP, e: h.rawE, x: h.rawX, tot: h.total, pct: h.percentage })); });
+    ok(sal.length === 1 && sal[0].v === 1 && sal[0].p === 1 && sal[0].e === 2 && sal[0].x === 0 && sal[0].tot === 4 && sal[0].pct === 25, 'echo to tact: la seduta salvata ha rawE e conta E- come prova (' + JSON.stringify(sal) + ')');
+    await p.evaluate((id) => TiceHome.vai('cartella', id), 'p-eco'); await attesa(700);
+    ok(/✓ 1 · E\+ 1 · E- 2 · ✗ 0/.test(await p.locator('.cr-corpo').innerText()), 'cartella: la seduta di echo to tact mostra E+ ed E- separati');
+    ok(await p.locator('.cr-barra i.E').count() >= 1, 'cartella: la barretta ha il segmento E-');
+    await p.locator('.cr-eco').first().scrollIntoViewIfNeeded(); await attesa(200);
+    await foto('eco-cartella');
+    await p.locator('.cr-sed').first().click(); await attesa(300);
+    ok(/E- 2/.test(await p.locator('.tice-foglio').innerText()), 'cartella: il dettaglio della seduta riporta E- 2');
+    await p.keyboard.press('Escape'); await attesa(200);
+    // grafici: la distribuzione V/P/X con lo strato E-
+    await p.evaluate(() => { state._vizView = 'independence'; TiceHome.vai('grafici', 'p-eco'); }); await attesa(800);
+    const gE = await p.evaluate(() => { const d = _vizApi.vizDailyData(state.patients.find((x) => x.id === 'p-eco')); return d.map((x) => [x.v, x.p, x.e, x.x].join()).join(';'); });
+    ok(gE === '1,1,2,0', 'grafici: i dati giornalieri hanno e (E-) accanto a v, p, x (' + gE + ')');
+    await p.evaluate(() => { const i = state.patients.findIndex((x) => x.id === 'p-eco'); state.patients.splice(i, 1); });
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
     ok(errori.length === 0, 'nessun errore di pagina' + (errori.length ? ': ' + errori.join(' | ') : ''));
   } catch (e) { falliti++; console.log('  ✗ interrotta: ' + (process.env.TICE_DEBUG ? (e.message || e) : (e.message || e).split('\n')[0]) + (errori.length ? ' · errori di pagina: ' + errori.join(' | ') : '')); }
   await b.close(); server.close();

@@ -51,6 +51,7 @@
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .tasto::after { content: ''; position: absolute; inset: 0; opacity: 0; pointer-events: none; background-image: radial-gradient(rgba(255, 255, 255, .5) 1px, transparent 1.3px); background-size: 5px 5px; transition: opacity .3s cubic-bezier(.22, 1, .36, 1); }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .tasto:active::after { opacity: 1; transition-duration: 0s; }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .tasto small { letter-spacing: .06em; text-transform: uppercase; font-size: .72rem; }
+:root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .tasti.eco4 .tasto small { letter-spacing: .01em; font-size: .6rem; }
 
 /* la sequenza come sul foglio dati: v, P, x tracciati a mano */
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza { gap: 2px 6px; align-items: center; min-height: 26px; }
@@ -58,10 +59,12 @@
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.V { color: var(--t-v); }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.P { color: var(--t-p); }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.X { color: var(--t-x); }
+:root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.E { color: var(--t-e); }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.V::before { content: 'v'; }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.P::before { content: 'P'; }
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.X::before { content: 'x'; }
-:root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza.eco i.P::before { content: 'e+'; }
+:root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza.eco i.P::before { content: 'E+'; }
+:root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .sequenza i.E::before { content: 'E-'; }
 
 /* annotazioni a mano, poche: le note sulla LU e le note della voce restano stampate */
 :root[data-theme^="taccuino"][data-tice-stile="quaderno"] .tice .vuoto { font-family: var(--f-mano); color: var(--q-spot); font-size: 1.55rem; line-height: 1.3; padding: 36px 12px; }

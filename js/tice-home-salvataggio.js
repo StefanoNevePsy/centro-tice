@@ -42,7 +42,7 @@
     // Dove vanno i dati di un'attività aggiunta per un giorno (anche una seduta di gioco): a un'attività del programma,
     // a una nuova, o restano come attività «una tantum». Restituisce false se si torna indietro.
     async function destinazioneTemporanea(p, b, t, resto) {
-        const v = b.voci[t.id], n = v.v + v.p + v.x, gioco = !!(v.gioco || t.daGioco);
+        const v = b.voci[t.id], n = v.v + v.p + (v.e || 0) + v.x, gioco = !!(v.gioco || t.daGioco);
         const nt = M.normalizza(t.nome);
         const candidati = P.programma(p).attivita.filter((a) => !misure(a).length);
         const simile = (a) => { const na = M.normalizza(a.nome); return (t.modalita && a.modalita === t.modalita) || (na && nt && (na === nt || na.includes(nt) || nt.includes(na))); };
@@ -78,7 +78,7 @@
             // stesso tipo di risposte (✗ o P) prima di sommare
             const tipo = gia.sessionType || att.sessionType || 'independent';
             if ((v.sessionType || 'independent') !== tipo) { v.sessionType = tipo; convertiVoce(v, tipo, att); }
-            gia.v += v.v; gia.p += v.p; gia.x += v.x;
+            gia.v += v.v; gia.p += v.p; gia.x += v.x; if (v.e) gia.e = (gia.e || 0) + v.e;
             delete gia.gioco;   // i conteggi sommati non sono più quelli del gioco
             gia.sequenza = (gia.sequenza || '') + (v.sequenza || '');
             gia.nota = [gia.nota, v.nota].filter(Boolean).join(' — ');
@@ -147,7 +147,7 @@
                 if (P.conAttesa(attL, t)) {
                     // LU contate: entrano nei dati solo a blocchi completi, il resto aspetta
                     const n = +attL.prove, k = P.chiaveAttesa(t, m && m.id), prec = P.inAttesaDi(att, t, m && m.id);
-                    const seq = (v.sequenza || '').length === v.v + v.p + v.x ? v.sequenza : 'V'.repeat(v.v) + 'P'.repeat(v.p) + 'X'.repeat(v.x);
+                    const seq = (v.sequenza || '').length === v.v + v.p + (v.e || 0) + v.x ? v.sequenza : 'V'.repeat(v.v) + 'P'.repeat(v.p) + 'E'.repeat(v.e || 0) + 'X'.repeat(v.x);
                     const { blocchi, resto } = P.dividiLU(prec && prec.seq, seq, n);
                     const testoOggi = [voceS.decisione ? '**' + voceS.decisione + '**' : '', voceS.nota].filter(Boolean).join(' — ');
                     blocchi.forEach((bl, i) => {
@@ -285,11 +285,11 @@
                 // per una seduta di un giorno passato non si sa quanto sia durata: un'ora, da correggere
                 const minutiDa = b.data !== oggi() ? 60 : Math.max(5, Math.min(600, Math.round((Date.now() - Date.parse(b.inizio || new Date().toISOString())) / 60000)));
                 const righe = Object.keys(b.voci).filter((k) => haDati(b.voci[k])).map((k) => {
-                    const v = b.voci[k], a = attivitaDi(p, k), tot = v.v + v.p + v.x, pct = Math.round(100 * v.v / tot);
+                    const v = b.voci[k], a = attivitaDi(p, k), tot = v.v + v.p + (v.e || 0) + v.x, pct = Math.round(100 * v.v / tot);
                     const tt = a && v.targetId ? (a.target || []).find((x) => x.id === v.targetId) : null;
                     const lu = a ? statoLU(attPerVoce(a, k), v, tt, msDi(k)) : null;
                     const mm = a ? misure(a).find((x) => x.id === msDi(k)) : null;
-                    return h`<tr><td>${a ? a.nome : '?'}${mm ? ' · ' + mm.nome : ''}${lu ? h`<br><small class="sotto">${lu.blocchi.length ? `${lu.blocchi.length} LU nei dati` : 'non entra ancora nei dati'}${lu.resto ? ` · ${lu.resto}/${lu.n} in attesa` : ''}</small>` : ''}</td><td class="num">${v.v}/${tot}</td><td class="num"><b class="${classePct(pct, a && a.criterio && a.criterio.soglia)}">${pct}%</b></td></tr>`;
+                    return h`<tr><td>${a ? a.nome : '?'}${mm ? ' · ' + mm.nome : ''}${lu ? h`<br><small class="sotto">${lu.blocchi.length ? `${lu.blocchi.length} LU nei dati` : 'non entra ancora nei dati'}${lu.resto ? ` · ${lu.resto}/${lu.n} in attesa` : ''}</small>` : ''}</td><td class="num">${v.v}/${tot}${a && attPerVoce(a, k).risposte === 'ecoico' && (v.e || v.p) ? h`<br><small class="sotto">${X.riepilogoEco(v)}</small>` : ''}</td><td class="num"><b class="${classePct(pct, a && a.criterio && a.criterio.soglia)}">${pct}%</b></td></tr>`;
                 });
                 // chi ha svolto la seduta: dai turni del calendario; se non c'è nessuno, lo si chiede
                 const cal = EST.chiDi ? await EST.chiDi(p.id, b.data).catch(() => ({ nomi: [], persone: [] })) : { nomi: [], persone: [] };

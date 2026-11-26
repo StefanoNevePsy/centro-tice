@@ -1213,6 +1213,7 @@ window.toggleDaySessionDetail = (header, patientId, sessionIdx, activityKeyEncod
             html += `<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">`;
             html += `<span style="font-size:0.8rem;"><i class="fa-solid fa-check" style="color:var(--success-color);"></i> ${s.correct}</span>`;
             if (prompts > 0) html += `<span style="font-size:0.8rem; color:var(--warning-color);"><b>P</b> ${prompts}</span>`;
+            if (s.rawE > 0) html += `<span style="font-size:0.8rem; color:#7a64d0;"><b>E-</b> ${s.rawE}</span>`;
             if (errors > 0) html += `<span style="font-size:0.8rem; color:var(--danger-color);"><b>X</b> ${errors}</span>`;
             html += `<span style="font-size:0.8rem; color:var(--text-secondary);">Tot: ${s.total}</span>`;
             if (isTD && s.timeDelaySeconds) html += `<span style="font-size:0.75rem; background:rgba(245,158,11,0.15); color:var(--warning-color); padding:2px 8px; border-radius:6px;">TD ${s.timeDelaySeconds}s</span>`;
@@ -1991,7 +1992,7 @@ function unisciSeduteDelGiorno(sessions) {
         x.correct = (x.correct || 0) + (s.correct || 0);
         x.prompts = (x.prompts || 0) + (s.prompts || 0);
         x.total += s.total;
-        ['rawV', 'rawP', 'rawX'].forEach((f) => { if (s[f] != null || x[f] != null) x[f] = (x[f] || 0) + (s[f] || 0); });
+        ['rawV', 'rawP', 'rawE', 'rawX'].forEach((f) => { if (s[f] != null || x[f] != null) x[f] = (x[f] || 0) + (s[f] || 0); });
         x.percentage = Math.round(100 * x.correct / x.total);
         if (new Date(s.date) > new Date(x.date)) x.date = s.date;
         if (s.operatore && x.operatore !== s.operatore) x.operatore = [x.operatore, s.operatore].filter(Boolean).join(' + ');
@@ -2206,6 +2207,7 @@ function renderActivitySVGChart(container, sessions, typeGroup, modeCode, thresh
             ? `${formatDateEU(s.date)}\nCorrette: ${s.correct}/${s.total}${s.rawX ? ' (Errori: ' + s.rawX + ')' : ''}\nDurata: ${s.fluenzaDuration || '?'}s`
             : `${formatDateEU(s.date)}\nScore: ${s.percentage}% (${s.correct}/${s.total})`;
         if (s.rawP) tooltipText += `\nPrompt: ${s.rawP}`;
+        if (s.rawE) tooltipText += `\nE- (eco errata): ${s.rawE}`;
         if (s.timeDelaySeconds) tooltipText += `\nTime Delay: ${s.timeDelaySeconds}s`;
         if (s.fieldSize && sessionsUseField(sessions, modeCode)) tooltipText += `\nField: ${s.fieldSize}`;
         if (vIdx > 0) tooltipText += `\nVariante: ${_chartVariantName(sessions, vIdx)}`;

@@ -27,7 +27,7 @@ Concetti di dominio che servono per leggere il codice:
 Funzioni viste dall'utente (le viste sono registrate in `VISTE`, vedi sezione 2):
 - **Turni di oggi** (schermata iniziale, vista `turni`) e **settimana tipo** (`turni-modello`); da lì si apre il bambino.
 - **Elenco dei bambini** (`bambini`, anche «Tutti i bambini»), nuovo bambino, aule, bambini «non dell'aula» (riservati, visibili solo a chi li crea e alle persone con cui li condivide).
-- **Seduta** (`seduta`): attività del bambino con target in corso, tasti ✓/P/✗, task analysis, strisce dei comportamenti, nota, «chi ha svolto» (dal calendario o scelta), fine seduta con proposta del target successivo e unione delle attività aggiunte solo per oggi, bozza che sopravvive alle chiusure, scorciatoie da tastiera.
+- **Seduta** (`seduta`): attività del bambino con target in corso, tasti ✓/P/✗ (✓/E+/E-/✗ nell'echo to tact), task analysis, strisce dei comportamenti, nota, «chi ha svolto» (dal calendario o scelta), fine seduta con proposta del target successivo e unione delle attività aggiunte solo per oggi, bozza che sopravvive alle chiusure, scorciatoie da tastiera.
 - **Programma** (`programma`): attività, target, criterio, modalità, condizioni, set numerati, stampa delle griglie A4, programmi di gruppo.
 - **Cartella** (`cartella`): Giornate (chi ha svolto, prove, percentuale), Attività (scheda con andamento), Comportamenti; solo lettura.
 - **Grafici** (`grafici`): percentuali, celeration chart (SCC), viste dei programmi (target nel tempo, acquisiti, sedute al criterio), comportamenti.
@@ -152,6 +152,15 @@ Oggetto con i campi dell'app personale più quelli del Centro:
 - **Bozza della seduta** (`localStorage tice_bozza_<pid>`): `{ pid, data, inizio, voci:{ chiave → {v,p,x,sequenza,operatore,targetId,sessionType,tdSeconds,esiti…} }, extra:[idAttività], temp:[attività solo per oggi], comp:{ idComportamento → {episodi, inCorso, nonOsservato} }, operatore, … }`. Chiavi di `voci`: `idAttività` oppure `idAttività~idPresa` (più prese dati nella stessa attività). Se la bozza è vuota viene cancellata (`salvaBozza`). `eliminaBozza` dopo il salvataggio.
 - **Chi ha svolto**: nelle sedute, comportamenti e note si salva sia il nome (`operatore`/`autore`) sia l'email (`operatoriEmail`/`email`). La UI mostra sempre il **nome attuale** della persona risolto dall'email con `TiceSync.nomePersona`, `nomiSeduta`, `autoreNota` (i nomi nei dati sono copie vecchie). Al cambio di nome l'app propone di aggiornare anche il testo delle sedute passate (in `tice-centro.js`, funzioni che chiamano `sostituisciNome`).
 
+### Echo to tact: E+ ed E-
+
+Un'attività con `att.risposte === 'ecoico'` (anche una presa dati con `tipo: 'ecoico'`) ha quattro risposte: ✓ (tact da solo, `v`, sequenza `V`), **E+** (lo ripete in ecoico, salvato come P: `p`, `P`, `rawP`), **E-** (ecoico richiesto ma non ripetuto correttamente: `e`, `E`, **`rawE`**) e ✗ (`x`, `X`, `rawX`). E- è un dato **a parte**, non confluisce in E+ né in ✗.
+- Bozza: la voce ha `e` (può mancare nelle bozze vecchie: si legge sempre `(v.e || 0)`; `segna` e `annullaUltima` creano il campo al volo). Sequenza con il carattere `E`.
+- Seduta salvata (`TiceProgramma.seduta`): `rawE` **solo se > 0** (le sedute senza E- non hanno il campo, restano identiche a prima); `total` = ✓ + E+ + E- + ✗, `percentage` = ✓ / `total`, `correct` = ✓, `prompts` = E+. Le LU contano E- come prova (`contaRisposte` restituisce `{v,p,e,x}`, `dividiLU` lavora sulla sequenza); il criterio (`criterioRaggiunto`) usa `correct`/`total`, quindi E- è non corretta come le altre.
+- Dove compare: tasti e sequenza in seduta (`.tasto.en`, `.sequenza i.E`, annulla), riepilogo «✓ 6 · E+ 2 · E- 1 · ✗ 1» (`riepilogoEco`, anche nel foglio di fine seduta), correzione a mano (campo `ecoNo` nel foglio «Correggi i dati»), condizioni (`condizioni.E`, campo «E- ecoica errata»), programma (anteprima del modulo attività), stampa (legenda e condizioni), cartella (pill `.cr-eco`, segmento `.cr-barra i.E`, dettaglio), grafici (`vizDailyData` → `e`; strato E- nell'«Indipendenza V/P/X» e nello stream), unione di sedute dello stesso giorno (`patients.js`) e fusione fra dispositivi (campo normale della seduta).
+- Colore: `--t-e` in `css/tice.css` (viola, `--cat-5` del tema: chiaro e scuro); nel tema scuro il tasto ha testo d'inchiostro come gli altri.
+- Limiti: nella celeration chart (tre serie V/P/X) E- è contata fra gli **errori**; nei grafici «prompt balance» E- non entra (è una non corretta non promptata); i giochi non producono E-.
+
 ### Fusione fra dispositivi
 
 Le liste con `id` si uniscono per id (nessuna seduta si perde; cancellata da una parte e non toccata dall'altra resta cancellata). Gli oggetti si uniscono chiave per chiave; se cambia da entrambe le parti vince chi sta salvando. **Se aggiungi un array di oggetti con `id` al bambino, aggiungilo a `PER_ID` in `js/tice-unisci.js`** e prova con `tools/test-tice-sync.js`, altrimenti due dispositivi si sovrascrivono.
@@ -268,6 +277,8 @@ Serve anche l'app (`--statico`, di serie la radice del repository) con un `tice-
 
 ## 5. Test e verifica
 
+(`tools/test-tice-eco.js`: E- nelle sedute, LU, criterio, unione, SCC; è in `test-tutti.sh`. Il flusso nel browser è in fondo a `tools/test-app-browser.js`.)
+
 - **Tutti i test** (gli stessi della pubblicazione):
   ```
   NODE_PATH=/opt/node22/lib/node_modules sh tools/test-tutti.sh
@@ -326,7 +337,7 @@ Serve anche l'app (`--statico`, di serie la radice del repository) con un `tice-
 ### Scorciatoie da tastiera
 
 - **Regola d'oro: mai mentre si scrive.** `window.staScrivendo(e)` (definita in `js/app.js`) è vera se il bersaglio, l'elemento attivo o un elemento del percorso dell'evento è `INPUT`, `TEXTAREA`, `SELECT` o modificabile (`contentEditable`, quindi anche gli editor delle note). Ogni gestore di tasti **deve** chiamarla per primo (lo fanno `tice-home-tastiera.js`, `tice-cartella.js`, `app.js`); in passato le lettere D, F, V, P, X, S, Z sparivano dal testo delle note.
-- In seduta (`tice-home-tastiera.js`): `1/2/3` (o `V/P/X`) segnano sull'ultima attività toccata o sulla task analysis aperta; `Z` o Backspace annullano l'ultima risposta; `S` o `→` saltano il passo, `←` torna al passo prima; `Maiusc+1…9` toccano l'ennesimo comportamento problema. Non agiscono se c'è un foglio aperto (`.tice-foglio`), un modale o con Alt/Ctrl/Meta.
+- In seduta (`tice-home-tastiera.js`): `1/2/3` (o `V/P/X`) segnano sull'ultima attività toccata (in un'attività **Echo to tact** i tasti sono quattro: `1` ✓, `2` o `P` E+, `3` o `E` E-, `4` o `X` ✗) o sulla task analysis aperta; `Z` o Backspace annullano l'ultima risposta; `S` o `→` saltano il passo, `←` torna al passo prima; `Maiusc+1…9` toccano l'ennesimo comportamento problema. Non agiscono se c'è un foglio aperto (`.tice-foglio`), un modale o con Alt/Ctrl/Meta.
 - L'ultima attività toccata è marcata `.da-tastiera` (`segnaScelta`).
 - Gesto o tasto «indietro» del telefono: vedi `agganciaIndietro` (voci di cronologia aggiunte al tocco).
 

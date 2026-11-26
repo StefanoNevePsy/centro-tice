@@ -187,7 +187,7 @@
                     att.criterio = { soglia: +r.soglia || 90, sedute: +r.sedute || 2 };
                     att.prove = +r.prove || null;
                     impostaField(att, r.field, r.promptVisivo);
-                    impostaCondizioni(att, r.cV, r.cP, r.cX);
+                    impostaCondizioni(att, r.cV, r.cP, r.cX, r.cE);
                     targetDaAggiungere(r).forEach((x) => P.aggiungiTarget(att, x, true));
                     if (r.g_modo) att.mode = r.g_modo;   // la sezione «Gioco»
                     rinominaSedute(p, att);   // nome e categoria delle sedute
@@ -276,11 +276,12 @@
                         <p class="sotto piccolo">Scrivi solo quello che cambia per questo target: le voci vuote prendono quelle dell'attività${att.condizioni ? ' (le vedi qui come suggerimento)' : ''}.</p>
                         <div class="riga-campi campi-cond">
                             <label class="campo"><span>✓ vale come corretta</span><input name="cV" maxlength="200" value="${(t.condizioni && t.condizioni.V) || ''}" placeholder="${(att.condizioni && att.condizioni.V) || 'es. una casella segnata restando seduto'}"></label>
-                            <label class="campo"><span>P / e+ promptata</span><input name="cP" maxlength="200" value="${(t.condizioni && t.condizioni.P) || ''}" placeholder="${(att.condizioni && att.condizioni.P) || ''}"></label>
+                            <label class="campo"><span>P / E+ promptata</span><input name="cP" maxlength="200" value="${(t.condizioni && t.condizioni.P) || ''}" placeholder="${(att.condizioni && att.condizioni.P) || ''}"></label>
+                            <label class="campo"><span>E- ecoica errata (echo to tact)</span><input name="cE" maxlength="200" value="${(t.condizioni && t.condizioni.E) || ''}" placeholder="${(att.condizioni && att.condizioni.E) || ''}"></label>
                             <label class="campo"><span>✗ errata</span><input name="cX" maxlength="200" value="${(t.condizioni && t.condizioni.X) || ''}" placeholder="${(att.condizioni && att.condizioni.X) || ''}"></label></div>
                         <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`);
                     if (!nc) return;
-                    impostaCondizioni(t, nc.cV, nc.cP, nc.cX);
+                    impostaCondizioni(t, nc.cV, nc.cP, nc.cX, nc.cE);
                     t.modificato = att.modificato = new Date().toISOString();
                 }
                 else if (r === 'passi') {

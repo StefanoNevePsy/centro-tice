@@ -80,8 +80,8 @@
   function condizioni(a, t) {
     var c = a.condizioni || (t && t.condizioni) ? Object.assign({}, a.condizioni || {}, (t && t.condizioni) || {}) : null;
     if (!c) return '';
-    var eco = a.risposte === 'ecoico', tipi = eco ? ['V', 'P', 'X'] : ['V', a.sessionType === 'timedelay' ? 'P' : 'X'];
-    var segno = { V: '✓', P: eco ? 'e+' : 'P', X: '✗' };
+    var eco = a.risposte === 'ecoico', tipi = eco ? ['V', 'P', 'E', 'X'] : ['V', a.sessionType === 'timedelay' ? 'P' : 'X'];
+    var segno = { V: '✓', P: eco ? 'E+' : 'P', E: 'E-', X: '✗' };
     var r = tipi.filter(function (k) { return c[k]; });
     return r.length ? '<div class="st-cond">' + r.map(function (k) { return '<span><b>' + segno[k] + '</b> ' + caselle(c[k]) + '</span>'; }).join('') + '</div>' : '';
   }
@@ -184,7 +184,7 @@
       '<div class="st-legenda"><b>+</b> corretta' +
       '<span class="st-sep"></span><span class="st-badge">T/D</span> time delay: <b>P</b> promptata' +
       '<span class="st-sep"></span><span class="st-badge chiaro">IND</span> indipendente: <b>−</b> errata' +
-      '<span class="st-sep"></span><span class="st-badge">ECO</span> echo to tact: <b>e+</b> ecoica, <b>−</b> errata' +
+      '<span class="st-sep"></span><span class="st-badge">ECO</span> echo to tact: <b>E+</b> ecoica, <b>E-</b> ecoica errata, <b>−</b> errata' +
       '<span class="st-sep"></span><span class="st-c on demo"></span> prove previste</div>';
     var cat = null;
     elenco.forEach(function (v) {

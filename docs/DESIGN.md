@@ -62,7 +62,7 @@ Nel tema scuro la carta diventa inchiostro e l'inchiostro diventa carta. Il verm
 | Significato | Chiaro | Scuro | Uso |
 |---|---|---|---|
 | Corretta / successo (✓) | `#3f7a4d` | `#75b683` | Tasto «corretta», percentuali sopra il criterio |
-| Promptata / attenzione (P, e+) | `#9a6a16` | `#e1ad57` | Tasto «promptata», percentuali intermedie |
+| Promptata / attenzione (P, E+) | `#9a6a16` | `#e1ad57` | Tasto «promptata», percentuali intermedie |
 | Errata / pericolo (✗) | `#9f1d2c` | `#ec6b7a` | Tasto «errata», percentuali basse, eliminazioni |
 
 Nel tema scuro i tasti di risposta sono chiari, con il testo color inchiostro scuro (`#10141b`) per restare AA.
@@ -196,7 +196,7 @@ Sempre in vermiglio, breve, mai per i dati. Esempi d'uso:
 - lo stato «in corso / salvata 16:40» sotto il nome di un bambino;
 - «Nota della giornata»;
 - gli stati vuoti («Nessun bambino oggi»);
-- la sequenza delle risposte (v, P, x, e+) come sul foglio dati cartaceo.
+- la sequenza delle risposte (v, P, x, E+, E-) come sul foglio dati cartaceo.
 
 ### 5.6 Timbro
 
@@ -230,7 +230,7 @@ Altezza minima di 44 px per tutto ciò che si tocca; 40 px è tollerato solo su 
 
 ### 6.3 Tasti di risposta (presa dati)
 
-- Sono grandi: almeno 74 px di altezza e 12–14 px di raggio. Hanno lo sfondo del colore di significato e il simbolo grande (✓ P ✗ e+) con l'etichetta maiuscola spaziata sotto.
+- Sono grandi: almeno 74 px di altezza e 12–14 px di raggio. Hanno lo sfondo del colore di significato e il simbolo grande (✓ P ✗ E+ E-) con l'etichetta maiuscola spaziata sotto.
 - Come finitura da timbro hanno un bordo interno chiaro di 2 px e un'ombra interna in basso; quando li premi compare un lampo di retino bianco.
 - Due tasti se l'attività ha due risposte, tre se ne ha tre. Sotto i tasti ci sono annulla, nota e le condizioni («✓ vale come…»).
 

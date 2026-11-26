@@ -226,7 +226,7 @@
 
   /** Crea le sedute Quaderno di un'attività per lo storico dell'app. */
   function seduta(att, target, voce, quando) {
-    var v = voce.v || 0, pp = voce.p || 0, x = voce.x || 0, tot = v + pp + x;
+    var v = voce.v || 0, pp = voce.p || 0, ee = voce.e || 0, x = voce.x || 0, tot = v + pp + ee + x;
     if (!tot) return null;
     var s = {
       id: nuovoId('sx'),
@@ -245,6 +245,8 @@
       targetId: target ? target.id : null,
       fonte: 'app'
     };
+    // echo to tact: E- (ecoico richiesto ma non corretto), distinto da E+ (rawP) e da ✗ (rawX); assente se zero, così le sedute senza E- restano identiche
+    if (ee) s.rawE = ee;
     if (s.sessionType === 'timedelay') {
       var td = secondi(voce.tdSeconds) != null ? secondi(voce.tdSeconds) : tdDi(att, target);
       if (td != null) s.timeDelaySeconds = td;
@@ -253,13 +255,13 @@
     // task analysis: il dettaglio per passo, come la modalità Task Analysis
     var passi = passiDi(target);
     if (passi.length && voce.esiti) {
-      var CODICI = { V: true, P: 'prompt', X: false };
+      var CODICI = { V: true, P: 'prompt', E: false, X: false };
       s.mode = 'quaderno_task';
       s.taskSteps = passi.map(function (ps) {
         var e = String(voce.esiti[ps.id] || '');
         var n = function (c) { return e.split(c).length - 1; };
         return { name: ps.testo, results: e.split('').map(function (c) { return CODICI[c]; }),
-          v: n('V'), p: n('P'), x: n('X'), na: 0, scored: e.length, sessionType: s.sessionType };
+          v: n('V'), p: n('P'), x: n('X') + n('E'), na: 0, scored: e.length, sessionType: s.sessionType };
       });
       if (voce.giri) s.giri = voce.giri;
     }
@@ -466,8 +468,8 @@
     return { blocchi: blocchi, resto: tutta.slice(i) };
   }
   function contaRisposte(seq) {
-    var c = { v: 0, p: 0, x: 0 };
-    String(seq || '').split('').forEach(function (r) { if (r === 'V') c.v++; else if (r === 'P') c.p++; else if (r === 'X') c.x++; });
+    var c = { v: 0, p: 0, e: 0, x: 0 };   // e = E- dell'echo to tact
+    String(seq || '').split('').forEach(function (r) { if (r === 'V') c.v++; else if (r === 'P') c.p++; else if (r === 'E') c.e++; else if (r === 'X') c.x++; });
     return c;
   }
 

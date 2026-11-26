@@ -54,7 +54,7 @@ const SEZIONI = [
       <p>Tocca un'attività per aprirla.</p>` },
   { eti: '3 · La seduta', titolo: 'Segnare le risposte', img: [['11-seduta-tasti', 'Un\'attività in time delay: ✓ corretta e P promptata.'], ['13-task-analysis', 'Task analysis: un passo alla volta.']],
     testo: `<p>I tasti dipendono dal tipo di seduta:</p>
-      <ul><li><b>Indipendente</b>: ✓ corretta e ✗ errata;</li><li><b>Time delay</b>: ✓ corretta e P promptata;</li><li><b>Echo to tact</b>: ✓, e+ ecoica, ✗.</li></ul>
+      <ul><li><b>Indipendente</b>: ✓ corretta e ✗ errata;</li><li><b>Time delay</b>: ✓ corretta e P promptata;</li><li><b>Echo to tact</b>: ✓, E+ ecoica, E- ecoica errata, ✗.</li></ul>
       <p>Sotto i tasti si scrive la sequenza delle risposte, come sul foglio. ↶ annulla l'ultima, la matita apre la nota.</p>
       <p>Con le <b>LU a prove fisse</b> (es. 20) il dato entra quando se ne completano 20, anche in più sedute: le prove avanzate restano da parte e l'app lo scrive.</p>
       <p>Nella <b>task analysis</b> compare un passo alla volta: segni e si passa al successivo; finito l'ultimo si ricomincia.</p>` },

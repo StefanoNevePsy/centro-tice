@@ -27,7 +27,7 @@
   // Una seduta salvata dal gioco è «fresca» entro questi millisecondi
   var FRESCA_MS = 60000;
   // Campi che dopo la chiusura della seduta decide il programma (nome, conteggi, tipo, note), non il gioco
-  var DEL_PROGRAMMA = ['id', 'date', 'setName', 'correct', 'prompts', 'total', 'percentage', 'rawV', 'rawP', 'rawX', 'sessionType',
+  var DEL_PROGRAMMA = ['id', 'date', 'setName', 'correct', 'prompts', 'total', 'percentage', 'rawV', 'rawP', 'rawE', 'rawX', 'sessionType',
     'timeDelaySeconds', 'note', 'attivitaId', 'targetId', 'operatore', 'operatoriEmail', 'sequenza', 'setId', 'setCat', 'mode'];
 
   function unici(a) { var v = {}; return a.filter(function (x) { if (v[x]) return false; v[x] = true; return true; }); }

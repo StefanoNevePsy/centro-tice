@@ -291,14 +291,15 @@
 
     const campiCondizioni = (pre, c) => h`<div class="riga-campi campi-cond">
         <label class="campo"><span>✓ vale come corretta</span><input name="${pre + 'cV'}" maxlength="200" value="${(c && c.V) || ''}" placeholder="es. ordina le 3 carte giuste"></label>
-        <label class="campo"><span>P / e+ promptata</span><input name="${pre + 'cP'}" maxlength="200" value="${(c && c.P) || ''}" placeholder="es. con le caselle prima/poi/dopo"></label>
+        <label class="campo"><span>P / E+ promptata</span><input name="${pre + 'cP'}" maxlength="200" value="${(c && c.P) || ''}" placeholder="es. con le caselle prima/poi/dopo"></label>
+        <label class="campo"><span>E- ecoica errata (echo to tact)</span><input name="${pre + 'cE'}" maxlength="200" value="${(c && c.E) || ''}" placeholder="es. la ripete ma sbaglia il suono"></label>
         <label class="campo"><span>✗ errata</span><input name="${pre + 'cX'}" maxlength="200" value="${(c && c.X) || ''}" placeholder="es. ordine sbagliato o nessuna risposta"></label></div>`;
     // Le prese dati scritte nel modulo: quelle già esistenti tengono il loro id (e i dati)
     function impostaMisure(att, r) {
         const righe = Object.keys(r).filter((k) => /^ms_nome_\d+$/.test(k)).sort((x, y) => +x.slice(8) - +y.slice(8))
             .map((k) => { const i = k.slice(8); return { id: String(r['ms_id_' + i] || ''), nome: String(r[k] || '').trim(), mant: !!r['ms_mant_' + i],
                 tipo: ['independent', 'timedelay', 'ecoico'].includes(r['ms_tipo_' + i]) ? r['ms_tipo_' + i] : '', sugg: String(r['ms_sugg_' + i] || '').trim(),
-                prove: Math.min(200, parseInt(r['ms_prove_' + i], 10) || 0), field: r['ms_field_' + i], cV: r['ms_' + i + '_cV'], cP: r['ms_' + i + '_cP'], cX: r['ms_' + i + '_cX'] }; })
+                prove: Math.min(200, parseInt(r['ms_prove_' + i], 10) || 0), field: r['ms_field_' + i], cV: r['ms_' + i + '_cV'], cP: r['ms_' + i + '_cP'], cX: r['ms_' + i + '_cX'], cE: r['ms_' + i + '_cE'] }; })
             .filter((x) => x.nome);
         const viste = new Set();
         const nuove = righe.filter((x) => { const k = x.nome.toLowerCase(); if (viste.has(k)) return false; viste.add(k); return true; }).slice(0, 8);
@@ -312,7 +313,7 @@
             if (x.sugg) m.suggerimenti = x.sugg;
             if (x.prove > 0) m.prove = x.prove;
             impostaField(m, x.field, vecchia && vecchia.promptVisivo);
-            impostaCondizioni(m, x.cV, x.cP, x.cX);
+            impostaCondizioni(m, x.cV, x.cP, x.cX, x.cE);
             return m;
         });
     }
@@ -360,7 +361,7 @@
         if (r.sessionType === 'ecoico') { att.risposte = 'ecoico'; att.nomeP = 'Ecoica'; }
         if (r.colore) att.colore = r.colore;
         impostaField(att, r.field, r.promptVisivo);
-        impostaCondizioni(att, r.cV, r.cP, r.cX);
+        impostaCondizioni(att, r.cV, r.cP, r.cX, r.cE);
         if (eGruppo(p)) allineaMembri(p); else impostaMisure(att, r);
         modalitaDaModulo(att, r);
         righe.forEach((x, i) => P.aggiungiTarget(att, x, i === 0));
@@ -454,7 +455,7 @@
                 <div class="ma-tiles">
                     ${tile('independent', [['mv', '✓'], ['mx', '✗']], 'Indipendente', 'giusta o sbagliata')}
                     ${tile('timedelay', [['mv', '✓'], ['mp', 'P']], 'Time delay', 'aiuto dopo N″')}
-                    ${tile('ecoico', [['mv', '✓'], ['me', 'e+'], ['mx', '✗']], 'Echo to tact', 'da solo o ripetuto')}
+                    ${tile('ecoico', [['mv', '✓'], ['me', 'E+'], ['mm', 'E-'], ['mx', '✗']], 'Echo to tact', 'da solo o ripetuto')}
                 </div>
                 <label class="campo ma-td" data-se-tipo="timedelay" ${tipoA === 'timedelay' ? '' : grezzo('hidden')}><span>${icona('stopwatch')} Secondi di attesa prima dell'aiuto</span><input name="tdSeconds" type="number" min="0" max="60" inputmode="numeric" value="${tdA != null ? tdA : ''}" placeholder="es. 0, 1, 2…">
                     ${(a.tdCambi || []).length ? h`<span class="sotto piccolo">Cambi finora: ${a.tdCambi.map((c) => `${formatoData(c.il)} ${c.da != null ? sec(c.da) + '→' : ''}${sec(c.a)}`).join(', ')}</span>` : ''}</label>
@@ -604,7 +605,7 @@
             }
             const tipo = val('sessionType') || 'independent', td = val('tdSeconds'), lu = val('dato') === 'lu';
             const col = val('colore') || (att ? P.coloreDi(p, att, true) : P.PALETTE[P.programma(p).attivita.length % P.PALETTE.length]);
-            const tasti = tipo === 'timedelay' ? [['mv', '✓ Corretta'], ['mp', 'P Promptata']] : tipo === 'ecoico' ? [['mv', '✓ Autonoma'], ['me', 'e+ Ecoica'], ['mx', '✗ Errata']] : [['mv', '✓ Corretta'], ['mx', '✗ Errata']];
+            const tasti = tipo === 'timedelay' ? [['mv', '✓ Corretta'], ['mp', 'P Promptata']] : tipo === 'ecoico' ? [['mv', '✓ Autonoma'], ['me', 'E+ Ecoica'], ['mm', 'E- Errata ecoica'], ['mx', '✗ Errata']] : [['mv', '✓ Corretta'], ['mx', '✗ Errata']];
             const t = primoTarget();
             const prove = val('prove');
             el.querySelector('[data-ma-anteprima]').innerHTML = String(h`<div class="ma-prev" style="--col:${col}">
