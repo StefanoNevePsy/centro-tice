@@ -17,11 +17,13 @@
         return ((typeof state !== 'undefined' && state.savedSets) || []).filter((s) => (s.modes || []).includes('quaderno') && !(s.modes || []).includes('quaderno_task'));
     }
     const listeTA = () => ((typeof state !== 'undefined' && state.savedSets) || []).filter((s) => (s.modes || []).includes('quaderno_task'));
-    const modiDi = (sets) => [...new Set(sets.flatMap((x) => x.modes || []))].filter((m) => !MODI_ESCLUSI.includes(m));
+    // le modalità di un set, con quelle derivate (intensive tact per i set con il tact: valgono anche per i set già salvati)
+    const modiSet = (x) => (window.TiceGioco ? TiceGioco.modiDelSet(x.modes || []) : (x.modes || []));
+    const modiDi = (sets) => [...new Set(sets.flatMap(modiSet))].filter((m) => !MODI_ESCLUSI.includes(m));
     // Il gioco per uno o più set insieme: quello voluto se va bene per tutti, altrimenti il primo che va bene
     function modoPerSet(scelti, voluto) {
         if (!scelti.length) return voluto || '';
-        const comuni = (scelti[0].modes || []).filter((m) => !MODI_ESCLUSI.includes(m) && scelti.every((x) => (x.modes || []).includes(m)));
+        const comuni = modiSet(scelti[0]).filter((m) => !MODI_ESCLUSI.includes(m) && scelti.every((x) => modiSet(x).includes(m)));
         return comuni.includes(voluto) ? voluto : (comuni[0] || voluto || '');
     }
     const nomeCategoria = (x) => x.cat || x.category || '';
@@ -30,7 +32,7 @@
     function elencoSet(pre, sets, scelti, senzaUnione) {
         return h`<input type="search" placeholder="Cerca un set" data-filtro-set autocomplete="off" style="margin-bottom:6px">
             <div class="opzioni" style="max-height:34vh;overflow-y:auto" data-elenco-set>
-                ${sets.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + nomeCategoria(x)).toLowerCase()}" data-modi="${(x.modes || []).join(' ')}">
+                ${sets.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + nomeCategoria(x)).toLowerCase()}" data-modi="${modiSet(x).join(' ')}">
                     <input type="checkbox" name="${pre + 's'}" value="${x.id}" ${(scelti || []).includes(x.id) ? grezzo('checked') : ''}><span class="corpo">${x.name}<small>${nomeCategoria(x)}${x.items ? ' · ' + x.items.length + ' elementi' : ''}</small></span></label>`)}
             </div>
             <div class="campo ma-unione" data-unione hidden style="margin-top:8px"><span>${icona('layer-group')} Con più set scelti</span>
@@ -233,7 +235,7 @@
                 bt.textContent = ids.length ? 'Cambia…' : 'Scegli il set…';
                 if (sg) sg.hidden = !!ids.length || v === '-';
                 const sel = ids.map((id) => archivio.find((x) => x.id === id)).filter(Boolean);
-                const adatto = !sel.length || !modo.value || sel.every((x) => (x.modes || []).includes(modo.value));
+                const adatto = !sel.length || !modo.value || sel.every((x) => modiSet(x).includes(modo.value));
                 nota.textContent = adatto ? '' : `Non adatto al gioco «${etichettaModo(modo.value)}»: per questo target si userà ${etichettaModo(modoPerSet(sel, modo.value))}.`;
             });
             f.querySelectorAll('[data-ab-scegli]').forEach((b) => b.addEventListener('click', async () => {

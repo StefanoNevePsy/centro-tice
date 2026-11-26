@@ -103,8 +103,16 @@
     const classeR = (r) => (r === true ? 'V' : r === 'prompt' ? 'P' : 'X');
     const simboloR = (r) => (r === true ? '✓' : r === 'prompt' ? 'P' : '✗');
     const nomeR = (r) => (r === true ? 'corretto' : r === 'prompt' ? 'con aiuto' : 'errato');
+    // intensive tact: per stimolo la sequenza di tutte le risposte («XEV» → ✗ E- ✓), colorata come l'ultima
+    const SIMB = { V: '✓', P: 'E+', E: 'E-', X: '✗' };
+    const NOME_C = { V: 'autonoma', P: 'ecoica (E+)', E: 'ecoica errata (E-)', X: 'errata' };
+    const sequenzaDi = (d) => String(d.risposte || '').split('').filter((c) => SIMB[c]);
     function stimoli(lista) {
-        return h`<span class="gioco-stimoli">${lista.map((d) => h`<span class="gioco-chip ${classeR(d.result)}" title="${nomeR(d.result)}"><span class="gioco-r" aria-hidden="true">${simboloR(d.result)}</span>${d.label}</span>`)}</span>`;
+        return h`<span class="gioco-stimoli">${lista.map((d) => {
+            const seq = sequenzaDi(d);
+            if (!seq.length) return h`<span class="gioco-chip ${classeR(d.result)}" title="${nomeR(d.result)}"><span class="gioco-r" aria-hidden="true">${simboloR(d.result)}</span>${d.label}</span>`;
+            return h`<span class="gioco-chip ${seq[seq.length - 1]}" title="${'Risposte: ' + seq.map((c) => NOME_C[c]).join(', ')}"><span class="gioco-r" aria-hidden="true">${seq.map((c) => SIMB[c]).join(' ')}</span>${d.label}</span>`;
+        })}</span>`;
     }
     const pct = (a, t) => (t ? Math.round(100 * a / t) : 0);
     // Il dettaglio per set e per stimolo di un risultato di gioco (anche della scheda di una seduta salvata)
@@ -115,7 +123,7 @@
             return h`<div class="gioco-dett">${sb.map((x) => {
                 const lista = G.stimoliDelSet(g, x.setId);
                 const riga = h`<span class="gioco-set-nome">${x.setName}${x.setCat ? h` <small class="sotto">${x.setCat}</small>` : ''}</span>
-                    <span class="gioco-set-esito"><b class="${pct(x.correct, x.total) >= 90 ? 'pct-ok' : pct(x.correct, x.total) >= 60 ? 'pct-medio' : 'pct-basso'}">${pct(x.correct, x.total)}%</b> ${x.correct}/${x.total}${x.prompts ? h` · ${x.prompts} P` : ''}${x.incorrect ? h` · ${x.incorrect} ✗` : ''}</span>`;
+                    <span class="gioco-set-esito"><b class="${pct(x.correct, x.total) >= 90 ? 'pct-ok' : pct(x.correct, x.total) >= 60 ? 'pct-medio' : 'pct-basso'}">${pct(x.correct, x.total)}%</b> ${x.correct}/${x.total}${x.prompts ? h` · ${x.prompts} ${g.risposte === 'ecoico' ? 'E+' : 'P'}` : ''}${x.echoNo ? h` · ${x.echoNo} E-` : ''}${x.incorrect ? h` · ${x.incorrect} ✗` : ''}</span>`;
                 return lista.length ? h`<details class="gioco-set" ${opz.aperto ? grezzo('open') : ''}><summary>${riga}</summary>${stimoli(lista)}</details>`
                     : h`<div class="gioco-set"><div class="gioco-set-riga">${riga}</div></div>`;
             })}</div>`;

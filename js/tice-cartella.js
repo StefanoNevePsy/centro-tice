@@ -105,6 +105,8 @@
         const w = (n) => Math.round(1000 * n / tot) / 10;
         return h`<span class="cr-barra" role="img" aria-label="${v} corrette, ${pr} con aiuto${e ? ', ' + e + ' ecoiche errate (E-)' : ''}, ${x} errori"><i class="V" style="width:${w(v)}%"></i><i class="P" style="width:${w(pr)}%"></i>${e ? h`<i class="E" style="width:${w(e)}%"></i>` : ''}<i class="X" style="width:${w(x)}%"></i></span>`;
     }
+    // Echo to tact: dall'attività, da E- (rawE) o dal marcatore della seduta (`risposte`, messo dall'intensive tact dei giochi)
+    const eEco = (s, att) => !!((att && att.risposte === 'ecoico') || s.rawE > 0 || s.risposte === 'ecoico');
     function rigaSeduta(p, s, o) {
         o = o || {};
         const att = attDi(p, s), col = att ? P.coloreDi(p, att) : null;
@@ -126,7 +128,7 @@
                 ${s.misuraNome ? h`<span class="pill grigia">${s.misuraNome}</span>` : ''}
                 ${s.mode === 'quaderno_task' ? h`<span class="pill grigia">task analysis</span>` : ''}
                 ${Array.isArray(s.setBreakdown) && s.setBreakdown.length > 1 ? h`<span class="pill grigia">${s.setBreakdown.length} set</span>` : ''}
-                ${(s.rawE > 0 || (att && att.risposte === 'ecoico')) && s.total > 0 ? h`<span class="pill grigia cr-eco" title="Echo to tact">✓ ${s.rawV != null ? s.rawV : (s.correct || 0)} · E+ ${s.rawP != null ? s.rawP : (s.prompts || 0)} · E- ${s.rawE || 0} · ✗ ${s.rawX || 0}</span>` : ''}
+                ${eEco(s, att) && s.total > 0 ? h`<span class="pill grigia cr-eco" title="Echo to tact">✓ ${s.rawV != null ? s.rawV : (s.correct || 0)} · E+ ${s.rawP != null ? s.rawP : (s.prompts || 0)} · E- ${s.rawE || 0} · ✗ ${s.rawX || 0}</span>` : ''}
                 ${barretta(s)}
                 ${chi.length ? h`<span class="cr-chi-riga">${icona('user')} ${chi.join(' + ')}</span>` : ''}
             </div>
@@ -200,7 +202,7 @@
         const puoCorreggere = !(X.limitato && X.limitato()) && window.TiceData;
         const att = attDi(p, s), t = att && s.targetId ? (att.target || []).find((x) => x.id === s.targetId) : null;
         const tot = s.total || 0, v = s.rawV != null ? s.rawV : (s.correct || 0), pr = s.rawP != null ? s.rawP : (s.prompts || 0), e = s.rawE || 0, x = s.rawX != null ? s.rawX : Math.max(0, tot - v - pr - e);
-        const eco = e > 0 || (att && att.risposte === 'ecoico');
+        const eco = eEco(s, att);
         const pc = pctDi(s), td = s.sessionType === 'timedelay', mio = nomi(s), nota = pulita(s.note);
         const dur = s.durataSecondi != null ? s.durataSecondi : s.durationSeconds != null ? s.durationSeconds : s.durata != null ? s.durata : s.duration;
         const durT = dur != null && !isNaN(+dur) ? (+dur >= 60 ? Math.floor(+dur / 60) + ' min ' + (Math.round(+dur) % 60) + ' s' : Math.round(+dur) + ' s') : '';
@@ -220,7 +222,7 @@
                 ${s.fuoriStatistiche ? riga('Statistiche', 'Non conteggiata nelle statistiche') : ''}
             </tbody></table>
             ${X.dettaglioRisultatoGioco && ((s.setBreakdown && s.setBreakdown.length) || (s.itemDetails && s.itemDetails.length)) ? h`<p class="sotto piccolo" style="margin:10px 0 4px">${s.setBreakdown && s.setBreakdown.length ? 'Dettaglio per set e per stimolo' : 'Stimoli'}</p>${X.dettaglioRisultatoGioco(s, { aperto: !!(s.setBreakdown && s.setBreakdown.length && s.setBreakdown.length <= 3) })}` : ''}
-            ${s.sequenza ? h`<p class="sotto piccolo" style="margin:10px 0 4px">Sequenza delle risposte</p><div class="sequenza" role="img" aria-label="Sequenza: ${s.sequenza}">${String(s.sequenza).split('').map((r) => h`<i class="${r}"></i>`)}</div>` : ''}
+            ${s.sequenza ? h`<p class="sotto piccolo" style="margin:10px 0 4px">Sequenza delle risposte</p><div class="sequenza ${eco ? 'eco' : ''}" role="img" aria-label="Sequenza: ${s.sequenza}">${String(s.sequenza).split('').map((r) => h`<i class="${r}"></i>`)}</div>` : ''}
             ${nota ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Nota</p><p class="cr-nota" style="font-size:0.95rem;color:var(--text-primary)">${nota}</p>` : ''}
             ${corr.length ? h`<p class="sotto piccolo" style="margin:10px 0 2px">Correzioni</p><ul class="cr-correzioni">${corr.map((c) => h`<li>${dataOra(c.il) || '—'}${c.chi ? ' · ' + c.chi : ''}: ${c.campo === 'data' ? 'prima era del ' + (dataOra(c.da) || '—') : 'prima era «' + c.da + '»'}</li>`)}</ul>` : ''}
             <div class="bottoni">${puoCorreggere ? h`<button type="button" class="bt" data-foglio="data">${icona('calendar-day')} Cambia data e ora</button>` : ''}<button type="button" class="bt primario" data-foglio="chiudi">Chiudi</button></div></div>`);

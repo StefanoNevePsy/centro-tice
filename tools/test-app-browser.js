@@ -714,12 +714,162 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     await p.locator('#editor-list .editor-item input[list="sogg-lista"]').first().focus(); await p.keyboard.type('vvx'); await attesa(200);
     ok(await p.evaluate(() => state.session.total) === tot0 && /vvx/.test(await p.locator('#editor-list .editor-item input[list="sogg-lista"]').first().inputValue()), 'scorciatoie: scrivendo il soggetto i tasti v / x non segnano risposte (staScrivendo)');
     await p.evaluate(() => { closeEditor(); document.getElementById('modal-library').classList.remove('open'); });
+    const foto = (nome) => (process.env.TICE_SHOT ? p.screenshot({ path: process.env.TICE_SHOT + '/' + nome + '.png' }) : null);   // schermate per chi sviluppa: TICE_SHOT=cartella
+    // ---- Intensive tact: tact con ✓ / E+ / E- / ✗ e stimoli non autonomi che tornano a fine giro (js/tice-intensive.js, game-modes.js) ----
+    await p.evaluate(async () => {
+      const img = (t, i) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="hsl(${i * 67},65%,62%)"/><text x="80" y="88" font-size="20" text-anchor="middle" fill="#fff">${t}</text></svg>`);
+      // un set SOLO con il tact (modes: ['tact']): l'intensive tact deve valere anche per lui, senza risalvarlo
+      const s = { id: 'it1', name: 'Animali IT', category: 'Prova', modes: ['tact'], items: ['cane', 'gatto', 'pesce', 'uccello'].map((l, i) => ({ label: l, url: img(l, i + 1) })), date: new Date().toISOString() };
+      await DB.saveSet(s); state.savedSets.push(s);
+      state.savedSets.push({ id: 'it2', name: 'Frutta IT', category: 'Prova', modes: ['tact', 'ran'], items: ['mela', 'pera'].map((l, i) => ({ label: l, url: img(l, i + 6) })) });
+      state.savedSets.push({ id: 'it3', name: 'Solo RAN', category: 'Prova', modes: ['ran'], items: [{ label: 'x', url: img('x', 1) }] });
+      state.patients.push({ id: 'p-it', name: 'Intensive I.', history: [] });
+    });
+    ok(await p.evaluate(() => getModeLabel('intensive_tact') + '|' + MODES_CONFIG.intensive_tact + '|' + TiceHome.strumenti.etichettaModo('intensive_tact')) === 'Intensive tact|Intensive tact|Intensive tact', 'nomi leggibili: «Intensive tact» (menu, elenchi, cartella)');
+    ok(await p.evaluate(() => [...document.getElementById('mode-select').options].some((o) => o.text.trim() === 'Intensive tact')) && await p.evaluate(() => document.getElementById('mode-dropdown-panel').innerText.includes('Intensive tact')), 'menu dei giochi: c\'è «Intensive tact»');
+    ok(await p.evaluate(() => { const l = getActivityLayout(); return l.groups[0].modes.indexOf('intensive_tact') === l.groups[0].modes.indexOf('tact') + 1; }), 'menu dei giochi: sta subito dopo «TACT»');
+    await p.evaluate(() => { setGlobalPatient('p-it'); selectModeFromDropdown('intensive_tact'); }); await attesa(400);
+    ok(await p.evaluate(() => { const n = _dropdownSets.map((s) => s.id); return n.includes('it1') && n.includes('it2') && !n.includes('it3'); }) && await p.evaluate(() => JSON.stringify(state.savedSets.find((s) => s.id === 'it1').modes)) === '["tact"]', 'i set con il tact hanno l\'intensive tact senza risalvarli (e quello solo RAN no)');
+    ok(await p.evaluate(() => TiceModalita.modalitaDiModo('intensive_tact')) === 'tact' && await p.evaluate(() => VIZ_CONSTRUCTS.find((c) => c.key === 'denominazione').modes.intensive_tact) === 1, 'costrutto Denominazione e modalità Tact del centro includono l\'intensive tact');
+    await p.evaluate(() => { try { localStorage.removeItem('it_ripresenta'); } catch (e) { /* niente */ } loadSelectedSet('it1'); }); await attesa(600);
+    const it = () => p.evaluate(() => { const A = state._intTact; const c = state.session; return A ? { coda: A.S.coda.length, giro: A.S.giro, v: c.correct, p: c.prompts, e: c.echoNo || 0, x: c.incorrect, tot: c.total, label: (document.querySelector('.tact-title') || {}).innerText || '', fine: !!document.querySelector('.it-fine') } : null; });
+    let a = await it();
+    ok(a && a.coda === 4 && a.tot === 0 && await p.locator('.it-tasti .it-tasto').count() === 4 && await p.evaluate(() => document.getElementById('scoring-controls').classList.contains('hidden')), 'intensive tact: quattro tasti nel gioco (✓ E+ E- ✗) al posto dei due di sempre');
+    ok((await p.locator('.it-tasto').allTextContents()).map((t) => t.replace(/\s+/g, '')).join('|') === '✓Autonoma1|E+Ecoica2|E-Ecoerrata3|✗Errata4', 'intensive tact: le etichette dei tasti e i numeri delle scorciatoie (' + (await p.locator('.it-tasto').allTextContents()).map((t) => t.replace(/\s+/g, ' ').trim()).join('|') + ')');
+    ok(await p.evaluate(() => getComputedStyle(document.getElementById('session-type-toggle').closest('.select-wrapper')).display) === 'none', 'intensive tact: il selettore «Tipo» (indipendente / time delay) non serve e si nasconde');
+    ok(await p.evaluate(() => [...document.querySelectorAll('.it-tasto')].every((b) => { const r = b.getBoundingClientRect(); return r.height >= 70 && r.width >= 60 && r.left >= 0 && r.right <= innerWidth; })), 'intensive tact: tasti grandi e dentro lo schermo');
+    await foto('intensive-tact-chiaro');
+    // ✗ (tocco sul tasto), poi 3 = E-, 2 = E+, 1 = ✓
+    const l1 = a.label;
+    await p.click('.it-tasto.x'); await attesa(600); a = await it();
+    ok(a.x === 1 && a.tot === 1 && a.coda === 4 && a.label !== l1, 'intensive tact: ✗ segna, lo stimolo torna a fine giro e passa il successivo (' + l1 + ' → ' + a.label + ')');
+    await p.keyboard.press('3'); await attesa(500); await p.keyboard.press('2'); await attesa(500); await p.keyboard.press('1'); await attesa(500); a = await it();
+    ok(a.v === 1 && a.p === 1 && a.e === 1 && a.x === 1 && a.tot === 4 && a.coda === 3, 'intensive tact, tastiera: 3 = E-, 2 = E+, 1 = ✓ (✓1 E+1 E-1 ✗1; restano 3 da fare)');
+    ok(/E- 1/.test(await p.locator('.it-conta').innerText()) && /E\+ 1/.test(await p.locator('.it-conta').innerText()) && /prova 5/.test(await p.locator('.it-bar').innerText()), 'intensive tact: il contatore mostra i quattro dati e il numero di prova');
+    // doppio tocco subito dopo la risposta: una sola
+    await p.evaluate(() => { recordResponse(true); recordResponse(false); }); await attesa(600); a = await it();
+    ok(a.tot === 5 && a.v === 2, 'intensive tact: più tocchi sullo stesso stimolo contano una volta sola');
+    // annulla: l'ultima risposta torna a schermo
+    await p.keyboard.press('Control+z'); await attesa(300); a = await it();
+    ok(a.tot === 4 && a.v === 1 && a.coda === 3 && a.e === 1, 'intensive tact: Ctrl+Z annulla l\'ultima risposta (E- resta)');
+    // non attivo mentre si scrive (campo nome sessione)
+    await p.evaluate(() => { const i = document.getElementById('session-name-input'); i.focus(); }); await p.keyboard.type('13x'); await attesa(300);
+    ok((await it()).tot === 4 && await p.evaluate(() => document.getElementById('session-name-input').value) === '13x', 'intensive tact: scrivendo nel campo del nome i tasti 1 3 x non segnano (staScrivendo)');
+    await p.evaluate(() => { document.getElementById('session-name-input').value = ''; document.getElementById('session-name-input').blur(); });
+    // si finisce: tutti autonomi; lettere v / p / e / x come scorciatoie alternative
+    await p.keyboard.press('v'); await attesa(500); await p.keyboard.press('x'); await attesa(500); await p.keyboard.press('p'); await attesa(500); await p.keyboard.press('e'); await attesa(500);
+    a = await it();
+    ok(a.tot === 8 && a.v === 2 && a.p === 2 && a.e === 2 && a.x === 2, 'intensive tact, tastiera: v, x, p, e = ✓, ✗, E+, E- (' + JSON.stringify([a.v, a.p, a.e, a.x]) + ')');
+    for (let i = 0; i < 12 && !(await it()).fine; i++) { await p.keyboard.press('1'); await attesa(450); }
+    a = await it();
+    ok(a.fine && a.coda === 0 && /Tutti gli stimoli sono autonomi/.test(await p.locator('.it-fine').innerText()) && a.p === 2 && a.e === 2 && a.x === 2, 'intensive tact: a fine giro (tutti autonomi) lo dice e offre «Altro giro»');
+    await foto('intensive-tact-fine');
+    const nIt0 = await p.evaluate(() => state.patients.find((x) => x.id === 'p-it').history.length);
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1200);
+    const sIt = await p.evaluate((n) => { const l = state.patients.find((x) => x.id === 'p-it').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nIt0);
+    const q = sIt.s;
+    ok(sIt.nuove === 1 && q.mode === 'intensive_tact' && q.setId === 'it1' && q.rawV === q.correct && q.rawP === 2 && q.rawE === 2 && q.rawX === 2 && q.total === q.rawV + 6 && q.percentage === Math.round(100 * q.rawV / q.total) && q.risposte === 'ecoico' && q.sessionType === 'independent', 'intensive tact: seduta salvata con rawV/rawP (E+)/rawE (E-)/rawX, percentuale = ✓/prove e marcatore ecoico (' + [q.rawV, q.rawP, q.rawE, q.rawX, q.total, q.percentage + '%'].join('/') + ')');
+    ok(q.sequenza.length === q.total && /^[VPEX]+$/.test(q.sequenza) && (q.sequenza.match(/E/g) || []).length === 2 && q.itemDetails.length === 4 && q.itemDetails.every((d) => d.risposte && d.risposte.endsWith('V') && d.prove === d.risposte.length) && !q.setBreakdown && !q.timeDelaySeconds, 'intensive tact: sequenza e dettaglio per stimolo con tutte le risposte (E- compreso); nessun dettaglio per set con un set solo (' + q.sequenza + ')');
+    // cartella: E+ ed E- separati, anche nel dettaglio della seduta
+    await p.evaluate(() => TiceHome.vai('cartella', 'p-it')); await attesa(700);
+    ok(new RegExp('✓ ' + q.rawV + ' · E\\+ 2 · E- 2 · ✗ 2').test(await p.locator('.cr-corpo').innerText()) && await p.locator('.cr-barra i.E').count() >= 1, 'cartella: la seduta di intensive tact mostra ✓, E+ ed E- separati e il segmento E- nella barretta');
+    await p.locator('.cr-sed').first().click(); await attesa(400);
+    const sch = await p.locator('.tice-foglio').innerText();
+    ok(/Gioco\s+Intensive tact/.test(sch) && /E- 2/.test(sch) && /E\+ 2/.test(sch) && /Stimoli/.test(sch) && await p.locator('.tice-foglio .sequenza i.E').count() === 2, 'cartella: la scheda dice «Gioco: Intensive tact», E+ 2 · E- 2, gli stimoli e la sequenza con gli E-');
+    await p.locator('.tice-foglio details.gioco-set summary').first().click().catch(() => {}); await attesa(150);
+    ok(await p.locator('.tice-foglio .gioco-chip').count() === 4 && (await p.locator('.tice-foglio .gioco-chip .gioco-r').allTextContents()).some((t) => /E-/.test(t)), 'cartella: ogni stimolo mostra la sequenza delle sue risposte (✗ E- ✓…)');
+    await foto('intensive-tact-cartella');
+    await p.keyboard.press('Escape'); await attesa(200);
+    await p.evaluate(() => TiceHome.chiudi());
+    // grafici: E+ (non «prompt») e strato E-
+    await p.evaluate(() => { state._vizView = 'independence'; TiceHome.vai('grafici', 'p-it'); }); await attesa(800);
+    ok(await p.evaluate(() => { const d = _vizApi.vizDailyData(state.patients.find((x) => x.id === 'p-it')); return d.length === 1 && d[0].p === 2 && d[0].e === 2 && d[0].x === 2 && d[0].eco === true; }) && /E\+ \(ecoica\)/.test(await p.locator('#tice').innerText()), 'grafici: i dati giornalieri hanno E+ ed E- e la legenda dice «E+ (ecoica)»');
+    await p.evaluate(() => TiceHome.chiudi());
+
+    // senza riproporre: una passata, anche una seduta senza E- è ecoica (E+, non P)
+    await p.evaluate(() => { setGlobalPatient('p-it'); selectModeFromDropdown('intensive_tact'); loadSelectedSet('it1'); }); await attesa(500);
+    await p.click('.it-opz'); await attesa(200);
+    ok(await p.evaluate(() => state._intTact.S.ripresenta === false && localStorage.getItem('it_ripresenta') === '0') && await p.locator('.it-opz[aria-checked="false"]').count() === 1, 'intensive tact: l\'opzione «Ripresenta i non autonomi» si spegne e si ricorda');
+    for (const r of [true, 'prompt', false, true]) { await p.evaluate((x) => recordResponse(x), r); await attesa(500); }
+    a = await it();
+    ok(a.fine && a.tot === 4 && a.coda === 0 && /Giro completato/.test(await p.locator('.it-fine').innerText()), 'intensive tact, senza riproposizione: una sola passata e «Giro completato»');
+    await p.click('.it-fine .btn'); await attesa(300); a = await it();
+    ok(a.giro === 2 && a.coda === 4 && !a.fine && a.tot === 4, 'intensive tact: «Altro giro» riparte con tutti gli stimoli e tiene il punteggio');
+    await p.keyboard.press('Control+z'); await attesa(300); a = await it();
+    ok(a.giro === 1 && a.tot === 3 && a.coda === 1 && !a.fine, 'intensive tact: Ctrl+Z dopo «Altro giro» torna al giro prima, all\'ultimo stimolo');
+    await p.evaluate(() => recordResponse(true)); await attesa(500);
+    const nIt1 = await p.evaluate(() => state.patients.find((x) => x.id === 'p-it').history.length);
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1200);
+    const s2 = await p.evaluate((n) => { const l = state.patients.find((x) => x.id === 'p-it').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nIt1);
+    ok(s2.nuove === 1 && s2.s.rawE === undefined && s2.s.rawP >= 1 && s2.s.risposte === 'ecoico' && s2.s.mode === 'intensive_tact', 'intensive tact: senza E- non c\'è rawE ma resta ecoica (marcatore)');
+    await p.evaluate(() => TiceHome.vai('cartella', 'p-it')); await attesa(700);
+    ok(await p.locator('.cr-sed .cr-eco').count() === 2 && /E\+ 1 · E- 0/.test(await p.locator('.cr-sed .cr-eco').first().innerText() + await p.locator('.cr-sed .cr-eco').nth(1).innerText()), 'cartella: anche la seduta senza E- è mostrata con E+ (e E- 0), non come P');
+    await p.evaluate(() => TiceHome.chiudi());
+    await p.evaluate(() => { try { localStorage.removeItem('it_ripresenta'); } catch (e) { /* niente */ } });
+
+    // più set insieme
+    await p.evaluate(() => { setGlobalPatient('p-it'); selectModeFromDropdown('intensive_tact'); loadSetsTogether(['it1', 'it2']); }); await attesa(600);
+    ok(await p.evaluate(() => (state.mergedSets || []).length === 2 && state._intTact.S.n === 6), 'intensive tact, più set insieme: gli stimoli dei due set stanno in un solo giro (6)');
+    for (const r of [false, 'echo_no', true, 'prompt', true, true]) { await p.evaluate((x) => recordResponse(x), r); await attesa(450); }
+    const nIt2 = await p.evaluate(() => state.patients.find((x) => x.id === 'p-it').history.length);
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1200);
+    const s3 = await p.evaluate((n) => { const l = state.patients.find((x) => x.id === 'p-it').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nIt2);
+    const b3 = s3.s.setBreakdown || [];
+    ok(s3.nuove === 1 && s3.s.setId === 'multi_it1_it2' && s3.s.total === 6 && s3.s.rawE === 1 && b3.length === 2 && b3.reduce((x, y) => x + y.total, 0) === 6 && b3.reduce((x, y) => x + y.correct, 0) === s3.s.correct && b3.reduce((x, y) => x + (y.echoNo || 0), 0) === 1 && b3.reduce((x, y) => x + y.prompts, 0) === 1, 'intensive tact, più set: una seduta, totale unico e dettaglio per set con E+ ed E- (' + b3.map((b) => b.setName + ' ' + b.correct + '/' + b.total).join(', ') + ')');
+    ok(s3.s.itemDetails.length === 6 && s3.s.itemDetails.every((d) => d.setId && d.setName && d.risposte), 'intensive tact, più set: il dettaglio per stimolo porta il set e le risposte');
+
+    // gioco avviato direttamente da un bambino del Centro → seduta di oggi con i quattro tasti
+    const pidIT = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').id);
+    await p.evaluate((pid) => { TiceHome.strumenti.T.bozza = null; localStorage.removeItem('tice_bozza_' + pid); }, pidIT);
+    const nB2 = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').history.length);
+    await p.evaluate(() => { setGlobalPatient(state.patients.find((x) => x.name === 'Prova B.').id); selectModeFromDropdown('intensive_tact'); loadSelectedSet('it1'); }); await attesa(500);
+    for (const r of [false, 'echo_no', true, true, 'prompt', true]) { await p.evaluate((x) => recordResponse(x), r); await attesa(450); }
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1500);
+    const dir2 = await p.evaluate((n) => { const l = state.patients.find((x) => x.name === 'Prova B.'); const b = JSON.parse(localStorage.getItem('tice_bozza_' + l.id) || 'null'); const v = b && Object.values(b.voci)[0]; return { storico: l.history.length - n, temp: b ? b.temp.map((t) => ({ nome: t.nome, risposte: t.risposte })) : null, v: v ? [v.v, v.p, v.e || 0, v.x, v.sequenza, v.gioco && v.gioco.mode] : null }; }, nB2);
+    ok(dir2.storico === 0 && dir2.temp && dir2.temp.length === 1 && /Intensive tact – Animali IT/.test(dir2.temp[0].nome) && dir2.temp[0].risposte === 'ecoico' && dir2.v[2] === 1 && dir2.v[5] === 'intensive_tact' && dir2.v[4].length === dir2.v[0] + dir2.v[1] + dir2.v[2] + dir2.v[3], 'intensive tact avviato direttamente: va nella seduta di oggi come una tantum echo to tact, con E- e sequenza (' + JSON.stringify(dir2.v) + ')');
+    await p.evaluate((pid) => { const b = TiceHome.strumenti.bozza(pid); TiceHome.strumenti.T.aperte[b.temp[0].id] = true; TiceHome.apri(); TiceHome.vai('seduta', pid); }, pidIT); await attesa(600);
+    ok(await p.locator('.att-eco .tasti.eco4 .tasto').count() === 4 && /E\+ \d · E- 1/.test(await p.locator('.riepilogo-eco').first().innerText()) && await p.locator('.att-eco .sequenza i.E').count() === 1, 'seduta di oggi: l\'attività del gioco ha i quattro tasti dell\'echo to tact, il riepilogo con E- e la sequenza');
+    await foto('intensive-tact-in-seduta');
+    await p.click('[data-a="termina"]'); await attesa(400);
+    await p.fill('.tice-foglio [name=operatore]', 'Prova'); await salvaFoglio(); await attesa(600);
+    while (await p.locator('.tice-foglio').count()) { await p.keyboard.press('Escape'); await attesa(200); }
+    const sB = await p.evaluate((n) => { const l = state.patients.find((x) => x.name === 'Prova B.').history.slice(n).filter((x) => x.mode === 'intensive_tact'); return { nuove: l.length, s: JSON.parse(JSON.stringify(l[l.length - 1] || {})) }; }, nB2);
+    ok(sB.nuove === 1 && sB.s.mode === 'intensive_tact' && sB.s.fonte === 'app-gioco' && sB.s.rawE === 1 && sB.s.risposte === 'ecoico' && sB.s.total === sB.s.rawV + sB.s.rawP + sB.s.rawE + sB.s.rawX && sB.s.itemDetails.length === 4 && sB.s.sequenza.length === sB.s.total, 'seduta chiusa: la voce una tantum è echo to tact (rawE, marcatore, dettaglio per stimolo e sequenza) ' + JSON.stringify([sB.nuove, sB.s.mode, sB.s.fonte, sB.s.rawE, sB.s.risposte, sB.s.total, sB.s.itemDetails && sB.s.itemDetails.length, sB.s.sequenza]));
+    await p.evaluate((pid) => TiceHome.vai('cartella', pid), pidIT); await attesa(700);
+    ok(/E\+ \d · E- 1/.test(await p.locator('.cr-corpo').innerText()), 'cartella: la seduta di oggi dell\'intensive tact mostra E+ ed E-');
+    await p.evaluate(() => TiceHome.chiudi());
+
+    // da un target collegato con «Somministra con l'app»: va nel target come gli altri giochi
+    const idAttIT = await p.evaluate(() => { const pz = state.patients.find((x) => x.name === 'Prova B.'); const a = TiceProgramma.nuovaAttivita(pz, { nome: 'Tact intensivo', mode: 'intensive_tact' }); TiceProgramma.aggiungiTarget(a, { testo: 'Animali IT', setId: 'it1', mode: 'intensive_tact' }, false); TiceHome.strumenti.salvaPaziente(pz); return a.id; });
+    const nB3 = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').history.length);
+    await p.evaluate((id) => { const pz = state.patients.find((x) => x.name === 'Prova B.'), at = pz.programma.attivita.find((y) => y.id === id); TiceHome.strumenti.lancia(pz, at, at.target[0]); }, idAttIT); await attesa(600);
+    ok(await p.evaluate(() => document.getElementById('mode-select').value === 'intensive_tact' && !!state._intTact && !!document.querySelector('.it-tasti')), 'Centro: «Somministra con l\'app» apre l\'intensive tact');
+    for (const r of [true, 'echo_no', true, true, true]) { await p.evaluate((x) => recordResponse(x), r); await attesa(450); }
+    for (let i = 0; i < 6 && !(await it()).fine; i++) { await p.evaluate(() => recordResponse(true)); await attesa(450); }
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1500);
+    const sT = await p.evaluate((n) => { const l = state.patients.find((x) => x.name === 'Prova B.').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nB3);
+    ok(sT.nuove === 1 && sT.s.mode === 'intensive_tact' && sT.s.attivitaId === idAttIT && sT.s.fonte === 'app-gioco' && sT.s.rawE === 1 && sT.s.risposte === 'ecoico', 'Centro: la seduta dell\'intensive tact entra nel target collegato (attività, target, E-)');
+    await p.evaluate((id) => { const pz = state.patients.find((x) => x.name === 'Prova B.'); TiceHome.strumenti.T.bozza = null; localStorage.removeItem('tice_bozza_' + pz.id); }, idAttIT);
+
+    // telefono e tablet, chiaro e scuro
+    for (const [nome, w, hh] of [['telefono', 390, 844], ['tablet', 820, 1180]]) {
+      await p.setViewportSize({ width: w, height: hh }); await attesa(300);
+      await p.evaluate(() => { try { TiceHome.chiudi(); } catch (e) { /* già chiusa */ } setGlobalPatient('p-it'); selectModeFromDropdown('intensive_tact'); loadSelectedSet('it1'); }); await attesa(600);
+      await p.keyboard.press('3'); await attesa(500); await p.keyboard.press('2'); await attesa(500);
+      const m = await p.evaluate(() => { const st = document.getElementById('game-stage').getBoundingClientRect(); const bt = [...document.querySelectorAll('.it-tasto')].map((e) => e.getBoundingClientRect()); const img = document.querySelector('.tact-card-lg img').getBoundingClientRect(); const pila = [...document.querySelectorAll('.global-floating-controls button, .global-floating-controls input')].filter((e) => { const c = getComputedStyle(e); return e.getClientRects().length && c.visibility !== 'hidden' && c.pointerEvents !== 'none' && +c.opacity > 0.1 && e.closest('.fab-collapsed') === null; }).map((e) => e.getBoundingClientRect()); return { n: bt.length, minL: Math.min(...bt.map((r) => r.width)), minA: Math.min(...bt.map((r) => r.height)), dentro: bt.every((r) => r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight), orizz: [...document.querySelectorAll('.it-wrap *')].every((e) => e.getBoundingClientRect().right <= innerWidth + 1), imgH: img.height, imgOk: img.height >= 90, sovrapp: bt.some((r) => pila.some((f) => !(r.right <= f.left || r.left >= f.right || r.bottom <= f.top || r.top >= f.bottom))), taglio: [...document.querySelectorAll('.it-tasto small')].some((s) => s.scrollWidth > s.clientWidth + 1) }; });
+      ok(m.n === 4 && m.minL >= 60 && m.minA >= 70 && m.dentro && m.orizz && m.imgOk && !m.sovrapp && !m.taglio, nome + ': quattro tasti ≥ 60×70 px (' + Math.round(m.minL) + '×' + Math.round(m.minA) + '), dentro lo schermo, immagine alta ' + Math.round(m.imgH) + ' px, senza sovrapporsi ai pulsanti fluttuanti né tagliare il testo' + (m.n === 4 && m.minL >= 60 && m.minA >= 70 && m.dentro && m.orizz && m.imgOk && !m.sovrapp && !m.taglio ? '' : ' ' + JSON.stringify(m)));
+      await foto('intensive-tact-' + nome + '-chiaro');
+      await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'taccuino-scuro')); await attesa(300);
+      ok(await p.evaluate(() => { const c = (k) => getComputedStyle(document.querySelector('.it-tasto.' + k)).backgroundColor; return new Set(['v', 'p', 'en', 'x'].map(c)).size === 4; }), nome + ', tema scuro: E- ha un colore proprio, diverso da ✓, E+ e ✗');
+      await foto('intensive-tact-' + nome + '-scuro');
+      await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'taccuino')); await attesa(200);
+    }
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
     // fine delle prove di gioco: nessuna partita aperta (chiudere la presa dati chiederebbe «Attività in corso…»)
     await p.evaluate(() => { state.session.active = false; document.querySelectorAll('.themed-dialog-overlay').forEach((e) => e.remove()); });
     await p.evaluate(() => { try { TiceHome.apri(); } catch (e) { /* aperta */ } }); await attesa(300);
 
     // ---- data della seduta: una seduta di un giorno passato, e il cambio di data a posteriori (js/tice-data.js) ----
-    const foto = (nome) => (process.env.TICE_SHOT ? p.screenshot({ path: process.env.TICE_SHOT + '/' + nome + '.png' }) : null);   // schermate per chi sviluppa: TICE_SHOT=cartella
     const nomeB = 'Prova B.';
     const giornoFa = (n) => p.evaluate((k) => { const d = new Date(); d.setDate(d.getDate() - k); return TiceProgramma.giorno(d.toISOString()); }, n);
     const gPass = await giornoFa(12), gPass2 = await giornoFa(20), gOggi = await giornoFa(0);

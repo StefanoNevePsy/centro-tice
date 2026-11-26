@@ -1212,7 +1212,8 @@ window.toggleDaySessionDetail = (header, patientId, sessionIdx, activityKeyEncod
             // Score breakdown
             html += `<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">`;
             html += `<span style="font-size:0.8rem;"><i class="fa-solid fa-check" style="color:var(--success-color);"></i> ${s.correct}</span>`;
-            if (prompts > 0) html += `<span style="font-size:0.8rem; color:var(--warning-color);"><b>P</b> ${prompts}</span>`;
+            const _eco = s.risposte === 'ecoico' || s.rawE > 0;   // echo to tact / intensive tact: la risposta aiutata e' E+
+            if (prompts > 0) html += `<span style="font-size:0.8rem; color:var(--warning-color);"><b>${_eco ? 'E+' : 'P'}</b> ${prompts}</span>`;
             if (s.rawE > 0) html += `<span style="font-size:0.8rem; color:#7a64d0;"><b>E-</b> ${s.rawE}</span>`;
             if (errors > 0) html += `<span style="font-size:0.8rem; color:var(--danger-color);"><b>X</b> ${errors}</span>`;
             html += `<span style="font-size:0.8rem; color:var(--text-secondary);">Tot: ${s.total}</span>`;
@@ -1422,7 +1423,9 @@ function renderItemDetailsCollapsible(s, patientId, sessionIdx, isTD) {
     const chips = wrong.map(d => {
         const isPrompt = d.result === 'prompt';
         const color = isTD ? 'var(--warning-color)' : (isPrompt ? 'var(--warning-color)' : 'var(--danger-color)');
-        const tag = isTD ? 'P' : (isPrompt ? 'P' : 'X');
+        let tag = isTD ? 'P' : (isPrompt ? 'P' : 'X');
+        // intensive tact: tutte le risposte dello stimolo (✓ E+ E- ✗)
+        if (d.risposte) tag = String(d.risposte).split('').map(c => ({ V: '&#10003;', P: 'E+', E: 'E-', X: '&#10007;' }[c] || c)).join(' ');
         return `<span style="display:inline-block; padding:2px 8px; margin:2px; border-radius:6px; font-size:0.75rem; background:rgba(${isTD ? '245,158,11' : (isPrompt ? '245,158,11' : '239,68,68')},0.12); color:${color}; border:1px solid rgba(${isTD ? '245,158,11' : (isPrompt ? '245,158,11' : '239,68,68')},0.3);">${d.label} <span style="opacity:0.6;">${tag}</span></span>`;
     }).join('');
 

@@ -36,7 +36,7 @@
 
   // [id, nome, categoria, sinonimi, modi dell'app]
   var MODALITA = [
-    ['tact', 'Tact', 'speaker', ['tact', 'denominazione', 'denominare', 'naming', 'labeling', 'etichettare'], ['tact']],
+    ['tact', 'Tact', 'speaker', ['tact', 'denominazione', 'denominare', 'naming', 'labeling', 'etichettare'], ['tact', 'intensive_tact']],
     ['mand', 'Mand', 'speaker', ['mand', 'mandi', 'richiesta', 'richieste', 'request', 'requesting'], []],
     ['intraverbal', 'Intraverbal', 'speaker', ['intraverbal', 'intraverbale', 'intraverbali', 'conversazione', 'domande e risposte', 'wh'], ['intraverbal_scenari', 'pool_intraverbal', 'chi_lo_fa', 'cosa_fa']],
     ['echoic', 'Echoic', 'speaker', ['echoic', 'echo', 'ecoico', 'ecoica', 'ecoiche', 'imitazione vocale', 'ripetizione'], []],

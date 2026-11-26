@@ -326,6 +326,42 @@ select optgroup { background: var(--dropdown-deeper); color: var(--text-secondar
 .tact-card-lg img { width: 100%; flex: 1; object-fit: contain; border-radius: 10px; max-height: 70vh; }
 .tact-title { font-size: 2rem; color: #333; margin: 15px 0; font-weight: 800; text-transform: uppercase; }
 
+/* INTENSIVE TACT: tact con ✓ / E+ / E- / ✗ (E- viola come nella presa dati: --cat-5 del tema) */
+.it-wrap { --it-e: var(--cat-5, #6d5bd0); display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.it-bar { padding: 8px 10px; background: rgba(var(--shade-rgb),0.2); display: flex; gap: 8px 12px; align-items: center; justify-content: center; border-bottom: 1px solid var(--glass-border); flex-shrink: 0; flex-wrap: wrap; }
+.it-conta { display: inline-flex; gap: 8px; font-size: 0.9rem; }
+.it-conta b.v { color: var(--success-color); } .it-conta b.p { color: var(--warning-color); } .it-conta b.en { color: var(--it-e); } .it-conta b.x { color: var(--danger-color); }
+.it-opz { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--glass-border); background: rgba(var(--ink-rgb),0.05); color: var(--text-secondary); font-size: 0.78rem; cursor: pointer; }
+.it-opz.on { color: var(--text-primary); border-color: var(--accent-color); }
+.it-wrap .tact-stage { flex: 1; min-height: 0; padding: 4px 16px 16px; }
+.it-wrap .tact-card-lg { max-height: 100%; }
+.it-wrap .tact-card-lg img { min-height: 0; }
+.it-wrap .tact-title { margin: 8px 0; font-size: 1.6rem; }
+.it-tasti { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px 10px 6px; flex-shrink: 0; }
+.it-tasto { position: relative; min-height: 76px; border: none; border-radius: 16px; color: #fff; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; box-shadow: 0 4px 15px rgba(var(--shadow-rgb),0.35); transition: 0.1s; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.it-tasto:active { transform: scale(0.95); }
+.it-tasto b { font-size: 1.7rem; line-height: 1; font-weight: 800; }
+.it-tasto small { font-size: 0.68rem; font-weight: 600; letter-spacing: 0; white-space: nowrap; }
+.it-tasto .it-n { position: absolute; top: 4px; right: 8px; font-style: normal; font-size: 0.62rem; opacity: 0.75; }
+.it-tasto.v { background: var(--success-color); } .it-tasto.p { background: var(--warning-color); } .it-tasto.en { background: var(--it-e); } .it-tasto.x { background: var(--danger-color); }
+.it-fine { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 20px 90px; gap: 10px; }
+.it-fine-t { font-size: 1.3rem; font-weight: 700; color: var(--success-color); }
+.it-fine-s { color: var(--text-secondary); font-size: 0.9rem; }
+.feedback-echo-no {
+    border: 6px solid var(--it-e) !important;
+    box-shadow: 0 0 25px rgba(109, 91, 208, 0.55) !important;
+    transform: none !important;
+    box-sizing: border-box;
+}
+@media (max-width: 520px) {
+    .it-bar { padding: 6px 8px; }
+    .it-wrap .tact-stage { padding: 4px 8px 12px; }
+    .it-tasti { gap: 6px; padding: 8px 8px 4px; }
+    .it-tasto { min-height: 72px; }
+    .it-tasto b { font-size: 1.5rem; }
+    .it-tasto small { font-size: 0.6rem; }
+}
+
 /* Hide labels toggle */
 #game-stage.labels-hidden .tact-title,
 #game-stage.labels-hidden .ran-single-stage h2,

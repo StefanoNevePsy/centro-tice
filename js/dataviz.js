@@ -111,6 +111,7 @@ function vizDailyData(patient) {
         const correctLU = lu.ok;
         // V/P/X: prefer raw fields, fall back to correct/error split.
         let v = 0, p = 0, x = 0, e = 0;   // e = E- dell'echo to tact (rawE)
+        const eco = ss.some(srec => srec.rawE > 0 || srec.risposte === 'ecoico');   // la risposta aiutata e' E+ (echo to tact, intensive tact)
         ss.forEach(srec => {
             const hasRaw = srec.rawV != null || srec.rawP != null || srec.rawX != null;
             if (hasRaw) { v += srec.rawV || 0; p += srec.rawP || 0; x += srec.rawX || 0; e += srec.rawE || 0; }
@@ -118,7 +119,7 @@ function vizDailyData(patient) {
         });
         return {
             date: dk, totalLU, correctLU, incorrectLU: totalLU - correctLU,
-            v, p, x, e, sessions: ss.length,
+            v, p, x, e, eco, sessions: ss.length,
             pct: totalLU > 0 ? Math.round(correctLU / totalLU * 100) : 0,
             hasNote: !!dailyNotes[dk] || ss.some(srec => srec.note),
             tag: dayTags[dk] && DAY_TAGS[dayTags[dk]] ? { key: dayTags[dk], ...DAY_TAGS[dayTags[dk]] } : null,
@@ -191,7 +192,7 @@ const VIZ_MACROS = {
 };
 const VIZ_CONSTRUCTS = [
     // Linguaggio (espressivo)
-    { key: 'denominazione', label: 'Denominazione', short: 'Denom.', macro: 'Linguaggio', modes: { tact: 1, ran: 0.8, ran_intensivo: 0.8, fluenza: 0.7, zoom: 0.5 } },
+    { key: 'denominazione', label: 'Denominazione', short: 'Denom.', macro: 'Linguaggio', modes: { tact: 1, intensive_tact: 1, ran: 0.8, ran_intensivo: 0.8, fluenza: 0.7, zoom: 0.5 } },
     { key: 'fluenza_verbale', label: 'Fluenza verbale', short: 'Fluenza', macro: 'Linguaggio', modes: { fluenza: 1 } },
     { key: 'morfosintassi', label: 'Morfosintassi', short: 'Morfosint.', macro: 'Linguaggio', modes: { singolare_plurale: 1 } },
     { key: 'intraverbale', label: 'Intraverbale', short: 'Intraverb.', macro: 'Linguaggio', modes: { pool_intraverbal: 1, intraverbal_scenari: 1, chi_lo_fa: 1, cosa_fa: 1 } },
@@ -415,12 +416,12 @@ function vizIndependenceArea(container, patient) {
             const segH = plotH * val / maxLU;
             yCursor -= segH;
             const r = svgEl('rect', { x, y: yCursor, width: barW, height: segH, fill: col, rx: s.organic ? 4 : 2, opacity: 0.92 }, svg);
-            _title(r, `${formatDateEU(d.date + 'T00:00:00')}\nIndip.(V): ${d.v}  Prompt(P): ${d.p}${d.e ? '  Eco err.(E-): ' + d.e : ''}  Err.(X): ${d.x}`);
+            _title(r, `${formatDateEU(d.date + 'T00:00:00')}\nIndip.(V): ${d.v}  ${d.eco ? 'Eco(E+)' : 'Prompt(P)'}: ${d.p}${d.e ? '  Eco err.(E-): ' + d.e : ''}  Err.(X): ${d.x}`);
         });
         if (i % Math.ceil(daily.length / 12 || 1) === 0)
             svgEl('text', { x: x + barW / 2, y: h - pad.b + 14, 'text-anchor': 'middle', 'font-size': 7.5, fill: s.textDim, text: d.date.slice(8) + '/' + d.date.slice(5, 7) }, svg);
     });
-    _vizLegendChips(container, [['Indipendente', s.v], ['Con prompt', s.p]].concat(daily.some(d => d.e) ? [['E- (eco errata)', colE(s)]] : []).concat([['Errore', s.x]]));
+    _vizLegendChips(container, [['Indipendente', s.v], [daily.some(d => d.eco) ? 'E+ (ecoica)' : 'Con prompt', s.p]].concat(daily.some(d => d.e) ? [['E- (eco errata)', colE(s)]] : []).concat([['Errore', s.x]]));
 }
 
 function _vizLegendChips(container, items) {
@@ -867,13 +868,13 @@ function vizIndependenceStream(container, patient) {
         const top = daily.map((d, i) => { cursor[i] -= d[key] * sc; return [xAt(i), cursor[i]]; });
         const d = _smooth(top) + ' ' + _smooth(bot.slice().reverse(), true) + ' Z';
         const area = svgEl('path', { d, fill: col, opacity: 0.9 }, svg);
-        _title(area, key === 'v' ? 'Indipendente (V)' : key === 'p' ? 'Con prompt (P)' : key === 'e' ? 'Ecoica errata (E-)' : 'Errore (X)');
+        _title(area, key === 'v' ? 'Indipendente (V)' : key === 'p' ? (daily.some(d => d.eco) ? 'Ecoica (E+)' : 'Con prompt (P)') : key === 'e' ? 'Ecoica errata (E-)' : 'Errore (X)');
     });
     daily.forEach((d, i) => {
         if (i % Math.ceil(daily.length / 10 || 1) === 0)
             svgEl('text', { x: xAt(i), y: h - pad.b + 16, 'text-anchor': 'middle', 'font-size': 7.5, fill: s.textDim, text: d.date.slice(8) + '/' + d.date.slice(5, 7) }, svg);
     });
-    _vizLegendChips(container, [['Indipendente', s.v], ['Con prompt', s.p]].concat(daily.some(d => d.e) ? [['E- (eco errata)', colE(s)]] : []).concat([['Errore', s.x]]));
+    _vizLegendChips(container, [['Indipendente', s.v], [daily.some(d => d.eco) ? 'E+ (ecoica)' : 'Con prompt', s.p]].concat(daily.some(d => d.e) ? [['E- (eco errata)', colE(s)]] : []).concat([['Errore', s.x]]));
     _caption(container, 'Il flusso si allarga con il volume · lo strato verde che cresce = più autonomia');
 }
 

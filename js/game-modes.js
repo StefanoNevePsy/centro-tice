@@ -161,6 +161,7 @@ function renderGameMode(mode, items) {
     // Clean up any previous drag handlers
     if (window._topoCleanup) { window._topoCleanup(); window._topoCleanup = null; }
     if (engine === 'tact') renderTact(items, stage);
+    else if (engine === 'intensive_tact') renderIntensiveTact(items, stage);
     else if (engine === 'ran') renderRan(items, stage);
     else if (engine === 'ran_intensivo') renderRanIntensivo(items, stage);
     else if (engine === 'fluenza') renderFluenza(items, stage);
@@ -217,6 +218,107 @@ function renderTact(items, stage) {
     showCard();
     window._startTDCountdown();
 }
+
+// --- INTENSIVE TACT ---
+// Il tact con i quattro dati dell'echo to tact: ✓ autonomo, E+ lo ripete in ecoico, E- ecoico non corretto, ✗ errata.
+// Chi somministra tocca il tasto (o 1/2/3/4, V/P/E/X); gli stimoli non autonomi tornano a fine giro (opzione).
+// La logica (coda, annulla, riepilogo) e' in js/tice-intensive.js.
+function renderIntensiveTact(items, stage) {
+    const I = window.TiceIntensive;
+    if (state._intTact) clearTimeout(state._intTact.timer);
+    let rip = true;
+    try { rip = localStorage.getItem('it_ripresenta') !== '0'; } catch (e) { /* si resta nel predefinito */ }
+    state._intTact = { S: I.crea(items.length, { ripresenta: rip }), items, timer: null, bloccato: false, feedback: null };
+    mostraIntensiveTact(stage);
+}
+
+function mostraIntensiveTact(stage) {
+    stage = stage || document.getElementById('game-stage');
+    const A = state._intTact, I = window.TiceIntensive;
+    if (!A || !stage) return;
+    const S = A.S, c = I.conta(S), st = I.stato(S);
+    const fine = I.finito(S) && !A.feedback;
+    const idx = A.feedback ? A.feedback.idx : I.corrente(S);
+    const item = idx != null ? A.items[idx] : null;
+    const cls = !A.feedback ? '' : (A.feedback.r === true ? 'feedback-success' : A.feedback.r === 'prompt' ? 'feedback-prompt' : A.feedback.r === 'echo_no' ? 'feedback-echo-no' : 'feedback-fail');
+    const conta = `<span class="it-conta" role="status" aria-live="polite" aria-label="${c.v} autonome, ${c.p} ecoiche, ${c.e} ecoiche errate, ${c.x} errate">
+        <b class="v">&#10003; ${c.v}</b><b class="p">E+ ${c.p}</b><b class="en">E- ${c.e}</b><b class="x">&#10007; ${c.x}</b></span>`;
+    const bar = `
+        <div class="it-bar">
+            <span class="cf-titolo"><i class="fa-solid fa-arrows-rotate"></i> Intensive tact</span>
+            <span class="cf-conta">Giro ${st.giro} &middot; prova ${c.tot + (fine ? 0 : 1)}${fine ? '' : ' &middot; da fare ' + st.daFare}</span>
+            ${conta}
+            <button type="button" class="it-opz ${S.ripresenta ? 'on' : ''}" onclick="intTactToggleRipresenta()" role="switch" aria-checked="${S.ripresenta}" title="Gli stimoli non autonomi tornano a fine giro">
+                <i class="fa-solid ${S.ripresenta ? 'fa-square-check' : 'fa-square'}"></i> Ripresenta i non autonomi</button>
+        </div>`;
+    if (fine) {
+        const tutti = st.autonomi >= S.n;
+        stage.innerHTML = `<div class="it-wrap">${bar}
+            <div class="it-fine">
+                <i class="fa-solid fa-trophy fa-3x" style="color:var(--warning-color);"></i>
+                <p class="it-fine-t">${tutti ? 'Tutti gli stimoli sono autonomi' : 'Giro completato'}</p>
+                <p class="it-fine-s">${st.autonomi} su ${S.n} stimoli autonomi all&rsquo;ultima prova &middot; ${c.tot} prove.<br>Salva la sessione per registrare i risultati, oppure fai un altro giro.</p>
+                <button type="button" class="btn btn-primary" onclick="intTactNuovoGiro()" style="padding:12px 24px;"><i class="fa-solid fa-shuffle"></i> Altro giro</button>
+            </div></div>`;
+        return;
+    }
+    const tasti = [['v', true, '1', '&#10003;', 'Autonoma', 'Tact autonomo (1 o V)'], ['p', 'prompt', '2', 'E+', 'Ecoica', 'Lo ripete in ecoico (2 o P)'],
+        ['en', 'echo_no', '3', 'E-', 'Eco errata', 'Ecoico richiesto, non ripetuto bene (3 o E)'], ['x', false, '4', '&#10007;', 'Errata', 'Risposta errata (4 o X)']];
+    // i tasti stanno sopra la carta: in basso a destra c'e' la pila dei pulsanti fluttuanti (salva, strumenti), che li coprirebbe
+    stage.innerHTML = `<div class="it-wrap">${bar}
+        <div class="it-tasti" role="group" aria-label="Registra la risposta">
+            ${tasti.map(t => `<button type="button" class="it-tasto ${t[0]}" onclick="recordResponse(${typeof t[1] === 'string' ? "'" + t[1] + "'" : t[1]})" title="${t[5]}" aria-keyshortcuts="${t[2]}"><b>${t[3]}</b><small>${t[4]}</small><i class="it-n" aria-hidden="true">${t[2]}</i></button>`).join('')}
+        </div>
+        <div class="tact-stage">
+            <div class="tact-card-lg">
+                <img src="${imgUrl(item)}" class="${cls}" style="transition:0.3s;" alt="${escapeHtml(item.label)}" onerror="handleImgError(this, '${jsAttr(item.label)}')">
+                <div class="tact-title">${escapeHtml(item.label)}</div>
+            </div>
+        </div></div>`;
+}
+
+// Registra la risposta allo stimolo a schermo (true = ✓, 'prompt' = E+, 'echo_no' = E-, false = ✗). false se non c'e' niente da segnare.
+window._intTactHandleScore = (result) => {
+    const A = state._intTact, I = window.TiceIntensive;
+    if (!A || A.bloccato || !state.session || !state.session.active) return false;
+    const idx = I.corrente(A.S);
+    if (idx == null) return false;
+    const chiave = I.segna(A.S, result);
+    if (!chiave) return false;
+    state.session.itemResults[chiave] = result;
+    if (!state.session.scoreHistory) state.session.scoreHistory = [];
+    state.session.scoreHistory.push(chiave);
+    A.bloccato = true;
+    A.feedback = { idx, r: result };
+    mostraIntensiveTact();
+    clearTimeout(A.timer);
+    A.timer = setTimeout(() => { A.bloccato = false; A.feedback = null; mostraIntensiveTact(); }, 350);
+    return true;
+};
+
+// Annulla (Ctrl+Z): lo stimolo appena segnato torna a schermo
+window._intTactUndone = () => {
+    const A = state._intTact;
+    if (!A) return;
+    clearTimeout(A.timer);
+    A.bloccato = false; A.feedback = null;
+    window.TiceIntensive.annulla(A.S);
+    mostraIntensiveTact();
+};
+
+window.intTactToggleRipresenta = () => {
+    const A = state._intTact;
+    if (!A) return;
+    window.TiceIntensive.setRipresenta(A.S, !A.S.ripresenta);
+    try { localStorage.setItem('it_ripresenta', A.S.ripresenta ? '1' : '0'); } catch (e) { /* solo una preferenza */ }
+    mostraIntensiveTact();
+};
+
+window.intTactNuovoGiro = () => {
+    const A = state._intTact;
+    if (!A || !window.TiceIntensive.nuovoGiro(A.S)) return;
+    mostraIntensiveTact();
+};
 
 // --- RAN ---
 function renderRan(items, stage) {
@@ -2452,6 +2554,7 @@ window.undoLastAction = () => {
             removedId = state.session.scoreHistory.pop();
 
             if ((engine === 'chi_lo_fa' || engine === 'cosa_fa') && typeof window._azSoggUndone === 'function') window._azSoggUndone(removedId);
+            if (engine === 'intensive_tact' && typeof window._intTactUndone === 'function') window._intTactUndone(removedId);
             const currentIndex = (engine === 'tact') ? state.tactIndex : state.ranIndex;
             if (removedId === currentIndex) {
                 const targetImg = document.querySelector('.tact-card-lg img, .ran-main-img');
@@ -2470,7 +2573,9 @@ window.undoLastAction = () => {
     state.session.prompts = results.filter(v => v === 'prompt').length;
     state.session.total = results.length;
 
-    if (state.multiSetSession && state.multiSetSession.active && typeof _updateMultiSetScoreUI === 'function') {
+    if (engine === 'intensive_tact' && typeof window._aggiornaConteggiIntensive === 'function') {
+        window._aggiornaConteggiIntensive();
+    } else if (state.multiSetSession && state.multiSetSession.active && typeof _updateMultiSetScoreUI === 'function') {
         _updateMultiSetScoreUI();
     } else if (typeof updateScoreUI === 'function') {
         updateScoreUI();

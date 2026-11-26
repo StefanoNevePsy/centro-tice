@@ -120,7 +120,8 @@
   }
   /** Impronta di una seduta di gioco, per non registrarla due volte. */
   function firma(s) {
-    return [s.date, s.mode, s.setId, s.setName, s.rawV != null ? s.rawV : s.correct, s.rawP != null ? s.rawP : s.prompts, s.rawX != null ? s.rawX : '', s.total].join('|');
+    // rawE (E- dell'intensive tact) entra nell'impronta solo se c'è: le sedute senza E- hanno la stessa impronta di sempre
+    return [s.date, s.mode, s.setId, s.setName, s.rawV != null ? s.rawV : s.correct, s.rawP != null ? s.rawP : s.prompts, s.rawX != null ? s.rawX : '', s.total].concat(s.rawE > 0 ? ['E' + s.rawE] : []).join('|');
   }
   /** Il titolo proposto: «Modalità – nome dei set» (il nome del gioco non si ripete se c'è già). */
   function titoloProposto(s, etichettaModo) {
@@ -131,16 +132,21 @@
     var n = nome.toLowerCase(), e = et.toLowerCase();
     return n.indexOf(e) >= 0 ? nome : et + ' – ' + nome;
   }
-  /** I conteggi della seduta di gioco come voce della bozza: V, P (aiutata), X. */
+  /** Una seduta di gioco con le quattro risposte dell'echo to tact (✓, E+, E-, ✗): intensive tact. */
+  function eEcoico(s) { return !!s && (s.risposte === 'ecoico' || s.rawE > 0); }
+  /** I conteggi della seduta di gioco come voce della bozza: V, P (aiutata, E+), E (E-), X. */
   function voceDaSeduta(s) {
     var v = s.rawV != null ? s.rawV : (s.correct || 0);
     var p = s.rawP != null ? s.rawP : (s.prompts || 0);
-    var x = s.rawX != null ? s.rawX : Math.max(0, (s.total || 0) - v - p);
+    var e = s.rawE || 0;
+    var x = s.rawX != null ? s.rawX : Math.max(0, (s.total || 0) - v - p - e);
     var voce = {
-      v: v, p: p, x: x, sequenza: '', nota: s.note || '', decisione: '', targetId: null, mantenimento: false,
+      v: v, p: p, x: x, sequenza: eEcoico(s) && typeof s.sequenza === 'string' && s.sequenza.length === v + p + e + x ? s.sequenza : '',
+      nota: s.note || '', decisione: '', targetId: null, mantenimento: false,
       sessionType: s.sessionType === 'timedelay' ? 'timedelay' : 'independent',
       gioco: JSON.parse(JSON.stringify(s))
     };
+    if (e) voce.e = e;
     if (s.timeDelaySeconds != null) voce.tdSeconds = s.timeDelaySeconds;
     return voce;
   }
@@ -162,7 +168,10 @@
     var id = nuovoId('tmp');
     var voce = voceDaSeduta(s);
     // «fuori»: una tantum di partenza, senza chiedere dove va alla chiusura (si può cambiare quando si vuole)
-    bozza.temp.push({ id: id, nome: titoloProposto(s, etichettaModo), sessionType: voce.sessionType, fuori: true, daGioco: true });
+    var att = { id: id, nome: titoloProposto(s, etichettaModo), sessionType: voce.sessionType, fuori: true, daGioco: true };
+    // intensive tact: l'attività di oggi ha i quattro tasti dell'echo to tact (✓ · E+ · E- · ✗)
+    if (eEcoico(s)) att.risposte = 'ecoico';
+    bozza.temp.push(att);
     bozza.voci[id] = voce;
     return { id: id, doppione: false };
   }
@@ -170,9 +179,9 @@
   function dettaglioValido(voce) {
     var g = voce && voce.gioco;
     if (!g) return false;
-    var v = g.rawV != null ? g.rawV : (g.correct || 0), p = g.rawP != null ? g.rawP : (g.prompts || 0);
-    var x = g.rawX != null ? g.rawX : Math.max(0, (g.total || 0) - v - p);
-    return voce.v === v && voce.p === p && voce.x === x;
+    var v = g.rawV != null ? g.rawV : (g.correct || 0), p = g.rawP != null ? g.rawP : (g.prompts || 0), e = g.rawE || 0;
+    var x = g.rawX != null ? g.rawX : Math.max(0, (g.total || 0) - v - p - e);
+    return voce.v === v && voce.p === p && voce.x === x && (voce.e || 0) === e;
   }
   /**
    * Alla chiusura della seduta: la voce salvata `s` (fatta dal programma con nome, conteggi, operatore)
@@ -198,7 +207,22 @@
     return s;
   }
 
+  // ---------- modalità derivate ----------
+  // Alcune modalità non si scelgono nel set: valgono per tutti i set che hanno la modalità di partenza
+  // (l'intensive tact per quelli con il tact), così i set già salvati le hanno senza doverli risalvare.
+  var DERIVATE = { intensive_tact: 'tact' };
+  /** Le modalità di un set, con quelle derivate (se `modes` non è un elenco resta com'è). */
+  function modiDelSet(modes) {
+    if (!Array.isArray(modes)) return modes;
+    var out = modes.slice();
+    Object.keys(DERIVATE).forEach(function (k) { if (out.indexOf(DERIVATE[k]) >= 0 && out.indexOf(k) < 0) out.push(k); });
+    return out;
+  }
+  /** La modalità del set da cercare per un gioco: 'tact' per l'intensive tact, il gioco stesso per gli altri. */
+  function modoDiPartenza(modo) { return DERIVATE[modo] || modo; }
+
   return {
+    modiDelSet: modiDelSet, modoDiPartenza: modoDiPartenza, eEcoico: eEcoico, DERIVATE: DERIVATE,
     idsSet: idsSet, insieme: insieme, idUnione: idUnione, idSetDi: idSetDi, titolo: titolo, unisciSet: unisciSet,
     dettaglio: dettaglio, stimoliDelSet: stimoliDelSet, haDettaglioPerSet: haDettaglioPerSet,
     eSedutaGioco: eSedutaGioco, firma: firma, titoloProposto: titoloProposto, voceDaSeduta: voceDaSeduta,

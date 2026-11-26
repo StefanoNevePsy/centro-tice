@@ -1381,6 +1381,16 @@ iframe[src*="accounts.google.com/gsi"] {
 .gioco-chip.P .gioco-r { color: var(--warning-color); }
 .gioco-chip.X { background: rgba(214,69,69,0.14); border-color: rgba(214,69,69,0.38); }
 .gioco-chip.X .gioco-r { color: var(--danger-color); }
+.gioco-chip.E { background: rgba(109,91,208,0.14); border-color: rgba(109,91,208,0.4); }
+.gioco-chip.E .gioco-r { color: var(--t-e, var(--cat-5, #6d5bd0)); }
+/* la sequenza delle risposte nella scheda di una seduta (la finestra sta fuori da .tice: variabili con ripiego), con le sigle */
+.tice-foglio .sequenza { display: flex; flex-wrap: wrap; gap: 4px; min-height: 14px; }
+.tice-foglio .sequenza i { min-width: 22px; height: 20px; padding: 0 5px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font: 700 0.64rem/1 var(--f-testo, sans-serif); font-style: normal; color: #fff; box-sizing: border-box; }
+.tice-foglio .sequenza i.V { background: var(--t-v, var(--success-color)); } .tice-foglio .sequenza i.V::before { content: '✓'; }
+.tice-foglio .sequenza i.P { background: var(--t-p, var(--warning-color)); } .tice-foglio .sequenza i.P::before { content: 'P'; }
+.tice-foglio .sequenza i.E { background: var(--t-e, var(--cat-5, #6d5bd0)); } .tice-foglio .sequenza i.E::before { content: 'E-'; }
+.tice-foglio .sequenza i.X { background: var(--t-x, var(--danger-color)); } .tice-foglio .sequenza i.X::before { content: '✗'; }
+.tice-foglio .sequenza.eco i.P::before { content: 'E+'; }
 .ma-unione .scelta label small { font-weight: 400; }
 .gioco-set .pct-ok { color: var(--success-color); }
 .gioco-set .pct-medio { color: var(--warning-color); }

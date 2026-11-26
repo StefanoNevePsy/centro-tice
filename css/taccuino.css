@@ -159,7 +159,9 @@
 [data-theme="taccuino-scuro"] .tice .bt.arancio,
 [data-theme="taccuino-scuro"] .btn-score.success,
 [data-theme="taccuino-scuro"] .btn-score.fail,
-[data-theme="taccuino-scuro"] .btn-score.prompt { color: #10141b; }
+[data-theme="taccuino-scuro"] .btn-score.prompt,
+[data-theme="taccuino-scuro"] .it-tasto,
+[data-theme="taccuino-scuro"] .tice-foglio .sequenza i { color: #10141b; }
 
 /* ==========================================================================
    Seconda passata: tutta l'interfaccia come PsyDiary, non solo i colori.

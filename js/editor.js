@@ -13,7 +13,9 @@ window.editSet = async (id) => {
     document.getElementById('edit-set-name').value = set.name;
 
     // Mode checkboxes
-    document.getElementById('edit-modes-container').innerHTML = Object.keys(MODES_CONFIG).map(k => {
+    // le modalità derivate (intensive tact) valgono da sole per i set con il tact: non si spuntano
+    const _derivate = (window.TiceGioco && TiceGioco.DERIVATE) || {};
+    document.getElementById('edit-modes-container').innerHTML = Object.keys(MODES_CONFIG).filter(k => !_derivate[k]).map(k => {
         const isChecked = set.modes ? set.modes.includes(k) : true;
         return `<div class="mode-check ${isChecked ? 'selected' : ''}" data-mode="${k}" onclick="toggleEditMode(this)">
             <i class="fa-solid ${isChecked ? 'fa-check-square' : 'fa-square'}"></i> ${MODES_CONFIG[k]}

@@ -3,6 +3,7 @@
 // Built-in mode definitions (label + engine for rendering)
 const BUILTIN_MODES = {
     'tact': { label: 'TACT', engine: 'tact' },
+    'intensive_tact': { label: 'Intensive tact', engine: 'intensive_tact' },
     'ran': { label: 'RAN', engine: 'ran' },
     'fluenza': { label: 'Fluenza', engine: 'fluenza' },
     'tombola': { label: 'Tombola', engine: 'tombola' },
@@ -62,7 +63,7 @@ function rebuildModesConfig() {
 function getDefaultActivityLayout() {
     return {
         groups: [
-            { name: '', modes: ['tact', 'ran', 'ran_intensivo', 'fluenza', 'tombola', 'tombola_sonora', 'memory', 'search_find', 'intraverbal_scenari', 'chi_lo_fa', 'cosa_fa', 'zoom', 'quaderno'] },
+            { name: '', modes: ['tact', 'intensive_tact', 'ran', 'ran_intensivo', 'fluenza', 'tombola', 'tombola_sonora', 'memory', 'search_find', 'intraverbal_scenari', 'chi_lo_fa', 'cosa_fa', 'zoom', 'quaderno'] },
             { name: 'Avanzate', modes: ['topologia', 'sequenze', 'quaderno_task'] },
             { name: 'Pool da Tag', modes: ['pool_random', 'pool_intraverbal', 'intruso', 'categorizzazione', 'ricorda', 'singolare_plurale'] },
             { name: 'Inibizione', modes: ['stroop_numerico', 'go_nogo', 'stroop_etichetta'] },

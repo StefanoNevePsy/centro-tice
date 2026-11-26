@@ -342,7 +342,9 @@ window.filterSetsByMode = function () {
             let checkEngine = engine;
             if (engine === 'intraverbal_scenari') checkEngine = 'search_find';
             else if (engine === 'ran_intensivo') checkEngine = 'ran';
-            return s.modes.includes(checkEngine) || s.modes.includes(engine) || s.modes.includes(currentMode);
+            // intensive tact: vale per tutti i set con il tact (anche quelli salvati prima)
+            const _modi = window.TiceGioco ? TiceGioco.modiDelSet(s.modes) : s.modes;
+            return _modi.includes(checkEngine) || _modi.includes(engine) || _modi.includes(currentMode);
         }
         // Fallback for old sets without mode tags at all (modes field missing)
         if (engine === 'search_find' || engine === 'intraverbal_scenari') {
@@ -819,7 +821,7 @@ function _updateMultiSetScoreUI() {
 }
 
 // --- LABEL TOGGLE ---
-const LABEL_ENGINES = ['tact', 'ran', 'ran_intensivo', 'tombola', 'topologia', 'zoom', 'chi_lo_fa', 'cosa_fa'];
+const LABEL_ENGINES = ['tact', 'intensive_tact', 'ran', 'ran_intensivo', 'tombola', 'topologia', 'zoom', 'chi_lo_fa', 'cosa_fa'];
 
 window.toggleLabelsVisibility = () => {
     const stage = document.getElementById('game-stage');
@@ -1340,12 +1342,13 @@ window.startGame = () => {
     state.session = { correct: 0, incorrect: 0, total: 0, active: true, itemResults: {} };
     state._ranGridIndex = 0; // Reset RAN grid scoring index
     updateScoreUI();
-    // Fluenza and Memory have their own built-in controls/scoring
-    if (engine === 'fluenza' || engine === 'memory') {
+    // Fluenza, Memory e Intensive tact hanno i propri tasti dentro il gioco
+    if (engine === 'fluenza' || engine === 'memory' || engine === 'intensive_tact') {
         document.getElementById('scoring-controls').classList.add('hidden');
     } else {
         document.getElementById('scoring-controls').classList.remove('hidden');
     }
+    _sistemaTipoPerModo(engine);
     document.getElementById('btn-save-session').classList.add('hidden');
 
     // Initialize multi-set session for search_find / intraverbal_scenari
@@ -1442,6 +1445,19 @@ window.startGame = () => {
     // Start TD countdown for all modes at session start
     window._startTDCountdown();
 };
+
+// L'intensive tact ha quattro risposte e non e' ne' indipendente ne' time delay: il selettore «Tipo» non serve
+function _sistemaTipoPerModo(engine) {
+    const t = document.getElementById('session-type-toggle');
+    const wrap = t && t.closest('.select-wrapper');
+    if (wrap) wrap.style.display = engine === 'intensive_tact' ? 'none' : '';
+    if (typeof window.onSessionTypeChange === 'function' && document.getElementById('session-type-select')) window.onSessionTypeChange();
+    if (engine === 'intensive_tact') {
+        const td = document.getElementById('td-seconds-wrapper');
+        if (td) td.style.display = 'none';
+        if (window._stopTDCountdown) window._stopTDCountdown();
+    }
+}
 
 // --- SCORING ---
 window.recordResponse = (result) => {
@@ -1661,6 +1677,15 @@ window.recordResponse = (result) => {
             window._memLavHandleScore(result);
             return;
         }
+    } else if (engine === 'intensive_tact') {
+        // quattro risposte (✓ · E+ · E- · ✗): le registra il gioco, che sa quale stimolo e' a schermo
+        if (typeof window._intTactHandleScore === 'function') {
+            if (!window._intTactHandleScore(result)) return;
+            _aggiornaConteggiIntensive();
+            document.getElementById('btn-save-session').classList.remove('hidden');
+            if (typeof showSessionNameInput === 'function') showSessionNameInput();
+            return;
+        }
     } else if (engine === 'chi_lo_fa' || engine === 'cosa_fa') {
         // un turno = una risposta: il risultato e' registrato dal gioco (con azione e soggetto), poi si passa al turno dopo
         if (typeof window._azSoggHandleScore === 'function') {
@@ -1700,6 +1725,14 @@ window.recordResponse = (result) => {
     window._startTDCountdown();
 };
 
+// I conteggi della sessione di intensive tact: ✓, E+ (prompts), E- (echoNo), ✗ (incorrect)
+function _aggiornaConteggiIntensive() {
+    const c = window.TiceIntensive.contaRisultati(state.session.itemResults);
+    state.session.correct = c.v; state.session.prompts = c.p; state.session.echoNo = c.e; state.session.incorrect = c.x; state.session.total = c.tot;
+    updateScoreUI();
+}
+window._aggiornaConteggiIntensive = _aggiornaConteggiIntensive;
+
 function updateScoreUI() {
     const el = document.getElementById('score-display');
     const prompts = state.session.prompts || 0;
@@ -1709,6 +1742,9 @@ function updateScoreUI() {
     let tags = [];
     if (prompts > 0) {
         tags.push(`<span style="font-size:0.65rem; color:var(--warning-color);">P${prompts}</span>`);
+    }
+    if ((state.session.echoNo || 0) > 0) {
+        tags.push(`<span style="font-size:0.65rem; color:var(--cat-5, #6d5bd0);">E-${state.session.echoNo}</span>`);
     }
     if (errors > 0) {
         tags.push(`<span style="font-size:0.65rem; color:var(--danger-color);">X${errors}</span>`);
@@ -1846,7 +1882,13 @@ function handleShortcuts(e) {
     if (staScrivendo(e)) return;
     const mode = document.getElementById('mode-select').value;
     const engine = getModeEngine(mode);
-    if (state.session.active && engine !== 'fluenza' && engine !== 'memory' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+    // Intensive tact: 1 ✓ · 2 o P E+ · 3 o E E- · 4 o X ✗ (come nella presa dati echo to tact; V vale ✓); Ctrl+Z annulla
+    if (state.session.active && engine === 'intensive_tact' && !e.ctrlKey && !e.metaKey && !e.altKey && typeof window._intTactHandleScore === 'function') {
+        const k = e.key.toLowerCase();
+        const r = { '1': true, 'v': true, '2': 'prompt', 'p': 'prompt', '3': 'echo_no', 'e': 'echo_no', '4': false, 'x': false }[k];
+        if (r !== undefined) { e.preventDefault(); recordResponse(r); return; }
+    }
+    if (state.session.active && engine !== 'fluenza' && engine !== 'memory' && engine !== 'intensive_tact' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
         const type = getSelectedSessionType();
         if (e.key.toLowerCase() === 'v') recordResponse(true);
         if (type === 'independent' && e.key.toLowerCase() === 'x') recordResponse(false);
@@ -2090,7 +2132,9 @@ async function _doSaveSession(p, noteText) {
     const rawV = results.filter(v => v === true).length;
     const rawP = results.filter(v => v === 'prompt').length;
     const rawX = results.filter(v => v === false).length;
-    const rawTotal = rawV + rawP + rawX;
+    // E- (ecoica errata) c'e' solo nell'intensive tact: e' una prova, non corretta, a parte da E+ e da ✗
+    const rawE = results.filter(v => v === 'echo_no').length;
+    const rawTotal = rawV + rawP + rawE + rawX;
 
     let defaultName;
     let setCat = '';
@@ -2140,8 +2184,19 @@ async function _doSaveSession(p, noteText) {
         rawP: rawP,
         rawX: rawX
     };
+    if (rawE > 0) sessionData.rawE = rawE;
 
     if (noteText) sessionData.note = noteText;
+
+    // Intensive tact: le quattro risposte dell'echo to tact; niente time delay
+    let _intRiep = null;
+    if (engine === 'intensive_tact' && state._intTact && window.TiceIntensive) {
+        _intRiep = window.TiceIntensive.riepilogo(state._intTact.S, state.session.playItems || [], (state.mergedSets || []).map(m => m.id));
+        sessionData.risposte = 'ecoico';
+        sessionData.sessionType = 'independent';
+        delete sessionData.timeDelaySeconds;
+        if (_intRiep.sequenza) sessionData.sequenza = _intRiep.sequenza;
+    }
 
     // Record which tags were used (for pool modes), so aggregated activities still
     // show the stimulus source per session.
@@ -2149,7 +2204,7 @@ async function _doSaveSession(p, noteText) {
         sessionData.poolTags = [...state.selectedPoolTags];
     }
 
-    if (type === 'timedelay') {
+    if (type === 'timedelay' && engine !== 'intensive_tact') {
         sessionData.timeDelaySeconds = getSelectedTDSeconds();
     }
 
@@ -2269,6 +2324,13 @@ async function _doSaveSession(p, noteText) {
         }));
     } else if (engine === 'ran_intensivo' && state.session._riDetails && state.session._riDetails.length > 0) {
         sessionData.itemDetails = state.session._riDetails;
+    } else if (_intRiep) {
+        // uno per stimolo, con la sequenza di tutte le sue risposte (✓ E+ E- ✗ come V P E X); con piu' set anche il set
+        const _v = sessionData.variant || 0;
+        if (_intRiep.itemDetails.length) sessionData.itemDetails = _intRiep.itemDetails.map(d => (_v ? { ...d, variant: _v } : d));
+        if (state.mergedSets && state.mergedSets.length > 1 && _intRiep.setBreakdown.length) {
+            sessionData.setBreakdown = _intRiep.setBreakdown.map(sb => ({ ...sb, variantIndex: _v }));
+        }
     } else if ((engine === 'chi_lo_fa' || engine === 'cosa_fa') && window.TiceAzioni && state._azSogg) {
         // la coppia azione + soggetto di ogni turno risposto («bere · nonno»); con piu' set insieme anche il set
         const _r = window.TiceAzioni.riepilogo(state._azSogg.turni, state.session.itemResults, (state.mergedSets || []).map(m => m.id));
@@ -2312,7 +2374,7 @@ async function _doSaveSession(p, noteText) {
     }
 
     // Più set insieme: il totale è unico, il dettaglio per set è quello delle sedute a scenari
-    if (state.mergedSets && state.mergedSets.length > 1 && window.TiceGioco && Array.isArray(sessionData.itemDetails)
+    if (!_intRiep && state.mergedSets && state.mergedSets.length > 1 && window.TiceGioco && Array.isArray(sessionData.itemDetails)
         && sessionData.itemDetails.some(d => d.setId)) {
         const _d = window.TiceGioco.dettaglio(state.session.playItems || [], state.session.itemResults, state.mergedSets.map(m => m.id));
         if (_d.setBreakdown.length) {
@@ -2684,7 +2746,7 @@ window.deleteSet = async (id) => {
 
 // --- MODE ICONS MAP ---
 const MODE_ICONS = {
-    tact: 'fa-hand-pointer', ran: 'fa-bolt', ran_intensivo: 'fa-dumbbell', fluenza: 'fa-comment-dots',
+    tact: 'fa-hand-pointer', intensive_tact: 'fa-arrows-rotate', ran: 'fa-bolt', ran_intensivo: 'fa-dumbbell', fluenza: 'fa-comment-dots',
     tombola: 'fa-table-cells', tombola_sonora: 'fa-volume-high', memory: 'fa-clone',
     search_find: 'fa-magnifying-glass', intraverbal_scenari: 'fa-comments', chi_lo_fa: 'fa-user-group', cosa_fa: 'fa-person-running',
     pool_random: 'fa-shuffle', pool_intraverbal: 'fa-random', intruso: 'fa-ban',
@@ -2778,7 +2840,8 @@ function renderModeSelect() {
             const engine = getModeEngine(modeKey);
             const compatCount = state.savedSets.filter(s => {
                 if (s.modes && Array.isArray(s.modes) && s.modes.length > 0) {
-                    return s.modes.includes(engine) || s.modes.includes(modeKey);
+                    const _modi = window.TiceGioco ? TiceGioco.modiDelSet(s.modes) : s.modes;
+                    return _modi.includes(engine) || _modi.includes(modeKey);
                 }
                 return false;
             }).length;

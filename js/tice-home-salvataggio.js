@@ -62,7 +62,7 @@
         if (r === 'fuori') { t.fuori = true; salvaBozza(); return true; }
         let dest = null;
         if (r === 'nuova') {
-            const m = await moduloAttivita(p, null, Object.assign({ nome: t.nome, sessionType: t.sessionType || 'independent' }, t.modalita ? { modalita: t.modalita } : {}));
+            const m = await moduloAttivita(p, null, Object.assign({ nome: t.nome, sessionType: t.sessionType || 'independent' }, t.risposte === 'ecoico' ? { risposte: 'ecoico' } : {}, t.modalita ? { modalita: t.modalita } : {}));
             if (!m) return true;
             dest = await creaAttivitaDaModulo(p, m);
         } else if (typeof r === 'string' && r.startsWith('u:')) dest = P.attivita(p, r.slice(2));
@@ -128,6 +128,7 @@
             const quandoV = v.gioco && v.gioco.date && P.giorno(v.gioco.date) === b.data ? v.gioco.date : quando;
             if (att.temporanea) {
                 s = P.seduta({ id: null, nome: att.nome, area: '', sessionType: att.sessionType }, null, voceS, quandoV);
+                if (att.risposte === 'ecoico') s.risposte = 'ecoico';   // intensive tact: ✓ · E+ · E- · ✗ anche fuori dal programma
                 s.attivitaId = null;
                 s.setId = 'quaderno_' + att.nome.replace(/\s+/g, '_').toLowerCase();
                 if (v.gioco && window.TiceGioco) {
