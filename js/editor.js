@@ -4,6 +4,8 @@ window.editSet = async (id) => {
     const set = state.savedSets.find(s => s.id === id);
     state.editingSetId = id;
     state.editingItems = JSON.parse(JSON.stringify(set.items));
+    state._soggPanel = false; state._soggSel = {}; state._soggTesto = '';
+    state._editingHadSoggetti = set.items.some(i => (i.soggetto || '').trim());
     state._editingVariantNames = set.variantNames ? [...set.variantNames] : [];
     state._editingVariant = 0; // Always start editing the base variant
     state._editingCoverImage = set.coverImage || null;
@@ -236,7 +238,12 @@ window.saveEditorChanges = () => {
             let cat = document.getElementById('edit-set-category').value;
             if (cat === '__new__') cat = document.getElementById('edit-set-category-custom').value.trim() || 'Personale';
             s.category = cat;
+            // il soggetto e' facoltativo: ripulito, e se e' la prima volta che il set ne ha, le due modalita' si attivano da sole
+            state.editingItems.forEach(i => { if (i.soggetto != null) { const v = String(i.soggetto).replace(/\s+/g, ' ').trim(); if (v) i.soggetto = v; else delete i.soggetto; } });
             s.items = state.editingItems;
+            if (!state._editingHadSoggetti && state.editingItems.some(i => i.soggetto)) {
+                ['chi_lo_fa', 'cosa_fa'].forEach(m => { if (!modes.includes(m)) modes.push(m); });
+            }
             s.modes = modes;
             s.tags = [...editingTags]; // Save semantic tags
             s.imageQuality = state._editingImageQuality || 'media';
@@ -269,6 +276,8 @@ window.saveEditorChanges = () => {
 // would silently attach the next pasted image to the wrong item).
 window.deleteEditorItem = (idx) => {
     state.editingItems.splice(idx, 1);
+    state._soggSel = {}; // gli indici sono cambiati
+
     if (state.activeEditorIndex != null) {
         if (state.activeEditorIndex === idx) state.activeEditorIndex = null;
         else if (state.activeEditorIndex > idx) state.activeEditorIndex--;
@@ -310,6 +319,7 @@ function renderEditorList() {
             </span>` : ''}
         </div>
     `;
+    const soggettoHtml = soggettiEditorHtml();
     const listHtml = state.editingItems.map((item, idx) => {
         const isSelected = state.activeEditorIndex === idx;
         const activeStyle = isSelected ? 'border:1px solid var(--accent-color); background:rgba(99, 102, 241, 0.1);' : 'border:1px solid transparent;';
@@ -346,13 +356,19 @@ function renderEditorList() {
                     <i class="fa-solid fa-camera" style="color:#fff;"></i>
                 </div>
             </div>
-            <div style="flex:1">
+            ${state._soggPanel ? `<input type="checkbox" class="sogg-sel" ${(state._soggSel || {})[idx] ? 'checked' : ''} onclick="event.stopPropagation(); toggleSoggSel(${idx}, this.checked)" title="Seleziona per assegnare il soggetto" aria-label="Seleziona per assegnare il soggetto" style="width:20px; height:20px; flex-shrink:0;">` : ''}
+            <div class="ed-testi">
                 <input type="text" value="${escapeHtml(item.label)}"
                     onchange="state.editingItems[${idx}].label=this.value"
                     onfocus="setActiveItem(${idx})"
                     onclick="event.stopPropagation()"
                     placeholder="Etichetta"
                     style="${item.hidden ? 'text-decoration:line-through; color:#888;' : ''}">
+                <input type="text" value="${escapeHtml(item.soggetto || '')}" list="sogg-lista"
+                    onchange="setSoggettoItem(${idx}, this.value)"
+                    onclick="event.stopPropagation()"
+                    placeholder="Soggetto (es. nonno)" autocomplete="off" aria-label="Soggetto: chi fa l'azione"
+                    style="margin-top:3px; font-size:0.78rem; padding:3px 6px; ${item.soggetto ? 'border-color:var(--accent-color);' : ''}">
                 <div style="display:flex; gap:2px; margin-top:2px;">${hasAudio}${hasZoom}${hasSeq}${hasFront}</div>
             </div>
             <input type="number" value="${item.seqNumber || ''}" min="1"
@@ -388,7 +404,121 @@ function renderEditorList() {
         </div>`;
     }).join('');
 
-    container.innerHTML = counterHtml + listHtml;
+    container.innerHTML = counterHtml + soggettoHtml + listHtml;
+}
+
+
+// --- SOGGETTO (chi fa l'azione): per «Chi lo fa?» e «Cosa fa?» ---
+// Campo facoltativo di ogni immagine (item.soggetto). Le immagini della stessa azione hanno la stessa
+// etichetta; il soggetto dice chi la compie (nonno, mamma, bambino…). Non cambia nulla per gli altri giochi.
+window.setSoggettoItem = (idx, valore) => {
+    const it = state.editingItems[idx];
+    if (!it) return;
+    const v = String(valore || '').replace(/\s+/g, ' ').trim();
+    if (v) it.soggetto = v; else delete it.soggetto;
+    renderEditorList();
+};
+
+window.toggleSoggPanel = () => {
+    state._soggPanel = !state._soggPanel;
+    if (!state._soggPanel) state._soggSel = {};
+    renderEditorList();
+};
+
+window.toggleSoggSel = (idx, on) => {
+    if (!state._soggSel) state._soggSel = {};
+    if (on) state._soggSel[idx] = true; else delete state._soggSel[idx];
+    const n = document.getElementById('sogg-n');
+    if (n) n.textContent = Object.keys(state._soggSel).length;
+};
+
+window.soggSelezione = (come) => {
+    const sel = {};
+    state.editingItems.forEach((it, i) => {
+        if (come === 'tutte' || (come === 'senza' && !(it.soggetto || '').trim())) sel[i] = true;
+    });
+    state._soggSel = sel;
+    renderEditorList();
+};
+
+function _soggValori() {
+    const campo = document.getElementById('sogg-input');
+    return String(campo ? campo.value : '').split(/[,;\n]/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+}
+
+// stesso soggetto a tutte le immagini selezionate
+window.soggAssegna = () => {
+    const v = _soggValori();
+    const idx = Object.keys(state._soggSel || {}).map(Number);
+    if (!v.length) { alert('Scrivi il soggetto (es. nonno).'); return; }
+    if (!idx.length) { alert('Spunta prima le immagini a cui assegnarlo (o usa «Seleziona senza soggetto»).'); return; }
+    idx.forEach(i => { if (state.editingItems[i]) state.editingItems[i].soggetto = v[0]; });
+    state._soggSel = {};
+    renderEditorList();
+};
+
+// elenco di soggetti («nonno, mamma, bambino») distribuito in ordine dentro ogni azione:
+// la 1ª immagine di ogni azione prende il 1º soggetto, la 2ª il 2º, e così via.
+window.soggDistribuisci = () => {
+    const v = _soggValori();
+    if (v.length < 2) { alert('Scrivi i soggetti separati da virgola, nell’ordine in cui compaiono in ogni azione (es. nonno, mamma, bambino).'); return; }
+    const sel = Object.keys(state._soggSel || {}).map(Number);
+    const scelte = sel.length ? sel : state.editingItems.map((_, i) => i);
+    const contatore = {};
+    scelte.forEach(i => {
+        const it = state.editingItems[i];
+        if (!it) return;
+        const k = String(it.label || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const n = contatore[k] || 0;
+        contatore[k] = n + 1;
+        it.soggetto = v[n % v.length];
+    });
+    state._soggSel = {};
+    renderEditorList();
+};
+
+window.soggTogli = () => {
+    const sel = Object.keys(state._soggSel || {}).map(Number);
+    if (!sel.length) { alert('Spunta prima le immagini a cui togliere il soggetto.'); return; }
+    sel.forEach(i => { if (state.editingItems[i]) delete state.editingItems[i].soggetto; });
+    state._soggSel = {};
+    renderEditorList();
+};
+
+window.soggUsa = (nome) => {
+    const campo = document.getElementById('sogg-input');
+    if (campo) { campo.value = nome; state._soggTesto = nome; campo.focus(); }
+};
+
+function soggettiEditorHtml() {
+    const Z = window.TiceAzioni;
+    const items = state.editingItems || [];
+    const usati = Z ? Z.soggettiUsati(items) : [];
+    const conSogg = items.filter(i => (i.soggetto || '').trim()).length;
+    const datalist = `<datalist id="sogg-lista">${usati.map(s => `<option value="${escapeHtml(s)}"></option>`).join('')}</datalist>`;
+    const aperto = !!state._soggPanel;
+    const nSel = Object.keys(state._soggSel || {}).length;
+    const barra = `<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; font-size:0.8rem; color:var(--text-secondary);">
+        <button class="btn btn-ghost" onclick="toggleSoggPanel()" style="padding:6px 10px; font-size:0.8rem; ${aperto ? 'border-color:var(--accent-color); color:var(--accent-color);' : ''}" title="Chi fa l'azione in ogni immagine: serve a «Chi lo fa?» e «Cosa fa?»"><i class="fa-solid fa-user-group"></i> Soggetti</button>
+        <span title="Immagini con il soggetto assegnato">${conSogg} / ${items.length} con soggetto</span>
+        ${conSogg > 0 && conSogg < items.length ? `<span style="color:var(--warning-color);"><i class="fa-solid fa-triangle-exclamation"></i> ${items.length - conSogg} senza: in «Cosa fa?» restano escluse</span>` : ''}
+    </div>`;
+    if (!aperto) return datalist + barra;
+    return datalist + barra + `<div style="background:rgba(var(--ink-rgb),0.05); border:1px solid var(--glass-border); border-radius:10px; padding:10px; margin-bottom:10px;">
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:6px;">Spunta le immagini e scrivi il soggetto; oppure scrivi pi&ugrave; soggetti separati da virgola e distribuiscili in ordine dentro ogni azione.</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="sogg-input" list="sogg-lista" value="${escapeHtml(state._soggTesto || '')}" oninput="state._soggTesto=this.value" placeholder="nonno   oppure   nonno, mamma, bambino" autocomplete="off" aria-label="Soggetto o elenco di soggetti" style="flex:1 1 200px; min-width:0; margin:0;">
+            <button class="btn btn-primary" onclick="soggAssegna()" style="padding:6px 10px; font-size:0.8rem;">Assegna ai selezionati (<span id="sogg-n">${nSel}</span>)</button>
+            <button class="btn btn-ghost" onclick="soggDistribuisci()" style="padding:6px 10px; font-size:0.8rem;" title="La 1ª immagine di ogni azione prende il 1º soggetto, la 2ª il 2º…">Distribuisci per azione</button>
+        </div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+            <button class="btn btn-ghost" onclick="soggSelezione('senza')" style="padding:4px 8px; font-size:0.75rem;">Seleziona senza soggetto</button>
+            <button class="btn btn-ghost" onclick="soggSelezione('tutte')" style="padding:4px 8px; font-size:0.75rem;">Tutte</button>
+            <button class="btn btn-ghost" onclick="soggSelezione('nessuna')" style="padding:4px 8px; font-size:0.75rem;">Nessuna</button>
+            <button class="btn btn-ghost" onclick="soggTogli()" style="padding:4px 8px; font-size:0.75rem; color:var(--danger-color);">Togli ai selezionati</button>
+        </div>
+        ${usati.length ? `<div style="display:flex; gap:5px; flex-wrap:wrap; margin-top:8px;">${usati.slice(0, 16).map(s => `<span class="tag-suggestion" onclick="soggUsa(this.textContent)">${escapeHtml(s)}</span>`).join('')}</div>` : ''}
+    </div>`;
 }
 
 // --- SCONTORNO (Background removal) ---

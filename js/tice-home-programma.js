@@ -12,8 +12,9 @@
     const EST = X.agganci;   // i punti di aggancio delle estensioni: si leggono al momento dell'uso
     const { h, grezzo, icona, esc, barra, testata, foglio, conferma, avviso, disegna, T, paz, salvaPaziente, puoProgrammi, formatoData, dizionario, ETICHETTE_STATO,
         eGruppo, allineaMembri, ecoico, sec, chiOpera, perCategoria, etichettaModo, rinominaSedute, impostaCondizioni, celerazioneTarget, stampa, lancia, graficoSCC, proponiProssimo,
-        moduloAttivita, creaAttivitaDaModulo, moduloTarget, aggiungiTargetDaModulo, numerazione, targetDaAggiungere, impostaField, impostaMisure, risolviNuovaModalita, modalitaDaModulo } = X;
+        moduloAttivita, creaAttivitaDaModulo, moduloTarget, abbinaSet, cambiaSetTarget, statoCollegamenti, aggiungiTargetDaModulo, numerazione, targetDaAggiungere, impostaField, impostaMisure, risolviNuovaModalita, modalitaDaModulo } = X;
 
+    const nomiSet = (tg) => { const ar = X.setArchivio(); return P.setIdsDi(tg).map((id) => (ar.find((x) => x.id === id) || {}).name || 'set non su questo dispositivo').join(' + '); };
     function schedaProgramma(p, att) {
         const t = att.target || [];
         const modifica = puoProgrammi(p);
@@ -35,7 +36,7 @@
         };
         const riga = (tg) => h`<li class="${CHIUSI.includes(tg.stato) ? 'chiuso' : ''}">
                     <span class="punto ${tg.stato}"></span>
-                    <span class="tt">${P.passiDi(tg).length ? h`${icona('list-ol')} ` : ''}${tg.testo}${P.passiDi(tg).length ? h` <span class="sotto piccolo">· ${P.passiDi(tg).length} passi</span>` : ''}${tg.suggerimento ? h` <span class="sotto" title="Ha dei suggerimenti">${icona('lightbulb')}</span>` : ''}${celerazioneTarget(p, att, tg)}${statoMisure(tg)}<small>${P.STATI_TARGET[tg.stato] || tg.stato}${tg.fine ? ' il ' + formatoData(tg.fine) : ''}${ultimo(tg)}</small></span>
+                    <span class="tt">${P.passiDi(tg).length ? h`${icona('list-ol')} ` : ''}${tg.testo}${P.passiDi(tg).length ? h` <span class="sotto piccolo">· ${P.passiDi(tg).length} passi</span>` : ''}${tg.suggerimento ? h` <span class="sotto" title="Ha dei suggerimenti">${icona('lightbulb')}</span>` : ''}${celerazioneTarget(p, att, tg)}${statoMisure(tg)}${tg.setId ? h` <span class="sotto piccolo" title="Il set del gioco collegato a questo target">· gioca con: ${nomiSet(tg)}</span>` : ''}<small>${P.STATI_TARGET[tg.stato] || tg.stato}${tg.fine ? ' il ' + formatoData(tg.fine) : ''}${ultimo(tg)}</small></span>
                     ${modifica || tg.setId ? h`<button class="ib" data-a="menu-target" data-id="${att.id}" data-t="${tg.id}" aria-label="Opzioni del target">${icona('ellipsis')}</button>` : ''}
                 </li>`;
         const ultimaS = !t.length ? P.sedute(p, att).slice(-1)[0] : null;
@@ -61,6 +62,7 @@
                 ${!t.length ? h`<li class="senza-target"><span class="punto"></span><span class="tt">${P.inPercentuale(att) ? h`${icona('percent')} Senza numero di prove: il dato si prende in percentuale a ogni seduta` : h`${icona('layer-group')} LU da ${att.prove} prove: il dato entra quando se ne completano ${att.prove}`}<small>${ultimaS ? `${P.sedute(p, att).length} sedute, ultima ${formatoData(P.giorno(ultimaS.date))} ${ultimaS.percentage}%` : 'Nessuna seduta ancora'}</small></span></li>` : ''}
                 <li class="azioni-att">${modifica ? h`<button class="bt piccolo fantasma" data-a="nuovo-target" data-id="${att.id}">${icona('plus')} Target</button>` : ''}
                     ${modifica && numerazione(att) ? (() => { const nn = numerazione(att); const nome = (nn.nome ? nn.nome + ' ' : '') + nn.prossimo; return h`<button class="bt piccolo fantasma" data-a="target-numerato" data-id="${att.id}" title="Aggiunge «${nome}» in coda">${icona('plus')} ${nome}</button>`; })() : ''}
+                    ${modifica && !X.limitato() && X.setArchivio().length && statoCollegamenti(att).tot ? (() => { const c = statoCollegamenti(att); return h`<button class="bt piccolo fantasma" data-a="collega-set" data-id="${att.id}" title="Collega i target ai set dell'archivio e scegli il gioco">${icona('gamepad')} Gioco e set <span class="sotto piccolo">${c.collegati}/${c.tot}</span></button>`; })() : ''}
                     ${P.sedute(p, att).length ? h`<button class="bt piccolo fantasma" data-a="scc-att" data-id="${att.id}">${icona('chart-line')} Andamento</button>` : ''}</li>
             </ul>
         </div>`;
@@ -187,6 +189,7 @@
                     impostaField(att, r.field, r.promptVisivo);
                     impostaCondizioni(att, r.cV, r.cP, r.cX);
                     targetDaAggiungere(r).forEach((x) => P.aggiungiTarget(att, x, true));
+                    if (r.g_modo) att.mode = r.g_modo;   // la sezione «Gioco»
                     rinominaSedute(p, att);   // nome e categoria delle sedute
                 }
                 att.modificato = new Date().toISOString();
@@ -203,6 +206,15 @@
                 const t = P.aggiungiTarget(att, (nn.nome ? nn.nome + ' ' : '') + nn.prossimo, true);
                 await salvaPaziente(p);
                 avviso(`${att.nome}: aggiunto «${t.testo}»${t.stato === 'attivo' ? ', in corso' : ' in coda'}`);
+                T.mantieniScroll = true; disegna();
+            },
+            // «Collega i target ai set»: dal programma, senza dover aprire il modulo dell'attività
+            'collega-set': async (b) => {
+                const p = paz(T.pid);
+                if (!puoProgrammi(p) || X.limitato()) return;
+                const att = P.attivita(p, b.dataset.id);
+                if (!att || !await abbinaSet(p, att)) return;
+                await salvaPaziente(p);
                 T.mantieniScroll = true; disegna();
             },
             'nuovo-target': async (b) => {
@@ -232,7 +244,8 @@
                         ${t.stato === 'attivo' || t.stato === 'pianificato' ? h`<button class="opzione" data-foglio="repertorio">${icona('star')}<span class="corpo">Già in repertorio</span></button>` : ''}
                         ${t.setId ? h`<button class="opzione" data-foglio="gioca">${icona('play')}<span class="corpo">Somministra con l'app<small>${etichettaModo(P.modoTarget(att, t))} · set ${t.testo}</small></span></button>`
                             : h`<button class="opzione" data-foglio="testo">${icona('pen')}<span class="corpo">Modifica il testo</span></button>`}
-                        ${t.setId ? h`<button class="opzione" data-foglio="set">${icona('layer-group')}<span class="corpo">Set del target<small>${P.setIdsDi(t).length > 1 ? P.setIdsDi(t).length + ' set usati insieme: cambia' : 'Aggiungi altri set da usare insieme in questo target'}</small></span></button>` : ''}
+                        ${t.setId ? h`<button class="opzione" data-foglio="set">${icona('layer-group')}<span class="corpo">Set del target<small>${P.setIdsDi(t).length > 1 ? P.setIdsDi(t).length + ' set usati insieme: cambia o scollega' : 'Cambia, aggiungi altri set da usare insieme o scollega'}</small></span></button>`
+                            : !P.passiDi(t).length && X.setArchivio().length ? h`<button class="opzione" data-foglio="set">${icona('link')}<span class="corpo">Collega a un set del gioco<small>Uno o più set dell'archivio, usati insieme: le sedute già fatte restano di questo target</small></span></button>` : ''}
                         <button class="opzione" data-foglio="passi">${icona('list-ol')}<span class="corpo">${P.passiDi(t).length ? 'Passi della task analysis' : 'Trasforma in task analysis'}<small>${P.passiDi(t).length ? P.passiDi(t).length + ' passi: modifica, aggiungi, riordina' : 'Un passo alla volta in seduta'}</small></span></button>
                         <button class="opzione" data-foglio="suggerimento">${icona('lightbulb')}<span class="corpo">Suggerimenti per questo target<small>${t.suggerimento ? 'Modifica' : 'Note su come somministrarlo, visibili in seduta'}</small></span></button>
                         <button class="opzione" data-foglio="condizioni">${icona('check-double')}<span class="corpo">Cosa vale come ✓, P, ✗ per questo target<small>${t.condizioni ? 'Modifica' : 'Vuoto: valgono quelle dell\'attività'}</small></span></button>
@@ -282,29 +295,8 @@
                     t.modificato = att.modificato = new Date().toISOString();
                 }
                 else if (r === 'set') {
-                    // i set del target: con più di uno il gioco usa gli stimoli di tutti insieme, con un risultato unico
-                    const archivio = X.setArchivio(), attuali = P.setIdsDi(t);
-                    const nomeDi = (id) => ((archivio.find((x) => x.id === id) || {}).name || '');
-                    const ns = await foglio(h`<form><h2>Set · ${t.testo}</h2>
-                        <p class="sotto piccolo">Con più set il gioco usa gli stimoli di tutti insieme: il risultato è uno solo, con il dettaglio per set e per stimolo. Le sedute già registrate restano su questo target.</p>
-                        <input type="search" placeholder="Cerca un set" data-filtro-set autocomplete="off" style="margin-bottom:6px">
-                        <div class="opzioni" style="max-height:40vh;overflow-y:auto" data-elenco-set>
-                            ${archivio.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + (x.cat || x.category || '')).toLowerCase()}">
-                                <input type="checkbox" name="s" value="${x.id}" ${attuali.includes(x.id) ? grezzo('checked') : ''}><span class="corpo">${x.name}<small>${x.cat || x.category || ''}${x.items ? ' · ' + x.items.length + ' elementi' : ''}</small></span></label>`)}
-                        </div>
-                        <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
-                    { invia: (f) => ({ s: new FormData(f).getAll('s') }),
-                        dopo: (f) => { const q = f.querySelector('[data-filtro-set]'); q.addEventListener('input', () => { const v = q.value.trim().toLowerCase(); f.querySelectorAll('[data-elenco-set] > label').forEach((l) => { l.hidden = !!v && !l.dataset.nome.includes(v) && !l.querySelector('input').checked; }); }); } });
-                    if (!ns) return;
-                    // i set che non sono su questo dispositivo restano com'erano
-                    const ids = attuali.filter((id) => !archivio.some((x) => x.id === id) && ns.s.length).concat(ns.s);
-                    if (!ids.length) { avviso('Scegli almeno un set', 'errore'); return; }
-                    const nomePrima = attuali.map(nomeDi).filter(Boolean).join(' + ');
-                    t.setId = ids[0];
-                    if (ids.length > 1) t.setIds = ids; else delete t.setIds;
-                    // il testo segue i set, se era quello automatico
-                    if (!nomePrima || t.testo === nomePrima) t.testo = ids.map(nomeDi).filter(Boolean).join(' + ') || t.testo;
-                    t.modificato = att.modificato = new Date().toISOString();
+                    // collega, cambia o scollega: la scelta dei set e del gioco è nel modulo dell'attività
+                    if (!await cambiaSetTarget(p, att, t)) return;
                 }
                 else if (r === 'testo') {
                     const nt = await foglio(h`<form><h2>Testo del target</h2>

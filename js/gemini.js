@@ -462,7 +462,8 @@ async function generateSetWithGemini(userPrompt) {
         label: item.label || 'Senza nome',
         url: null,
         hidden: false,
-        ...(item.seqNumber ? { seqNumber: item.seqNumber } : {})
+        ...(item.seqNumber ? { seqNumber: item.seqNumber } : {}),
+        ...(item.soggetto ? { soggetto: String(item.soggetto).trim() } : {})
     }));
 
     return result;

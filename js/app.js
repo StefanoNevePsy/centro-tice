@@ -819,7 +819,7 @@ function _updateMultiSetScoreUI() {
 }
 
 // --- LABEL TOGGLE ---
-const LABEL_ENGINES = ['tact', 'ran', 'ran_intensivo', 'tombola', 'topologia', 'zoom'];
+const LABEL_ENGINES = ['tact', 'ran', 'ran_intensivo', 'tombola', 'topologia', 'zoom', 'chi_lo_fa', 'cosa_fa'];
 
 window.toggleLabelsVisibility = () => {
     const stage = document.getElementById('game-stage');
@@ -1356,8 +1356,12 @@ window.startGame = () => {
     }
 
     let playItems = state.items.filter(i => !i.hidden);
+    // «Chi lo fa?» / «Cosa fa?»: il field e' il numero di carte per domanda, non un taglio degli stimoli
+    const _isAzSogg = !!(window.TiceAzioni && window.TiceAzioni.eAzioneSoggetto(engine));
 
-    if (engine !== 'search_find' && engine !== 'intraverbal_scenari') {
+    if (_isAzSogg) {
+        state.session.usesField = true;
+    } else if (engine !== 'search_find' && engine !== 'intraverbal_scenari') {
         playItems.sort(() => Math.random() - 0.5);
         if (numStimuli > 0 && playItems.length > numStimuli) {
             playItems = playItems.slice(0, numStimuli);
@@ -1370,7 +1374,7 @@ window.startGame = () => {
 
     // Grid size (for visual layout in grids)
     const gridSize = parseInt(document.getElementById('grid-size').value);
-    if (engine !== 'search_find' && engine !== 'intraverbal_scenari' && gridSize !== 20) {
+    if (!_isAzSogg && engine !== 'search_find' && engine !== 'intraverbal_scenari' && gridSize !== 20) {
         const gridLimit = gridSize * gridSize;
         if (playItems.length > gridLimit) playItems = playItems.slice(0, gridLimit);
     }
@@ -1657,6 +1661,20 @@ window.recordResponse = (result) => {
             window._memLavHandleScore(result);
             return;
         }
+    } else if (engine === 'chi_lo_fa' || engine === 'cosa_fa') {
+        // un turno = una risposta: il risultato e' registrato dal gioco (con azione e soggetto), poi si passa al turno dopo
+        if (typeof window._azSoggHandleScore === 'function') {
+            if (!window._azSoggHandleScore(result)) return;
+            const results0 = Object.values(state.session.itemResults);
+            state.session.correct = results0.filter(v => v === true).length;
+            state.session.incorrect = results0.filter(v => v === false).length;
+            state.session.prompts = results0.filter(v => v === 'prompt').length;
+            state.session.total = results0.length;
+            updateScoreUI();
+            document.getElementById('btn-save-session').classList.remove('hidden');
+            if (typeof showSessionNameInput === 'function') showSessionNameInput();
+            return;
+        }
     } else {
         const id = Date.now().toString();
         state.session.itemResults[id] = result;
@@ -1883,6 +1901,7 @@ function handleShortcuts(e) {
         const skipEngine = (typeof getModeEngine === 'function') ? getModeEngine(document.getElementById('mode-select').value) : '';
         if (skipEngine === 'intruso' && typeof window.skipIntrusoRound === 'function') window.skipIntrusoRound();
         else if (skipEngine === 'categorizzazione' && typeof window.skipCatRound === 'function') window.skipCatRound();
+        else if ((skipEngine === 'chi_lo_fa' || skipEngine === 'cosa_fa') && typeof window.skipAzSoggRound === 'function') window.skipAzSoggRound();
     }
 }
 
@@ -2250,6 +2269,14 @@ async function _doSaveSession(p, noteText) {
         }));
     } else if (engine === 'ran_intensivo' && state.session._riDetails && state.session._riDetails.length > 0) {
         sessionData.itemDetails = state.session._riDetails;
+    } else if ((engine === 'chi_lo_fa' || engine === 'cosa_fa') && window.TiceAzioni && state._azSogg) {
+        // la coppia azione + soggetto di ogni turno risposto («bere · nonno»); con piu' set insieme anche il set
+        const _r = window.TiceAzioni.riepilogo(state._azSogg.turni, state.session.itemResults, (state.mergedSets || []).map(m => m.id));
+        if (_r.itemDetails.length) sessionData.itemDetails = _r.itemDetails;
+        if (state.mergedSets && state.mergedSets.length > 1 && _r.setBreakdown.length) {
+            const _vi = parseInt(document.getElementById('variant-select').value) || 0;
+            sessionData.setBreakdown = _r.setBreakdown.map(sb => ({ ...sb, variantIndex: _vi }));
+        }
     } else if (engine === 'singolare_plurale' && state.session._spDetails && state.session._spDetails.length > 0) {
         sessionData.itemDetails = state.session._spDetails.map(d => ({
             label: d.form === 'plural' ? `${d.label} (${d.count})` : `${d.label} (sing.)`,
@@ -2659,7 +2686,7 @@ window.deleteSet = async (id) => {
 const MODE_ICONS = {
     tact: 'fa-hand-pointer', ran: 'fa-bolt', ran_intensivo: 'fa-dumbbell', fluenza: 'fa-comment-dots',
     tombola: 'fa-table-cells', tombola_sonora: 'fa-volume-high', memory: 'fa-clone',
-    search_find: 'fa-magnifying-glass', intraverbal_scenari: 'fa-comments',
+    search_find: 'fa-magnifying-glass', intraverbal_scenari: 'fa-comments', chi_lo_fa: 'fa-user-group', cosa_fa: 'fa-person-running',
     pool_random: 'fa-shuffle', pool_intraverbal: 'fa-random', intruso: 'fa-ban',
     topologia: 'fa-map-pin', sequenze: 'fa-arrow-right-arrow-left', categorizzazione: 'fa-sitemap',
     zoom: 'fa-search-plus', quaderno: 'fa-book-open', quaderno_task: 'fa-list-check',

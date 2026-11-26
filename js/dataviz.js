@@ -194,7 +194,7 @@ const VIZ_CONSTRUCTS = [
     { key: 'denominazione', label: 'Denominazione', short: 'Denom.', macro: 'Linguaggio', modes: { tact: 1, ran: 0.8, ran_intensivo: 0.8, fluenza: 0.7, zoom: 0.5 } },
     { key: 'fluenza_verbale', label: 'Fluenza verbale', short: 'Fluenza', macro: 'Linguaggio', modes: { fluenza: 1 } },
     { key: 'morfosintassi', label: 'Morfosintassi', short: 'Morfosint.', macro: 'Linguaggio', modes: { singolare_plurale: 1 } },
-    { key: 'intraverbale', label: 'Intraverbale', short: 'Intraverb.', macro: 'Linguaggio', modes: { pool_intraverbal: 1, intraverbal_scenari: 1 } },
+    { key: 'intraverbale', label: 'Intraverbale', short: 'Intraverb.', macro: 'Linguaggio', modes: { pool_intraverbal: 1, intraverbal_scenari: 1, chi_lo_fa: 1, cosa_fa: 1 } },
     { key: 'narrazione', label: 'Narrazione / discorso', short: 'Narraz.', macro: 'Linguaggio', modes: { sequenze: 0.6, quaderno: 0.5, quaderno_task: 0.4 } },
     // Comprensione / semantica (ricettivo)
     { key: 'compr_lessicale', label: 'Comprensione lessicale', short: 'Compr.', macro: 'Comprensione', modes: { tombola: 1, tombola_sonora: 1, pool_random: 0.4 } },

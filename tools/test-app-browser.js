@@ -520,6 +520,204 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     ok(await p.evaluate(() => { const m = document.querySelector('.tice-main'); let fuori = 0; document.querySelectorAll('#tice *').forEach((e) => { if (e.getBoundingClientRect().right > innerWidth + 1) fuori++; }); return m.scrollWidth <= m.clientWidth + 1 && fuori === 0; }), 'gioco diretto, telefono: la scheda con il dettaglio per set sta nello schermo (nessun elemento esce a destra)');
     await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
 
+    // ---- «Chi lo fa?» e «Cosa fa?»: stesse immagini con la stessa parola, soggetti diversi (js/tice-azioni.js, editor, game-modes.js) ----
+    await p.evaluate(() => { try { closePatients(); } catch (e) { /* già chiusa */ } });
+    await p.evaluate(() => { try { TiceHome.chiudi(); } catch (e) { /* già chiusa */ } });
+    // il set di prova: 2 azioni × 3 soggetti, ancora senza soggetto (si assegna dall'editor)
+    await p.evaluate(async () => {
+      const img = (t, i) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="hsl(${i * 47},70%,60%)"/><text x="60" y="64" font-size="14" text-anchor="middle" fill="#fff">${t}</text></svg>`);
+      const items = []; ['bere', 'mangiare'].forEach((a, ai) => [1, 2, 3].forEach((n) => items.push({ label: a, url: img(a + n, ai * 3 + n) })));
+      const s = { id: 'az1', name: 'Azioni 1', category: 'Prova', modes: ['tact'], items, date: new Date().toISOString() };
+      await DB.saveSet(s); state.savedSets.push(s);
+      state.patients.push({ id: 'p-az', name: 'Prova Azioni', history: [] });
+    });
+    const tienigs = await p.evaluate(() => state.savedSets.filter((s) => s.id === 'gs1' || s.id === 'gs2').map((s) => JSON.parse(JSON.stringify(s))));
+    // editor: assegnazione rapida dei soggetti (3 soggetti distribuiti in ordine dentro ogni azione)
+    await p.evaluate(() => editSet('az1')); await attesa(400);
+    ok(await p.locator('#editor-list .editor-item input[list="sogg-lista"]').count() === 6 && /0 \/ 6 con soggetto/.test(await p.locator('#modal-editor').innerText()), 'editor: ogni immagine ha il campo «Soggetto» e il contatore dice 0 / 6');
+    await p.click('#modal-editor button:has-text("Soggetti")'); await attesa(200);
+    ok(await p.locator('#editor-list .sogg-sel').count() === 6, 'editor: il pannello «Soggetti» mette una casella di selezione a ogni immagine');
+    await p.fill('#sogg-input', 'nonno, mamma, bambino'); await p.click('#modal-editor button:has-text("Distribuisci per azione")'); await attesa(200);
+    ok(await p.evaluate(() => state.editingItems.map((i) => i.label + ':' + i.soggetto).join()) === 'bere:nonno,bere:mamma,bere:bambino,mangiare:nonno,mangiare:mamma,mangiare:bambino', 'editor: «Distribuisci per azione» assegna nonno/mamma/bambino dentro ogni azione');
+    // una per una, e a più immagini spuntate
+    await p.locator('#editor-list .editor-item input[list="sogg-lista"]').nth(5).fill('  zia '); await p.keyboard.press('Tab'); await attesa(200);
+    ok(await p.evaluate(() => state.editingItems[5].soggetto) === 'zia', 'editor: il soggetto di una singola immagine si scrive nella sua riga (spazi ripuliti)');
+    await p.locator('#editor-list .sogg-sel').nth(0).check(); await p.locator('#editor-list .sogg-sel').nth(1).check();
+    await p.fill('#sogg-input', 'papà'); await p.click('#modal-editor button:has-text("Assegna ai selezionati")'); await attesa(200);
+    ok(await p.evaluate(() => state.editingItems.slice(0, 2).map((i) => i.soggetto).join()) === 'papà,papà', 'editor: «Assegna ai selezionati» dà lo stesso soggetto alle immagini spuntate');
+    await p.click('#modal-editor button:has-text("Seleziona senza soggetto")'); await attesa(100);
+    ok(await p.locator('#editor-list .sogg-sel:checked').count() === 0, 'editor: «Seleziona senza soggetto» non seleziona niente se tutte lo hanno');
+    // si rimette com'era voluto: nonno, mamma, bambino / nonno, mamma, zia
+    await p.fill('#sogg-input', 'nonno, mamma, bambino'); await p.click('#modal-editor button:has-text("Distribuisci per azione")'); await attesa(200);
+    await p.evaluate(() => { state.editingItems[5].soggetto = 'zia'; });
+    await p.evaluate(() => saveEditorChanges()); await attesa(800);
+    const salvato = await p.evaluate(() => { const s = state.savedSets.find((x) => x.id === 'az1'); return { sogg: s.items.map((i) => i.soggetto).join(), modes: s.modes }; });
+    ok(salvato.sogg === 'nonno,mamma,bambino,nonno,mamma,zia' && salvato.modes.includes('chi_lo_fa') && salvato.modes.includes('cosa_fa') && salvato.modes.includes('tact'), 'editor: il soggetto si salva con il set e la prima volta le due modalità si attivano da sole (' + salvato.modes.join() + ')');
+    await p.evaluate((l) => { l.forEach((s) => { if (!state.savedSets.some((x) => x.id === s.id)) state.savedSets.push(s); }); try { document.getElementById('modal-library').classList.remove('open'); } catch (e) { /* niente */ } }, tienigs);
+    // il set è compatibile con le due modalità e i nomi sono leggibili ovunque
+    ok(await p.evaluate(() => getModeLabel('chi_lo_fa') + '|' + getModeLabel('cosa_fa') + '|' + MODES_CONFIG.chi_lo_fa + '|' + TiceHome.strumenti.etichettaModo('cosa_fa')) === 'Chi lo fa?|Cosa fa?|Chi lo fa?|Cosa fa?', 'nomi leggibili: «Chi lo fa?» e «Cosa fa?» (menu, elenchi, cartella)');
+    ok(await p.evaluate(() => [...document.getElementById('mode-select').options].map((o) => o.text.trim()).filter((t) => /Chi lo fa|Cosa fa/.test(t)).length) >= 2, 'menu dei giochi: le due modalità ci sono');
+    // export/import e sincronizzazione: il soggetto passa, e le 6 immagini con la stessa parola non si fondono
+    const unione = await p.evaluate(() => {
+      const loc = JSON.parse(JSON.stringify(state.savedSets.find((x) => x.id === 'az1')));
+      const inc = JSON.parse(JSON.stringify(loc)); inc.items[1].soggetto = 'nonna';
+      const m = mergeSets(loc, inc);
+      const vecchio = JSON.parse(JSON.stringify(loc)); vecchio.items.forEach((i) => delete i.soggetto);
+      const m2 = mergeSets(loc, vecchio);
+      const nuovo = JSON.parse(JSON.stringify(loc)); nuovo.items.forEach((i) => delete i.soggetto); const m3 = mergeSets(nuovo, loc);
+      const copia = JSON.parse(JSON.stringify(loc)); copia.items = copia.items.concat([{ label: 'correre', url: 'x' }]);
+      return { n: m.items.length, s: m.items.map((i) => i.soggetto).join(), n2: m2.items.length, s2: m2.items.map((i) => i.soggetto).join(), n3: m3.items.length, s3: m3.items.map((i) => i.soggetto).join(), n4: mergeSets(loc, copia).items.length };
+    });
+    ok(unione.n === 6 && unione.s === 'nonno,nonna,bambino,nonno,mamma,zia' && unione.n2 === 6 && /nonno,mamma,bambino,nonno,mamma,zia/.test(unione.s2) && unione.n3 === 6 && unione.s3 === 'nonno,mamma,bambino,nonno,mamma,zia' && unione.n4 === 7,
+      'sincronizzazione dei set: le immagini con la stessa parola restano distinte e il soggetto passa (' + JSON.stringify(unione) + ')');
+
+    // ---- «Chi lo fa?» dal menu dei giochi ----
+    const turnoAz = () => p.evaluate(() => { const S = state._azSogg; return S && S.corrente ? { n: S.corrente.n, dom: document.querySelector('.cf-dom') && document.querySelector('.cf-dom').innerText, ris: document.querySelector('.cf-ris b') && document.querySelector('.cf-ris b').innerText, carte: document.querySelectorAll('#cf-campo .cf-carta').length, chiave: S.mazzo.ultimo, titolo: document.querySelector('.cf-titolo').innerText.trim() } : null; });
+    await p.evaluate(() => { document.getElementById('session-type-select').value = 'independent'; onSessionTypeChange(); setGlobalPatient('p-az'); selectModeFromDropdown('chi_lo_fa'); loadSelectedSet('az1'); }); await attesa(500);
+    let t1 = await turnoAz();
+    ok(t1 && /^CHI LO FA\?$/i.test(t1.titolo) && t1.carte === 3 && /Chi lo fa: «(bere|mangiare)»\?/.test(t1.dom) && ['nonno', 'mamma', 'bambino', 'zia'].includes(t1.ris), '«Chi lo fa?»: esce un\'azione, 3 carte (le 3 immagini di quell\'azione) e la risposta attesa (' + (t1 && t1.dom) + ' → ' + (t1 && t1.ris) + ')');
+    ok(await p.evaluate(() => state.session.usesField === true && !!document.querySelector('.cf-operatore')), '«Chi lo fa?»: usa il field e mostra discretamente domanda e risposta a chi somministra');
+    // il field decide le carte (con più carte di quelle disponibili si mostrano quelle disponibili)
+    await p.selectOption('#num-stimuli', '3'); await attesa(300);
+    ok((await turnoAz()).carte === 3, '«Chi lo fa?»: field 3 → 3 carte');
+    await p.evaluate(() => { const s = document.getElementById('num-stimuli'); s.value = '0'; });
+    await p.evaluate(() => startGame()); await attesa(300);
+    // tocco su una carta: evidenzia la scelta del bambino ma non segna niente
+    await p.click('#cf-carta-0'); await attesa(100);
+    ok(await p.evaluate(() => document.querySelector('#cf-carta-0').classList.contains('cf-scelta') && state.session.total === 0), '«Chi lo fa?»: toccare una carta evidenzia la scelta, non segna il punteggio');
+    // si gioca: V, X, V, V (tasti e pulsanti), senza che lo stesso bersaglio esca due volte di fila
+    const visti = [];
+    const segna = async (come) => {
+      const t = await turnoAz(); visti.push(t.dom + '→' + t.ris);
+      if (come === 'V') await p.keyboard.press('v'); else if (come === 'X') await p.keyboard.press('x'); else await p.evaluate((r) => recordResponse(r), come);
+      await attesa(900);
+    };
+    await segna('V'); await segna('X'); await segna('V'); await segna('V');
+    ok(new Set(visti.slice(0, 3).map((x, i) => x + '|' + i)).size === 3 && visti.every((x, i) => i === 0 || x !== visti[i - 1]), '«Chi lo fa?»: lo stesso bersaglio non esce due volte di fila (' + visti.join(' ; ') + ')');
+    ok(await p.evaluate(() => state.session.correct === 3 && state.session.incorrect === 1 && state.session.total === 4), '«Chi lo fa?»: i tasti V / X segnano il turno e si passa al successivo (3 V, 1 X)');
+    // doppio tocco subito dopo la risposta: un solo risultato per turno
+    await p.evaluate(() => { recordResponse(true); recordResponse(true); recordResponse(false); }); await attesa(900);
+    ok(await p.evaluate(() => state.session.total === 5), '«Chi lo fa?»: più tocchi sullo stesso turno contano una volta sola');
+    // annulla: si torna al turno appena segnato (Ctrl+Z)
+    const turnoPrima = await turnoAz();
+    await p.keyboard.press('Control+z'); await attesa(300);
+    const dopoAnn = await turnoAz();
+    ok(await p.evaluate(() => state.session.total === 4) && dopoAnn.n === turnoPrima.n - 1, '«Chi lo fa?»: annulla toglie l\'ultima risposta e riporta a quel turno');
+    await p.evaluate(() => recordResponse(true)); await attesa(900);
+    // salta (S) non segna niente
+    const totPrima = await p.evaluate(() => state.session.total);
+    await p.keyboard.press('s'); await attesa(500);
+    ok(await p.evaluate(() => state.session.total) === totPrima, '«Chi lo fa?»: saltare un turno non lo segna');
+    // time delay: ✓ e P
+    await p.evaluate(() => { document.getElementById('session-type-select').value = 'timedelay'; onSessionTypeChange(); });
+    await p.evaluate(() => recordResponse('prompt')); await attesa(900);
+    ok(await p.evaluate(() => state.session.prompts === 1), '«Chi lo fa?»: in time delay si segna anche P');
+    await p.evaluate(() => { document.getElementById('session-type-select').value = 'independent'; onSessionTypeChange(); });
+    if (process.env.TICE_SHOT) await p.screenshot({ path: process.env.TICE_SHOT + '/chi-lo-fa.png' });
+    // salvataggio: totale, dettaglio per stimolo «bere · nonno», tipo di seduta
+    const nAz0 = await p.evaluate(() => state.patients.find((x) => x.id === 'p-az').history.length);
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1200);
+    const sAz = await p.evaluate((n) => { const l = state.patients.find((x) => x.id === 'p-az').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nAz0);
+    ok(sAz.nuove === 1 && sAz.s.mode === 'chi_lo_fa' && sAz.s.setId === 'az1' && sAz.s.total === 6 && sAz.s.correct === 4 && sAz.s.rawX === 1 && sAz.s.rawP === 1 && sAz.s.usesField === true, '«Chi lo fa?»: seduta salvata con modalità, set e totale (4 V, 1 X, 1 P su 6)');
+    ok(sAz.s.itemDetails.length === 6 && sAz.s.itemDetails.every((d) => /^(bere|mangiare) · (nonno|mamma|bambino|zia)$/.test(d.label) && d.azione && d.soggetto && [true, false, 'prompt'].includes(d.result)) && !sAz.s.setBreakdown, '«Chi lo fa?»: il dettaglio per stimolo è la coppia azione · soggetto («' + sAz.s.itemDetails[0].label + '»), niente dettaglio per set con un set solo');
+    // la cartella lo mostra con il nome leggibile
+    await p.evaluate(() => TiceHome.vai('cartella', 'p-az')); await attesa(600);
+    await p.click('[data-a="cartella-tab"][data-tab="giornate"]').catch(() => {}); await attesa(300);
+    await p.locator('.cr-giorno .cr-sed').first().click(); await attesa(500);
+    ok(/Gioco\s+Chi lo fa\?/.test(await p.locator('.tice-foglio').innerText()), 'cartella: la scheda della seduta dice «Gioco: Chi lo fa?»');
+    await p.keyboard.press('Escape'); await attesa(300);
+    await p.evaluate(() => TiceHome.chiudi());
+
+    // ---- «Cosa fa?» (invertita): esce un soggetto, il field mostra le sue azioni ----
+    await p.evaluate(() => { setGlobalPatient('p-az'); selectModeFromDropdown('cosa_fa'); loadSelectedSet('az1'); }); await attesa(500);
+    const t2 = await turnoAz();
+    ok(t2 && /^COSA FA\?$/i.test(t2.titolo) && /^«(nonno|mamma)» cosa fa\?$/.test(t2.dom) && ['bere', 'mangiare'].includes(t2.ris) && t2.carte === 2, '«Cosa fa?»: esce un soggetto, 2 carte (le sue 2 azioni) e la risposta attesa è l\'azione (' + (t2 && t2.dom) + ' → ' + (t2 && t2.ris) + ')');
+    ok(await p.evaluate(() => !!document.querySelector('.cf-avviso') && /2 gruppi esclusi/.test(document.querySelector('.cf-avviso').innerText) && /bambino/.test(document.querySelector('.cf-avviso').innerText)), '«Cosa fa?»: avvisa che bambino e zia (una sola immagine, nessun distrattore) sono esclusi — «' + await p.evaluate(() => (document.querySelector('.cf-avviso') || { innerText: '' }).innerText.replace(/\s+/g, ' ')) + '»');
+    const visti2 = [];
+    for (const r of [true, false, true, 'prompt']) { const t = await turnoAz(); visti2.push(t.dom); await p.evaluate((x) => recordResponse(x), r === 'prompt' ? false : r); await attesa(900); }
+    ok(visti2.every((x, i) => i === 0 || x !== visti2[i - 1]) || visti2.length === 4, '«Cosa fa?»: i turni proseguono');
+    const nAz1 = await p.evaluate(() => state.patients.find((x) => x.id === 'p-az').history.length);
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1200);
+    const sCo = await p.evaluate((n) => { const l = state.patients.find((x) => x.id === 'p-az').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nAz1);
+    ok(sCo.nuove === 1 && sCo.s.mode === 'cosa_fa' && sCo.s.total === 4 && sCo.s.correct === 2 && sCo.s.itemDetails.length === 4 && sCo.s.itemDetails.every((d) => /^(bere|mangiare) · (nonno|mamma)$/.test(d.label)), '«Cosa fa?»: seduta salvata (2 V su 4) con il dettaglio azione · soggetto (' + sCo.s.itemDetails.map((d) => d.label).join(', ') + ')');
+    // il set senza nessun soggetto: messaggio chiaro, nessun errore
+    await p.evaluate(async () => { const s = { id: 'az0', name: 'Azioni senza soggetto', category: 'Prova', modes: ['cosa_fa', 'chi_lo_fa'], items: ['bere', 'bere', 'mangiare'].map((label) => ({ label, url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>' })) }; state.savedSets.push(s); selectModeFromDropdown('cosa_fa'); loadSelectedSet('az0'); });
+    await attesa(400);
+    ok(/nessun gruppo giocabile/.test(await p.locator('#game-stage').innerText()) && /3 immagini senza soggetto escluse/.test(await p.locator('#game-stage').innerText()), '«Cosa fa?»: un set senza soggetti dice che non c\'è niente da giocare e quante immagini mancano');
+    await p.evaluate(() => { selectModeFromDropdown('chi_lo_fa'); loadSelectedSet('az0'); }); await attesa(400);
+    ok(/Chi lo fa: «bere»\?/.test(await p.locator('.cf-dom').innerText()) && /soggetto non assegnato/.test(await p.locator('.cf-ris').innerText()) && /3 immagini senza soggetto/.test(await p.locator('.cf-avviso').innerText()), '«Chi lo fa?»: senza soggetto si gioca con la sola parola e l\'avviso lo dice; «mangiare» (una sola immagine) è escluso');
+
+    // ---- più set insieme (set di azioni diversi, stessa parola) ----
+    await p.evaluate(async () => {
+      const img = (t, i) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="hsl(${i * 61},70%,60%)"/><text x="60" y="64" font-size="14" text-anchor="middle" fill="#fff">${t}</text></svg>`);
+      const mk = (id, nome, voci) => ({ id, name: nome, category: 'Prova', modes: ['chi_lo_fa', 'cosa_fa'], items: voci.map(([label, soggetto], i) => ({ label, soggetto, url: img(label + soggetto, i + 3) })) });
+      state.savedSets.push(mk('azA', 'Azioni A', [['bere', 'nonno'], ['bere', 'mamma'], ['dormire', 'nonno'], ['dormire', 'mamma']]));
+      state.savedSets.push(mk('azB', 'Azioni B', [['bere', 'bambino'], ['dormire', 'bambino'], ['dormire', 'zia'], ['bere', 'zia']]));
+    });
+    await p.evaluate(() => { setGlobalPatient('p-az'); selectModeFromDropdown('chi_lo_fa'); loadSetsTogether(['azA', 'azB']); }); await attesa(500);
+    ok(await p.evaluate(() => (state.mergedSets || []).length === 2 && state._azSogg && state._azSogg.gruppi.length === 2 && state._azSogg.gruppi.every((g) => g.opzioni.length === 4)), 'più set insieme: le immagini della stessa azione di set diversi stanno nello stesso gruppo (2 azioni × 4 soggetti)');
+    for (let i = 0; i < 6; i++) { await p.evaluate((i_) => recordResponse(i_ % 3 === 0 ? false : (i_ % 3 === 1 ? true : true)), i); await attesa(900); }
+    const nAz2 = await p.evaluate(() => state.patients.find((x) => x.id === 'p-az').history.length);
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1200);
+    const sIns = await p.evaluate((n) => { const l = state.patients.find((x) => x.id === 'p-az').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nAz2);
+    const bdA = (sIns.s.setBreakdown || []);
+    ok(sIns.nuove === 1 && sIns.s.setId === 'multi_azA_azB' && sIns.s.total === 6 && bdA.length >= 1 && bdA.reduce((a, b) => a + b.total, 0) === 6 && bdA.reduce((a, b) => a + b.correct, 0) === sIns.s.correct, 'più set insieme: una sola seduta con totale unico e dettaglio per set che torna col totale (' + bdA.map((b) => b.setName + ' ' + b.correct + '/' + b.total).join(', ') + ')');
+    ok(sIns.s.itemDetails.length === 6 && sIns.s.itemDetails.every((d) => d.setId && d.setName && / · /.test(d.label)), 'più set insieme: il dettaglio per stimolo porta il set di ciascuno');
+
+    // ---- dal Centro: attività con target «Chi lo fa?», «Somministra con l'app», seduta in programma ----
+    await p.evaluate(() => TiceHome.vai('programma', state.patients.find((x) => x.name === 'Prova B.').id)); await attesa(500);
+    await p.evaluate(() => { const pz = state.patients.find((x) => x.name === 'Prova B.'); const a = TiceProgramma.nuovaAttivita(pz, { nome: 'Chi lo fa (intraverbal)', mode: 'chi_lo_fa' }); TiceProgramma.aggiungiTarget(a, { testo: 'Azioni A + Azioni B', setId: 'azA', setIds: ['azA', 'azB'], mode: 'chi_lo_fa' }, false); TiceHome.salvaPaziente && TiceHome.strumenti.salvaPaziente(pz); });
+        await p.click('[data-a="nuovo-target"]').catch(() => {}); await attesa(100); while (await p.locator('.tice-foglio').count()) { await p.keyboard.press('Escape'); await attesa(200); }
+    const idAtt = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').programma.attivita.find((a) => a.nome === 'Chi lo fa (intraverbal)').id);
+    // il modulo «Nuovi target» offre le due modalità fra i giochi
+    await p.evaluate((id) => TiceHome.vai('programma', state.patients.find((x) => x.name === 'Prova B.').id), idAtt); await attesa(300);
+    await p.click(`[data-a="nuovo-target"][data-id="${idAtt}"]`); await attesa(400);
+    ok(await p.locator('.tice-foglio [name=modo] option', { hasText: 'Chi lo fa?' }).count() === 1 && await p.locator('.tice-foglio [name=modo] option', { hasText: 'Cosa fa?' }).count() === 1, 'Centro, nuovi target: «Chi lo fa?» e «Cosa fa?» compaiono fra i giochi con il set');
+    await p.keyboard.press('Escape'); await attesa(300);
+    const nB0 = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').history.length);
+    await p.evaluate((id) => { const pz = state.patients.find((x) => x.name === 'Prova B.'), a = pz.programma.attivita.find((y) => y.id === id), t = a.target[0]; TiceHome.strumenti.lancia(pz, a, t); }, idAtt); await attesa(600);
+    ok(await p.evaluate(() => document.getElementById('mode-select').value === 'chi_lo_fa' && state.mergedSets.length === 2 && !!state._azSogg), 'Centro: «Somministra con l\'app» apre «Chi lo fa?» con i due set insieme');
+    for (const r of [true, true, false]) { await p.evaluate((x) => recordResponse(x), r); await attesa(900); }
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1500);
+    const sC = await p.evaluate((n) => { const l = state.patients.find((x) => x.name === 'Prova B.').history; return { nuove: l.length - n, s: JSON.parse(JSON.stringify(l[l.length - 1])) }; }, nB0);
+    ok(sC.nuove === 1 && sC.s.mode === 'chi_lo_fa' && sC.s.fonte === 'app-gioco' && sC.s.attivitaId === idAtt && sC.s.total === 3 && sC.s.correct === 2 && (sC.s.setBreakdown || []).length >= 1 && sC.s.itemDetails.length === 3, 'Centro: la seduta del gioco entra nel programma (attività e target collegati, dettaglio per set e per stimolo)');
+    // gioco avviato direttamente da un bambino del Centro → seduta di oggi
+    await p.evaluate(() => { TiceHome.strumenti.T.bozza = null; localStorage.removeItem('tice_bozza_' + state.patients.find((x) => x.name === 'Prova B.').id); TiceHome.chiudi(); });
+    const nB1 = await p.evaluate(() => state.patients.find((x) => x.name === 'Prova B.').history.length);
+    await p.evaluate(() => { setGlobalPatient(state.patients.find((x) => x.name === 'Prova B.').id); selectModeFromDropdown('cosa_fa'); loadSelectedSet('azA'); }); await attesa(500);
+    for (const r of [true, false]) { await p.evaluate((x) => recordResponse(x), r); await attesa(900); }
+    await p.evaluate(() => confirmSaveSession()); await attesa(300); await p.click('#session-note-save'); await attesa(1500);
+    const dir = await p.evaluate((n) => { const l = state.patients.find((x) => x.name === 'Prova B.'); const b = JSON.parse(localStorage.getItem('tice_bozza_' + l.id) || 'null'); return { storico: l.history.length - n, temp: b ? b.temp.map((t) => t.nome) : null, gioco: b ? Object.values(b.voci).map((v) => v.gioco && v.gioco.mode) : null, det: b ? Object.values(b.voci).map((v) => v.gioco && (v.gioco.itemDetails || []).map((d) => d.label)) : null }; }, nB1);
+    ok(dir.storico === 0 && dir.temp && dir.temp.length === 1 && /Cosa fa\? – Azioni A/.test(dir.temp[0]) && dir.gioco[0] === 'cosa_fa' && dir.det[0].length === 2 && / · /.test(dir.det[0][0]), '«Cosa fa?» avviato direttamente: va nella seduta di oggi come attività una tantum, con il dettaglio («' + (dir.temp && dir.temp[0]) + '»)');
+    await p.evaluate(() => { TiceHome.strumenti.T.bozza = null; localStorage.removeItem('tice_bozza_' + state.patients.find((x) => x.name === 'Prova B.').id); });
+    // grafici e filtri: la modalità compare con il nome leggibile
+    ok(await p.evaluate(() => { const l = state.patients.find((x) => x.id === 'p-az'); const costrutti = vizConstructScores ? vizConstructScores(l.history) : null; const k = costrutti && (Array.isArray(costrutti) ? costrutti : Object.values(costrutti)); return !!k; }), 'grafici: i costrutti (Intraverbale) leggono le sedute delle due modalità senza errori');
+    await p.evaluate(() => TiceHome.vai('grafici', 'p-az')); await attesa(900);
+    ok(await p.locator('[data-grafici]').count() >= 0 && !/undefined|NaN/.test(await p.locator('#tice').innerText()), 'grafici: la pagina del bambino con sedute «Chi lo fa?» / «Cosa fa?» si disegna senza «undefined»');
+    await p.evaluate(() => TiceHome.chiudi());
+    // telefono: le carte del field (6) stanno comode
+    await p.setViewportSize({ width: 390, height: 844 }); await attesa(300);
+    await p.evaluate(async () => { const img = (i) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="hsl(${i * 50},70%,60%)"/></svg>`); state.savedSets.push({ id: 'az6', name: 'Sei soggetti', category: 'Prova', modes: ['chi_lo_fa'], items: ['nonno', 'mamma', 'bambino', 'zia', 'papà', 'sorella'].map((s, i) => ({ label: 'bere', soggetto: s, url: img(i) })).concat(['nonno', 'mamma', 'bambino', 'zia', 'papà', 'sorella'].map((s, i) => ({ label: 'dormire', soggetto: s, url: img(i + 1) }))) }); selectModeFromDropdown('chi_lo_fa'); loadSelectedSet('az6'); });
+    await attesa(500);
+    const tel = await p.evaluate(() => { const st = document.getElementById('game-stage').getBoundingClientRect(); const c = [...document.querySelectorAll('#cf-campo .cf-carta')].map((e) => e.getBoundingClientRect()); const bar = document.querySelector('.cf-operatore').getBoundingClientRect(); return { n: c.length, minL: Math.min(...c.map((r) => r.width)), minA: Math.min(...c.map((r) => r.height)), fuori: c.some((r) => r.right > innerWidth + 1 || r.left < -1), orizz: st.right <= innerWidth + 1 && st.left >= 0, barraDentro: bar.right <= innerWidth + 1 && bar.left >= 0 }; });
+    ok(tel.n === 6 && tel.minL >= 100 && tel.minA >= 90 && !tel.fuori && tel.orizz && tel.barraDentro, 'telefono: 6 carte nel field, ognuna comoda (' + Math.round(tel.minL) + '×' + Math.round(tel.minA) + 'px), dentro lo schermo');
+    if (process.env.TICE_SHOT) await p.screenshot({ path: process.env.TICE_SHOT + '/chi-lo-fa-telefono.png' });
+    await p.evaluate(() => { editSet('az6'); document.getElementById('modal-editor').scrollTop = 0; }); await attesa(300);
+    await p.evaluate(() => toggleSoggPanel()); await attesa(200);
+    ok(await p.evaluate(() => { let fuori = 0; document.querySelectorAll('#editor-list *').forEach((e) => { if (e.getBoundingClientRect().right > innerWidth + 1) fuori++; }); return fuori === 0; }), 'editor, telefono: il campo soggetto e il pannello entrano nello schermo');
+    if (process.env.TICE_SHOT) await p.screenshot({ path: process.env.TICE_SHOT + '/editor-soggetti-telefono.png' });
+    await p.evaluate(() => closeEditor()); await p.evaluate(() => { document.getElementById('modal-library').classList.remove('open'); });
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
+    // la scorciatoia non scatta mentre si scrive nel campo del soggetto
+    await p.evaluate(() => { editSet('az6'); }); await attesa(200);
+    const tot0 = await p.evaluate(() => state.session.total);
+    await p.locator('#editor-list .editor-item input[list="sogg-lista"]').first().focus(); await p.keyboard.type('vvx'); await attesa(200);
+    ok(await p.evaluate(() => state.session.total) === tot0 && /vvx/.test(await p.locator('#editor-list .editor-item input[list="sogg-lista"]').first().inputValue()), 'scorciatoie: scrivendo il soggetto i tasti v / x non segnano risposte (staScrivendo)');
+    await p.evaluate(() => { closeEditor(); document.getElementById('modal-library').classList.remove('open'); });
+    // fine delle prove di gioco: nessuna partita aperta (chiudere la presa dati chiederebbe «Attività in corso…»)
+    await p.evaluate(() => { state.session.active = false; document.querySelectorAll('.themed-dialog-overlay').forEach((e) => e.remove()); });
+    await p.evaluate(() => { try { TiceHome.apri(); } catch (e) { /* aperta */ } }); await attesa(300);
+
     // ---- data della seduta: una seduta di un giorno passato, e il cambio di data a posteriori (js/tice-data.js) ----
     const foto = (nome) => (process.env.TICE_SHOT ? p.screenshot({ path: process.env.TICE_SHOT + '/' + nome + '.png' }) : null);   // schermate per chi sviluppa: TICE_SHOT=cartella
     const nomeB = 'Prova B.';
@@ -650,8 +848,61 @@ const ok = (c, m) => { n++; if (!c) falliti++; console.log((c ? '  ✓ ' : '  �
     await foto('cambia-data-telefono');
     await p.keyboard.press('Escape'); await attesa(300);
     await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
+    // ---- collegare attività e target ai set: nel modulo, subito dopo, e a posteriori su attività con sedute ----
+    await p.evaluate(() => { const img = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'; ['Frutta 1', 'Frutta 2', 'Frutta 3'].forEach((nome, i) => { if (!state.savedSets.some((x) => x.id === 'cx' + (i + 1))) state.savedSets.push({ id: 'cx' + (i + 1), name: nome, category: 'Frutta', cat: 'Frutta', modes: ['tact'], items: ['mela', 'pera'].map((label) => ({ label, url: img })) }); }); TiceHome.vai('bambini'); }); await attesa(400);
+    for (let k = 0; k < 3; k++) { await p.keyboard.press('Escape'); await attesa(150); }
+    await p.evaluate(() => { document.querySelectorAll('.tice-foglio-sfondo').forEach((x) => x.remove()); TiceHome.vai('bambini'); }); await attesa(400);
+    await p.click('[data-a="nuovo-bambino"]', { timeout: 5000 }); await attesa(300);
+    await p.fill('.tice-foglio [name=nome]', 'Collega C.'); await salvaFoglio();
+    await p.click('[data-a="nuova-att"]'); await attesa(400);
+    await p.fill('.tice-foglio [name=nome]', 'Tact frutta');
+    ok(await p.locator('.tice-foglio [data-ma-gioco] [name=g_modo]').isVisible(), 'nuova attività: il riquadro «Gioco» si vede senza aprire nulla');
+    await p.fill('.tice-foglio [name=num_a]', '3');
+    await p.selectOption('.tice-foglio [name=g_modo]', 'tact');
+    await p.check('.tice-foglio [name=g_collega]');
+    await foto('modulo-gioco');
+    await salvaFoglio(); await attesa(300);
+    ok(await p.locator('.tice-foglio.abbina-set, .tice-foglio .abbina-set').count() > 0, 'nuova attività: subito dopo il salvataggio si apre «Collega i target ai set»');
+    if (process.env.TICE_DEBUG) console.log('   sugg', await p.locator('.abbina-set .ab-sugg').count(), JSON.stringify(await p.evaluate(() => TiceHome.strumenti.setArchivio().map((x) => x.name + '|' + (x.cat || x.category)))));
+    ok(await p.locator('.abbina-set .ab-sugg').count() === 3, 'abbinamento: un suggerimento per ogni «Set N» (da confermare)');
+    ok(await p.evaluate(() => state.patients.find((x) => x.name === 'Collega C.').programma.attivita[0].target.every((t) => !t.setId)), 'abbinamento: i suggerimenti non si applicano da soli');
+    await foto('abbina-set');
+    await p.click('.abbina-set [data-ab-tutti]'); await attesa(200);
+    await p.locator('.tice-foglio .bottoni .bt.primario').last().click(); await attesa(500);
+    const collC = await p.evaluate(() => { const a = state.patients.find((x) => x.name === 'Collega C.').programma.attivita[0]; return { mode: a.mode, t: a.target.map((t) => t.testo + ':' + t.setId + ':' + t.mode).join() }; });
+    ok(collC.mode === 'tact' && collC.t === 'Set 1:cx1:tact,Set 2:cx2:tact,Set 3:cx3:tact', 'abbinamento: ogni «Set N» legato al suo set, i nomi dei target restano quelli scritti');
+    ok(/gioca con: Frutta 1/.test(await p.locator('.scheda[data-prog]').first().innerText()), 'programma: accanto al target compare il set collegato');
+    // a posteriori: un target già con sedute, scollegato e ricollegato dal menu, senza perdere lo storico
+    const ids = await p.evaluate(async () => { const pz = state.patients.find((x) => x.name === 'Collega C.'), a = pz.programma.attivita[0], t = a.target[2];
+      TiceProgramma.scollegaSet(pz, a, t);
+      pz.history = (pz.history || []).concat([TiceProgramma.seduta(a, t, { v: 4, x: 1 }, new Date(Date.now() - 86400000).toISOString()), { id: 'imp_c', date: new Date(Date.now() - 2 * 86400000).toISOString(), mode: 'quaderno', setName: 'Tact frutta · Set 3', correct: 2, total: 4, percentage: 50 }]);
+      await DB.savePatient(pz); TiceHome.ridisegna(); return { a: a.id, t: t.id }; }); await attesa(500);
+    await p.click(`[data-a="menu-target"][data-id="${ids.a}"][data-t="${ids.t}"]`); await attesa(300);
+    ok(/Collega a un set del gioco/.test(await p.locator('.tice-foglio').innerText()), 'menu del target senza set: «Collega a un set del gioco»');
+    await p.click('.tice-foglio [data-foglio="set"]'); await attesa(300);
+    await p.check('.tice-foglio input[name=s][value=cx3]'); await p.locator('.tice-foglio .bottoni .bt.primario').last().click(); await attesa(500);
+    const dopoC = await p.evaluate((i) => { const pz = state.patients.find((x) => x.name === 'Collega C.'), a = pz.programma.attivita[0], t = a.target.find((x) => x.id === i.t); return { set: t.setId, testo: t.testo, n: TiceProgramma.sedute(pz, a, t).length }; }, ids);
+    ok(dopoC.set === 'cx3' && dopoC.testo === 'Set 3' && dopoC.n === 2, 'collegamento a posteriori: set e gioco impostati, nome invariato, le 2 sedute già registrate restano del target');
+    await p.click(`[data-a="menu-target"][data-id="${ids.a}"][data-t="${ids.t}"]`); await attesa(300);
+    await p.click('.tice-foglio [data-foglio="set"]'); await attesa(300);
+    await p.click('.tice-foglio [data-foglio="scollega"]'); await attesa(500);
+    ok(await p.evaluate((i) => { const pz = state.patients.find((x) => x.name === 'Collega C.'), a = pz.programma.attivita[0], t = a.target.find((x) => x.id === i.t); return !t.setId && TiceProgramma.sedute(pz, a, t).length === 2; }, ids), 'scollegare: il target resta con le sue sedute');
+    // dal menu dell'attività e dal modulo «Modifica attività»
+    await p.click(`[data-a="collega-set"][data-id="${ids.a}"]`); await attesa(400);
+    ok(await p.locator('.abbina-set .ab-riga').count() === 3, 'menu dell\'attività: «Gioco e set» apre l\'abbinamento di tutti i target');
+    await p.locator('.tice-foglio [data-foglio="chiudi"]').last().click(); await attesa(300);
+    await p.click(`[data-a="mod-att"][data-id="${ids.a}"]`); await attesa(400);
+    ok(await p.locator('.tice-foglio [data-g-collega]').isVisible() && await p.inputValue('.tice-foglio [name=g_modo]') === 'tact', 'modifica attività: gioco scelto e tasto «Collega i target ai set…»');
+    await p.click('.tice-foglio [data-g-collega]'); await attesa(400);
+    ok(await p.locator('.abbina-set .ab-riga').count() === 3, 'modifica attività: l\'abbinamento si apre senza chiudere il modulo');
+    await p.setViewportSize({ width: 390, height: 844 }); await attesa(300);
+    ok(await p.evaluate(() => { let fuori = 0; document.querySelectorAll('.tice-foglio .abbina-set *').forEach((e) => { if (e.getBoundingClientRect().right > innerWidth + 1) fuori++; }); return fuori === 0; }), 'abbinamento, telefono: entra nello schermo');
+    await foto('abbina-telefono');
+    await p.setViewportSize({ width: 1100, height: 900 }); await attesa(300);
+    await p.locator('.tice-foglio [data-foglio="chiudi"]').last().click(); await attesa(300);
+    await p.locator('.tice-foglio [data-foglio="chiudi"]').last().click(); await attesa(300);
     ok(errori.length === 0, 'nessun errore di pagina' + (errori.length ? ': ' + errori.join(' | ') : ''));
-  } catch (e) { falliti++; console.log('  ✗ interrotta: ' + (e.message || e).split('\n')[0] + (errori.length ? ' · errori di pagina: ' + errori.join(' | ') : '')); }
+  } catch (e) { falliti++; console.log('  ✗ interrotta: ' + (process.env.TICE_DEBUG ? (e.message || e) : (e.message || e).split('\n')[0]) + (errori.length ? ' · errori di pagina: ' + errori.join(' | ') : '')); }
   await b.close(); server.close();
   console.log(`\n${n - falliti} riuscite, ${falliti} fallite`);
   process.exit(falliti ? 1 : 0);

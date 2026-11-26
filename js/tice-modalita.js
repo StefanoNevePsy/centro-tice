@@ -38,7 +38,7 @@
   var MODALITA = [
     ['tact', 'Tact', 'speaker', ['tact', 'denominazione', 'denominare', 'naming', 'labeling', 'etichettare'], ['tact']],
     ['mand', 'Mand', 'speaker', ['mand', 'mandi', 'richiesta', 'richieste', 'request', 'requesting'], []],
-    ['intraverbal', 'Intraverbal', 'speaker', ['intraverbal', 'intraverbale', 'intraverbali', 'conversazione', 'domande e risposte', 'wh'], ['intraverbal_scenari', 'pool_intraverbal']],
+    ['intraverbal', 'Intraverbal', 'speaker', ['intraverbal', 'intraverbale', 'intraverbali', 'conversazione', 'domande e risposte', 'wh'], ['intraverbal_scenari', 'pool_intraverbal', 'chi_lo_fa', 'cosa_fa']],
     ['echoic', 'Echoic', 'speaker', ['echoic', 'echo', 'ecoico', 'ecoica', 'ecoiche', 'imitazione vocale', 'ripetizione'], []],
     ['grammatica', 'Grammatica e frasi', 'speaker', ['grammatica', 'morfologia', 'plurali', 'singolare plurale', 'pronomi', 'frasi', 'autoclitici'], ['singolare_plurale']],
     ['indicare', 'Indicare (discriminazione)', 'listener', ['point', 'pointing', 'indicare', 'indica', 'ld', 'listener discrimination', 'discriminazione uditiva', 'riconoscimento', 'field'], ['tombola', 'tombola_sonora']],

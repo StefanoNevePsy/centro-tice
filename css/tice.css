@@ -1376,3 +1376,18 @@ iframe[src*="accounts.google.com/gsi"] {
 .gioco-set .pct-medio { color: var(--warning-color); }
 .gioco-set .pct-basso { color: var(--danger-color); }
 .tice-foglio .ma-unione[hidden] { display: none; }
+
+/* ---------- Gioco dell'attività e «Collega i target ai set» ---------- */
+.tice-foglio .ma .ma-gioco-set { margin: 6px 0 8px; border: 1px solid var(--glass-border); border-radius: 12px; padding: 6px 10px; }
+.tice-foglio .ma .ma-gioco-set > summary { cursor: pointer; padding: 4px 0; }
+.tice-foglio .ma .ma-gioco-set[open] > summary { margin-bottom: 6px; }
+.tice-foglio .abbina-set .ab-elenco { display: grid; gap: 8px; margin: 4px 0 10px; }
+.tice-foglio .abbina-set .ab-riga { border: 1px solid var(--glass-border); border-radius: 12px; padding: 8px 10px; display: grid; gap: 6px; }
+.tice-foglio .abbina-set .ab-scelta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.tice-foglio .abbina-set .ab-set { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.tice-foglio .abbina-set .ab-set.vuoto { font-weight: 400; color: var(--text-secondary); }
+.tice-foglio .abbina-set .ab-sugg { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 4px 8px; border-radius: 10px; background: rgba(var(--shade-rgb), 0.08); }
+.tice-foglio .abbina-set .ab-sugg[hidden], .tice-foglio .abbina-set .ab-nota:empty { display: none; }
+@media (max-width: 600px) {
+    .tice-foglio .abbina-set .bt.piccolo { min-height: 40px; }
+}

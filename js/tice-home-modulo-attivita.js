@@ -17,11 +17,59 @@
         return ((typeof state !== 'undefined' && state.savedSets) || []).filter((s) => (s.modes || []).includes('quaderno') && !(s.modes || []).includes('quaderno_task'));
     }
     const listeTA = () => ((typeof state !== 'undefined' && state.savedSets) || []).filter((s) => (s.modes || []).includes('quaderno_task'));
+    const modiDi = (sets) => [...new Set(sets.flatMap((x) => x.modes || []))].filter((m) => !MODI_ESCLUSI.includes(m));
+    // Il gioco per uno o più set insieme: quello voluto se va bene per tutti, altrimenti il primo che va bene
+    function modoPerSet(scelti, voluto) {
+        if (!scelti.length) return voluto || '';
+        const comuni = (scelti[0].modes || []).filter((m) => !MODI_ESCLUSI.includes(m) && scelti.every((x) => (x.modes || []).includes(m)));
+        return comuni.includes(voluto) ? voluto : (comuni[0] || voluto || '');
+    }
+    const nomeCategoria = (x) => x.cat || x.category || '';
+    // I set dell'archivio da scegliere: ricerca, elenco e, con due o più, «separati / insieme».
+    // `pre` è il prefisso dei nomi dei campi (il foglio dei target usa «», il modulo dell'attività «g_»).
+    function elencoSet(pre, sets, scelti, senzaUnione) {
+        return h`<input type="search" placeholder="Cerca un set" data-filtro-set autocomplete="off" style="margin-bottom:6px">
+            <div class="opzioni" style="max-height:34vh;overflow-y:auto" data-elenco-set>
+                ${sets.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + nomeCategoria(x)).toLowerCase()}" data-modi="${(x.modes || []).join(' ')}">
+                    <input type="checkbox" name="${pre + 's'}" value="${x.id}" ${(scelti || []).includes(x.id) ? grezzo('checked') : ''}><span class="corpo">${x.name}<small>${nomeCategoria(x)}${x.items ? ' · ' + x.items.length + ' elementi' : ''}</small></span></label>`)}
+            </div>
+            <div class="campo ma-unione" data-unione hidden style="margin-top:8px"><span>${icona('layer-group')} Con più set scelti</span>
+                ${senzaUnione ? h`<span class="sotto piccolo">I set scelti si usano insieme in questo target: il gioco usa gli stimoli di tutti e il risultato è unico, con il dettaglio per set.</span>` : h`<div class="scelta verticale">
+                    <label><input type="radio" name="${pre + 'unione'}" value="separati" checked><span>Set separati <small class="sotto">· un target per ogni set, uno dopo l'altro</small></span></label>
+                    <label><input type="radio" name="${pre + 'unione'}" value="insieme"><span>Set insieme <small class="sotto">· un solo target: il gioco usa gli stimoli di tutti i set e il risultato è unico, con il dettaglio per set</small></span></label>
+                </div>`}
+                <span class="sotto piccolo avviso-doppione" data-unione-nota></span></div>`;
+    }
+    const sceltaGioco = (nome, modi, corrente, vuoto) => h`<select name="${nome}">${vuoto ? h`<option value="">${vuoto}</option>` : ''}
+        ${modi.map((m) => h`<option value="${m}" ${m === corrente ? grezzo('selected') : ''}>${etichettaModo(m)}</option>`)}</select>`;
+    // Collega i comportamenti dell'elenco: filtro, «separati / insieme» (compare con due o più set), gioco adatto a tutti
+    function agganciaElencoSet(f, pre) {
+        const filtro = f.querySelector('[data-filtro-set]');
+        if (filtro) filtro.addEventListener('input', () => {
+            const q = filtro.value.trim().toLowerCase();
+            f.querySelectorAll('[data-elenco-set] > label').forEach((l) => { l.hidden = !!q && !l.dataset.nome.includes(q) && !l.querySelector('input').checked; });
+        });
+        const box = f.querySelector('[data-unione]');
+        if (!box) return;
+        const nota = box.querySelector('[data-unione-nota]'), modo = f.querySelector(`[name="${pre}modo"]`);
+        const conto = f.querySelector('[data-g-conto]');
+        const aggiorna = () => {
+            const scelti = [...f.querySelectorAll('[data-elenco-set] input:checked')];
+            box.hidden = scelti.length < 2;
+            if (conto) conto.textContent = scelti.length ? `· ${scelti.length} ${scelti.length === 1 ? 'scelto' : 'scelti'}` : '';
+            const radio = box.querySelector(`[name="${pre}unione"]:checked`);
+            const insieme = !box.hidden && (!radio || radio.value === 'insieme');
+            const manca = insieme && modo && modo.value ? scelti.filter((i) => !String(i.closest('label').dataset.modi || '').split(' ').includes(modo.value)).map((i) => i.closest('label').querySelector('.corpo').firstChild.textContent.trim()) : [];
+            nota.textContent = manca.length ? `«${manca.join('», «')}» non ${manca.length === 1 ? 'è adatto' : 'sono adatti'} a questo gioco: scegli un gioco che vada bene per tutti i set.` : '';
+        };
+        f.addEventListener('change', aggiorna);
+        aggiorna();
+    }
     function moduloTarget(att) {
         const sets = setArchivio();
         const liste = listeQuaderno();
         const ta = listeTA();
-        const modi = [...new Set(sets.flatMap((x) => x.modes || []))].filter((m) => !MODI_ESCLUSI.includes(m));
+        const modi = modiDi(sets);
         const modoPred = att.mode || (modi.includes('tact') ? 'tact' : modi[0]);
         return foglio(h`<form><h2>Nuovi target · ${att.nome}</h2>
             ${(() => { const nn = numerazione(att); return h`<div class="campo"><span>${icona('arrow-down-1-9')} Numerati <small class="sotto">· es. Set 1, Set 2, Set 3…</small></span>
@@ -31,20 +79,9 @@
                 <span class="sotto piccolo">Lascia vuoto «a» per non aggiungerne.</span></div>`; })()}
             <label class="campo"><span>Scritti a mano, uno per riga, nell'ordine in cui lavorarli</span><textarea name="t" placeholder="es. Battere le mani&#10;Toccare la testa"></textarea></label>
             ${sets.length ? h`<h3>Dall'archivio dei set</h3>
-                <p class="sotto piccolo">Su tablet e computer, toccando l'attività si apre direttamente il gioco con il set, pronto da somministrare.</p>
-                <input type="search" placeholder="Cerca un set" data-filtro-set autocomplete="off" style="margin-bottom:6px">
-                <div class="opzioni" style="max-height:34vh;overflow-y:auto" data-elenco-set>
-                    ${sets.map((x) => h`<label class="opzione" data-nome="${String(x.name + ' ' + (x.cat || x.category || '')).toLowerCase()}" data-modi="${(x.modes || []).join(' ')}">
-                        <input type="checkbox" name="s" value="${x.id}"><span class="corpo">${x.name}<small>${x.cat || x.category || ''}${x.items ? ' · ' + x.items.length + ' elementi' : ''}</small></span></label>`)}
-                </div>
-                <div class="campo ma-unione" data-unione hidden style="margin-top:8px"><span>${icona('layer-group')} Con più set scelti</span>
-                    <div class="scelta verticale">
-                        <label><input type="radio" name="unione" value="separati" checked><span>Set separati <small class="sotto">· un target per ogni set, uno dopo l'altro</small></span></label>
-                        <label><input type="radio" name="unione" value="insieme"><span>Set insieme <small class="sotto">· un solo target: il gioco usa gli stimoli di tutti i set e il risultato è unico, con il dettaglio per set</small></span></label>
-                    </div>
-                    <span class="sotto piccolo avviso-doppione" data-unione-nota></span></div>
-                <label class="campo" style="margin-top:8px"><span>Con il gioco</span><select name="modo">
-                    ${modi.map((m) => h`<option value="${m}" ${m === modoPred ? grezzo('selected') : ''}>${etichettaModo(m)}</option>`)}</select></label>` : ''}
+                <p class="sotto piccolo">Su tablet e computer, toccando l'attività si apre direttamente il gioco con il set, pronto da somministrare. Per legare target già scritti (es. «Set 1») a un set, usa «Collega i target ai set» dal programma.</p>
+                ${elencoSet('', sets)}
+                <label class="campo" style="margin-top:8px"><span>Con il gioco</span>${sceltaGioco('modo', modi, modoPred)}</label>` : ''}
             <details class="ta-nuova" ${ta.length ? '' : grezzo('open')}><summary><b>${icona('list-ol')} Task analysis</b> <span class="sotto piccolo">un target fatto di passi, segnati uno alla volta</span></summary>
                 <label class="campo"><span>Nome</span><input name="ta_nome" placeholder="es. Lavarsi le mani" autocomplete="off"></label>
                 <label class="campo"><span>Passi, uno per riga, nell'ordine</span><textarea name="ta_passi" rows="5" placeholder="Apre il rubinetto&#10;Mette le mani sotto l'acqua&#10;Prende il sapone"></textarea></label>
@@ -62,26 +99,7 @@
                 return { t: [numerati, fd.get('t') || ''].filter(Boolean).join('\n'), set: fd.getAll('s'), modo: fd.get('modo') || '', unione: fd.get('unione') || 'separati', lista: fd.get('lista') || '',
                     taNome: fd.get('ta_nome') || '', taPassi: fd.get('ta_passi') || '', taLista: fd.get('ta_lista') || '' };
             },
-            dopo: (f) => {
-                const filtro = f.querySelector('[data-filtro-set]');
-                if (filtro) filtro.addEventListener('input', () => {
-                    const q = filtro.value.trim().toLowerCase();
-                    f.querySelectorAll('[data-elenco-set] > label').forEach((l) => { l.hidden = !!q && !l.dataset.nome.includes(q) && !l.querySelector('input').checked; });
-                });
-                // la scelta «separati / insieme» compare con due o più set; con «insieme» il gioco deve andare bene per tutti
-                const box = f.querySelector('[data-unione]');
-                if (!box) return;
-                const nota = box.querySelector('[data-unione-nota]'), modo = f.querySelector('[name=modo]');
-                const aggiorna = () => {
-                    const scelti = [...f.querySelectorAll('[data-elenco-set] input:checked')];
-                    box.hidden = scelti.length < 2;
-                    const insieme = !box.hidden && box.querySelector('[name=unione]:checked').value === 'insieme';
-                    const manca = insieme && modo ? scelti.filter((i) => !String(i.closest('label').dataset.modi || '').split(' ').includes(modo.value)).map((i) => i.closest('label').querySelector('.corpo').firstChild.textContent.trim()) : [];
-                    nota.textContent = manca.length ? `«${manca.join('», «')}» non ${manca.length === 1 ? 'è adatto' : 'sono adatti'} a questo gioco: scegli un gioco che vada bene per tutti i set.` : '';
-                };
-                f.addEventListener('change', aggiorna);
-                aggiorna();
-            }
+            dopo: (f) => agganciaElencoSet(f, '')
         });
     }
     function aggiungiTargetDaModulo(att, r) {
@@ -90,13 +108,11 @@
         const scelti = r.set.map((id) => sets.find((y) => y.id === id)).filter(Boolean);
         if (r.unione === 'insieme' && scelti.length > 1) {
             // più set in un solo target: il gioco usa gli stimoli di tutti, il risultato è unico
-            const comuni = (scelti[0].modes || []).filter((m) => !MODI_ESCLUSI.includes(m) && scelti.every((x) => (x.modes || []).includes(m)));
-            const modo = comuni.includes(r.modo) ? r.modo : (comuni[0] || r.modo);
+            const modo = modoPerSet(scelti, r.modo);
             P.aggiungiTarget(att, { testo: scelti.map((x) => x.name).join(' + '), setId: scelti[0].id, setIds: scelti.map((x) => x.id), mode: modo }, true);
             if (!att.mode && modo) att.mode = modo;
         } else scelti.forEach((x) => {
-            const modi = (x.modes || []).filter((m) => !MODI_ESCLUSI.includes(m));
-            const modo = modi.includes(r.modo) ? r.modo : (modi[0] || r.modo);
+            const modo = modoPerSet([x], r.modo);
             P.aggiungiTarget(att, { testo: x.name, setId: x.id, mode: modo }, true);
             if (!att.mode && modo) att.mode = modo;
         });
@@ -114,6 +130,143 @@
                 if (n) P.aggiungiTarget(att, n, true);
             });
         }
+    }
+
+    // ---------- collegare i target ai set dell'archivio e al gioco ----------
+    const eTA = (t) => P.passiDi(t).length > 0;
+    const nomeSetDi = (archivio, id) => ((archivio.find((x) => x.id === id) || {}).name || '');
+    // Foglio per scegliere uno o più set (usati insieme) e, facoltativo, il gioco.
+    // Restituisce { s: [id…], modo } oppure 'scollega' oppure null.
+    function scegliSet(opz) {
+        const archivio = opz.archivio, modi = modiDi(archivio);
+        const modoPred = opz.modo && modi.includes(opz.modo) ? opz.modo : (modi.includes('tact') ? 'tact' : modi[0]);
+        return foglio(h`<form class="scelta-set"><h2>${opz.titolo}</h2>
+            <p class="sotto piccolo">${opz.intro}</p>
+            ${elencoSet('', archivio, opz.scelti, true)}
+            ${opz.senzaGioco ? '' : h`<label class="campo" style="margin-top:8px"><span>${icona('gamepad')} Con il gioco</span>${sceltaGioco('modo', modi, modoPred)}</label>`}
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button>
+                ${opz.scollega ? h`<button type="button" class="bt" data-foglio="scollega">${icona('link-slash')} Scollega</button>` : ''}
+                <button class="bt primario">${opz.ok || 'Salva'}</button></div></form>`,
+        { invia: (f) => {
+            const fd = new FormData(f), ids = fd.getAll('s');
+            if (!ids.length) { avviso('Scegli almeno un set', 'errore'); return undefined; }
+            return { s: ids, modo: fd.get('modo') || '' };
+        }, dopo: (f) => agganciaElencoSet(f, '') });
+    }
+    // Collega un target ai set scelti (il testo, lo stato, le sedute restano) e imposta il gioco
+    function collegaTarget(p, att, t, ids, modo) {
+        const archivio = setArchivio();
+        const scelti = ids.map((id) => archivio.find((x) => x.id === id)).filter(Boolean);
+        const m = modoPerSet(scelti, modo);
+        P.collegaSet(p, att, t, ids, m);
+        if (m && !att.mode) att.mode = m;
+    }
+    // Dal menu di un target: collegarlo a un set (o a più, insieme), cambiarlo, scollegarlo. true se è cambiato qualcosa.
+    async function cambiaSetTarget(p, att, t) {
+        const archivio = setArchivio();
+        if (!archivio.length) { avviso('L\'archivio dei set è vuoto: crea o scarica un set dai giochi.'); return false; }
+        const attuali = P.setIdsDi(t);
+        const r = await scegliSet({ archivio, scelti: attuali, modo: P.modoTarget(att, t), scollega: !!attuali.length,
+            titolo: (attuali.length ? 'Set · ' : 'Collega a un set · ') + t.testo,
+            intro: 'Con più set il gioco usa gli stimoli di tutti insieme: il risultato è uno solo, con il dettaglio per set e per stimolo. Le sedute già registrate restano su questo target.' });
+        if (!r) return false;
+        if (r === 'scollega') { P.scollegaSet(p, att, t); return true; }
+        // i set che non sono su questo dispositivo restano com'erano
+        const ids = attuali.filter((id) => !archivio.some((x) => x.id === id)).concat(r.s);
+        collegaTarget(p, att, t, ids, r.modo);   // il nome del target non cambia mai
+        return true;
+    }
+    // Quanti target dell'attività sono collegati a un set (esclusa la task analysis)
+    function statoCollegamenti(att) {
+        const tg = (att.target || []).filter((t) => !eTA(t));
+        return { tot: tg.length, collegati: tg.filter((t) => t.setId).length };
+    }
+    // Il foglio «Collega i target ai set»: per ogni target la scelta del set (con una proposta per nome simile
+    // da confermare) e un gioco comune all'attività. Restituisce true se il programma è cambiato.
+    async function abbinaSet(p, att) {
+        const archivio = setArchivio();
+        const tgs = (att.target || []).filter((t) => !eTA(t));
+        if (!archivio.length) { avviso('L\'archivio dei set è vuoto: crea o scarica i set dai giochi.'); return false; }
+        if (!tgs.length) { avviso('L\'attività non ha ancora target da collegare.'); return false; }
+        const modi = modiDi(archivio);
+        const modoPred = att.mode && modi.includes(att.mode) ? att.mode : (tgs.map((t) => P.modoTarget(att, t)).find((m) => m && modi.includes(m)) || (modi.includes('tact') ? 'tact' : modi[0]));
+        // proposte (mai applicate da sole): set non ancora usati, nella stessa categoria di quelli già collegati, uno per target
+        const usati = tgs.flatMap((t) => P.setIdsDi(t));
+        const categorie = usati.map((id) => nomeCategoria(archivio.find((x) => x.id === id) || {})).filter(Boolean);
+        const sugg = {};
+        const esclusi = usati.slice();
+        tgs.filter((t) => !t.setId).forEach((t) => {
+            const x = P.suggerisciSet(t.testo, archivio, { categorie, categorieDeboli: [att.area, att.nome].filter(Boolean), esclusi });
+            if (x) { sugg[t.id] = x; esclusi.push(x.id); }
+        });
+        const nSugg = Object.keys(sugg).length;
+        const riga = (t) => {
+            const ids = P.setIdsDi(t), s = sugg[t.id];
+            return h`<div class="ab-riga" data-tid="${t.id}">
+                <div class="ab-t"><b>${t.testo}</b> <small class="sotto">${P.STATI_TARGET[t.stato] || ''}</small></div>
+                <input type="hidden" name="${'set_' + t.id}" value="${ids.join(',')}">
+                <div class="ab-scelta"><span class="ab-set" data-ab-etichetta></span>
+                    <button type="button" class="bt piccolo" data-ab-scegli>${icona('layer-group')} <span data-ab-testo-bt>Scegli il set…</span></button></div>
+                ${s ? h`<div class="ab-sugg" data-ab-sugg="${s.id}"><span class="sotto piccolo">${icona('wand-magic-sparkles')} Forse: <b>${s.nome}</b></span>
+                    <button type="button" class="bt piccolo fantasma" data-ab-accetta>Usa questo</button></div>` : ''}
+                <div class="ab-nota sotto piccolo avviso-doppione" data-ab-nota></div></div>`;
+        };
+        const r = await foglio(h`<form class="abbina-set"><h2>Collega i target ai set · ${att.nome}</h2>
+            <p class="sotto piccolo">Per ogni target scegli il set dell'archivio (anche più d'uno, usati insieme). Sedute, stato e storico restano com'erano: cambia solo il collegamento. I suggerimenti vanno confermati.</p>
+            <label class="campo"><span>${icona('gamepad')} Gioco dell'attività</span>${sceltaGioco('modo', modi, modoPred)}</label>
+            ${nSugg ? h`<button type="button" class="bt piccolo" data-ab-tutti style="margin-bottom:8px">${icona('wand-magic-sparkles')} Usa tutti i suggerimenti (${nSugg})</button>` : ''}
+            <div class="ab-elenco">${tgs.map(riga)}</div>
+            <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`,
+        { invia: (f) => {
+            const fd = new FormData(f), scelte = {};
+            tgs.forEach((t) => { scelte[t.id] = String(fd.get('set_' + t.id) || ''); });
+            return { modo: fd.get('modo') || '', scelte };
+        }, dopo: (f) => {
+            const modo = f.querySelector('[name=modo]');
+            const rigaDi = (tid) => f.querySelector(`.ab-riga[data-tid="${tid}"]`);
+            const idsDi = (el) => { const v = el.querySelector('input[type=hidden]').value; return v && v !== '-' ? v.split(',') : []; };
+            const aggiorna = () => f.querySelectorAll('.ab-riga').forEach((el) => {
+                const v = el.querySelector('input[type=hidden]').value, ids = idsDi(el);
+                const e = el.querySelector('[data-ab-etichetta]'), bt = el.querySelector('[data-ab-testo-bt]'), sg = el.querySelector('[data-ab-sugg]'), nota = el.querySelector('[data-ab-nota]');
+                e.textContent = v === '-' ? 'Verrà scollegato' : ids.length ? ids.map((id) => nomeSetDi(archivio, id) || '(set non su questo dispositivo)').join(' + ') : 'Nessun set';
+                e.classList.toggle('vuoto', !ids.length);
+                bt.textContent = ids.length ? 'Cambia…' : 'Scegli il set…';
+                if (sg) sg.hidden = !!ids.length || v === '-';
+                const sel = ids.map((id) => archivio.find((x) => x.id === id)).filter(Boolean);
+                const adatto = !sel.length || !modo.value || sel.every((x) => (x.modes || []).includes(modo.value));
+                nota.textContent = adatto ? '' : `Non adatto al gioco «${etichettaModo(modo.value)}»: per questo target si userà ${etichettaModo(modoPerSet(sel, modo.value))}.`;
+            });
+            f.querySelectorAll('[data-ab-scegli]').forEach((b) => b.addEventListener('click', async () => {
+                const el = b.closest('.ab-riga'), t = tgs.find((x) => x.id === el.dataset.tid);
+                const c = await scegliSet({ archivio, scelti: idsDi(el), senzaGioco: true, scollega: !!t.setId || idsDi(el).length > 0, titolo: 'Set per ' + t.testo,
+                    intro: 'Con più set il gioco usa gli stimoli di tutti insieme, con un risultato unico.', ok: 'Scegli' });
+                if (!c) return;
+                el.querySelector('input[type=hidden]').value = c === 'scollega' ? (t.setId ? '-' : '') : c.s.join(',');
+                aggiorna();
+            }));
+            f.querySelectorAll('[data-ab-accetta]').forEach((b) => b.addEventListener('click', () => {
+                const el = b.closest('.ab-riga'); el.querySelector('input[type=hidden]').value = el.querySelector('[data-ab-sugg]').dataset.abSugg; aggiorna();
+            }));
+            const tutti = f.querySelector('[data-ab-tutti]');
+            if (tutti) tutti.addEventListener('click', () => { f.querySelectorAll('[data-ab-accetta]').forEach((b) => { const el = b.closest('.ab-riga'); if (!idsDi(el).length) b.click(); }); tutti.hidden = true; });
+            modo.addEventListener('change', aggiorna);
+            aggiorna();
+        } });
+        if (!r) return false;
+        let n = 0;
+        tgs.forEach((t) => {
+            const v = r.scelte[t.id] || '';
+            if (v === '-') { P.scollegaSet(p, att, t); n++; return; }
+            const ids = v ? v.split(',') : [];
+            if (!ids.length) return;
+            const stesso = P.setIdsDi(t).join(',') === ids.join(',');
+            if (stesso && (!r.modo || P.modoTarget(att, t) === r.modo)) return;
+            collegaTarget(p, att, t, ids, r.modo); n++;
+        });
+        if (r.modo && modi.includes(r.modo)) att.mode = r.modo;
+        att.modificato = new Date().toISOString();
+        avviso(n ? `${att.nome}: ${n} ${n === 1 ? 'target collegato' : 'target collegati'} ai set` : `${att.nome}: nessun collegamento cambiato`);
+        return true;
     }
 
     // Modalità scelta nel modulo, o riconosciuta dal nome quando è sicura
@@ -212,7 +365,10 @@
         modalitaDaModulo(att, r);
         righe.forEach((x, i) => P.aggiungiTarget(att, x, i === 0));
         if (passiTA.length && att.target && att.target[0]) att.target[0].passi = P.nuoviPassi(passiTA, []);
+        // la sezione «Gioco» del modulo: il gioco dell'attività (i nomi dei target restano quelli scritti)
+        if (r.g_modo) att.mode = r.g_modo;
         await salvaPaziente(p);
+        if (r.g_collega && righe.length && !passiTA.length) { if (await abbinaSet(p, att)) await salvaPaziente(p); }
         if (!righe.length) {
             // nessun target scritto: si sceglie subito da set, liste o a mano
             const rt = await moduloTarget(att);
@@ -233,6 +389,9 @@
         const tile = (val, mini, nome, sp) => h`<label class="ma-tile"><input type="radio" name="sessionType" value="${val}" ${tipoA === val ? grezzo('checked') : ''}><span class="ma-mini">${mini.map(([c, t]) => h`<i class="${c}">${t}</i>`)}</span><b>${nome}</b><small>${sp}</small></label>`;
         const chipOpz = (k, ic, nome, on) => h`<button type="button" class="ma-chip ${on ? 'on' : ''}" data-ma-apri="${k}" aria-pressed="${on ? 'true' : 'false'}">${icona(ic)} ${nome}</button>`;
         const chipSpunta = (nomeCampo, ic, nome, on, titolo) => h`<label class="ma-chip ${on ? 'on' : ''}" title="${titolo}"><input type="checkbox" name="${nomeCampo}" ${on ? grezzo('checked') : ''}>${icona(ic)} ${nome}</label>`;
+        const archivio = setArchivio(), modiG = modiDi(archivio);
+        if (a.mode && !modiG.includes(a.mode)) modiG.unshift(a.mode);
+        const coll = att ? statoCollegamenti(att) : null;
         return foglio(h`<form class="modulo-att ma"><h2>${att ? 'Modifica attività' : 'Nuova attività'}</h2>
             <div class="ma-anteprima" data-ma-anteprima aria-live="polite"></div>
 
@@ -264,7 +423,7 @@
                         <input type="hidden" name="num_da" value="${num ? num.prossimo : 1}">
                         <span class="sotto piccolo ma-num-anteprima" data-num-anteprima></span></div>
                     <label class="campo" data-tmodo="elenco" ${num ? grezzo('hidden') : ''}><span>Uno per riga <small class="sotto">· vanno in coda, dopo quelli che ci sono</small></span><textarea name="nuoviTarget" rows="2" placeholder="es. Vestiti 4"></textarea></label>
-                    <span class="sotto piccolo">Per rinominarli, riordinarli, collegarli a un set o chiuderli: dal programma, con ⋯ accanto a ogni target.</span>`
+                    <span class="sotto piccolo">Per rinominarli, riordinarli o chiuderli: dal programma, con ⋯ accanto a ogni target. Per legarli ai set: la sezione «Gioco» qui sotto.</span>`
                 : h`<div class="ma-modi" role="radiogroup" aria-label="Come sono i target">
                         <label class="ma-chip on"><input type="radio" name="tmodo" value="num" checked>${icona('arrow-down-1-9')} Numerati</label>
                         <label class="ma-chip"><input type="radio" name="tmodo" value="elenco">${icona('list-ul')} A mano</label>
@@ -280,6 +439,15 @@
                         <label class="campo"><span>Compito <small class="sotto">· vuoto: il nome dell'attività</small></span><input name="taCompito" maxlength="200" placeholder="es. Lavarsi le mani"></label>
                         <label class="campo"><span>Passi, uno per riga, nell'ordine in cui si fanno</span><textarea name="taPassi" rows="6" placeholder="Apre il rubinetto&#10;Mette le mani sotto l'acqua&#10;Prende il sapone"></textarea></label></div>
                     <p class="sotto piccolo" data-tmodo="dopo" hidden>Salvando si apre la scelta dei target: dall'archivio dei set, da una lista o a mano. Si può anche lavorare senza target.</p>`}
+            </section>
+
+            <section class="ma-card" data-ma-gioco>${testa('gamepad', 'Gioco', coll && coll.tot ? `${coll.collegati} di ${coll.tot} target con un set` : 'facoltativo')}
+                <p class="sotto piccolo">I target li chiami come vuoi. Qui scegli il gioco dell'attività e poi leghi ogni target a un set dell'archivio: in seduta (tablet e computer) parte il gioco con il set già pronto, e il risultato entra nei dati del target. Il nome del target non cambia.</p>
+                <label class="campo"><span>Gioco dell'attività</span>${sceltaGioco('g_modo', modiG, a.mode || '', 'Nessuno (scelgo dopo)')}</label>
+                ${!archivio.length ? h`<p class="sotto piccolo">${icona('circle-info')} L'archivio dei set è vuoto: crea o scarica un set dai giochi per poterlo legare ai target.</p>` : ''}
+                ${archivio.length && att ? h`<button type="button" class="bt piccolo" data-g-collega ${coll.tot ? '' : grezzo('disabled')}>${icona('link')} Collega i target ai set…</button>
+                    <span class="sotto piccolo">${coll.tot ? 'Lega «Set 1», «Set 2»… ai set dell\'archivio, in un solo passaggio.' : 'Aggiungi prima dei target.'}</span>` : ''}
+                ${archivio.length && !att ? h`<label class="spunta-riga" style="margin-top:6px"><input type="checkbox" name="g_collega"> <span>Subito dopo il salvataggio, collega ogni target scritto sopra a un set dell'archivio <small class="sotto">· ti propone il set con il nome più simile, da confermare</small></span></label>` : ''}
             </section>
 
             <section class="ma-card">${testa('hand-pointer', 'In seduta', 'i tasti che vedrai')}
@@ -340,6 +508,14 @@
             <div class="bottoni"><button type="button" class="bt" data-foglio="chiudi">Annulla</button><button class="bt primario">Salva</button></div></form>`, {
             dopo: (el) => {
                 agganciaNuove(el);
+                const bc = el.querySelector('[data-g-collega]');
+                if (bc) bc.addEventListener('click', async () => {
+                    if (!await abbinaSet(p, att)) return;
+                    await salvaPaziente(p);
+                    const c = statoCollegamenti(att), g = el.querySelector('[name=g_modo]');
+                    el.querySelector('[data-ma-gioco] .ma-sotto').textContent = `${c.collegati} di ${c.tot} target con un set`;
+                    if (g && att.mode) { if (![...g.options].some((o) => o.value === att.mode)) g.add(new Option(etichettaModo(att.mode), att.mode)); g.value = att.mode; }
+                });
                 agganciaModuloAttivita(el, p, att);
                 const sm = el.querySelector('[data-mod-scelta]'), nm = el.querySelector('[data-mod-nuova]');
                 // la tendina resta (è lei che va nel modulo) ma si sceglie dal foglio con la ricerca
@@ -466,7 +642,7 @@
     }
 
     // Quello che serve al nucleo e agli altri moduli (correzioni, programma…)
-    const funzioni = { moduloAttivita, creaAttivitaDaModulo, moduloTarget, aggiungiTargetDaModulo, numerazione, nomiNumerati, targetDaAggiungere,
+    const funzioni = { abbinaSet, cambiaSetTarget, statoCollegamenti, scegliSet, moduloAttivita, creaAttivitaDaModulo, moduloTarget, aggiungiTargetDaModulo, numerazione, nomiNumerati, targetDaAggiungere,
         impostaField, impostaMisure, risolviNuovaModalita, modalitaDaModulo, campiCondizioni, rigaSotto, agganciaModuloAttivita };
     Object.assign(X, funzioni);
     TiceHome.estendi({ aggancio: funzioni });

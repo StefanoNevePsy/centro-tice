@@ -10,6 +10,8 @@ const BUILTIN_MODES = {
     'memory': { label: 'Memory', engine: 'memory' },
     'search_find': { label: 'Cerca-Trova', engine: 'search_find' },
     'intraverbal_scenari': { label: 'Intraverbal-Scenari', engine: 'intraverbal_scenari' },
+    'chi_lo_fa': { label: 'Chi lo fa?', engine: 'chi_lo_fa' },
+    'cosa_fa': { label: 'Cosa fa?', engine: 'cosa_fa' },
     'pool_random': { label: 'Pool Random', engine: 'pool_random' },
     'pool_intraverbal': { label: 'Pool Intraverbal', engine: 'pool_intraverbal' },
     'intruso': { label: 'Intruso', engine: 'intruso' },
@@ -60,7 +62,7 @@ function rebuildModesConfig() {
 function getDefaultActivityLayout() {
     return {
         groups: [
-            { name: '', modes: ['tact', 'ran', 'ran_intensivo', 'fluenza', 'tombola', 'tombola_sonora', 'memory', 'search_find', 'intraverbal_scenari', 'zoom', 'quaderno'] },
+            { name: '', modes: ['tact', 'ran', 'ran_intensivo', 'fluenza', 'tombola', 'tombola_sonora', 'memory', 'search_find', 'intraverbal_scenari', 'chi_lo_fa', 'cosa_fa', 'zoom', 'quaderno'] },
             { name: 'Avanzate', modes: ['topologia', 'sequenze', 'quaderno_task'] },
             { name: 'Pool da Tag', modes: ['pool_random', 'pool_intraverbal', 'intruso', 'categorizzazione', 'ricorda', 'singolare_plurale'] },
             { name: 'Inibizione', modes: ['stroop_numerico', 'go_nogo', 'stroop_etichetta'] },

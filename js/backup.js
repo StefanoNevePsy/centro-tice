@@ -902,13 +902,29 @@ function mergeSets(local, incoming) {
     // Shallow clone: item objects are replaced (not mutated) below, so sharing
     // references with `local` is safe and avoids duplicating base64 images.
     const merged = { ...local, items: [...(local.items || [])], tags: [...(local.tags || [])], modes: [...(local.modes || [])] };
-    const localByLabel = {};
-    merged.items.forEach((item, i) => { localByLabel[item.label || item.l || ''] = i; });
-
+    // Le immagini si abbinano per etichetta E soggetto: nei set di azioni la stessa parola compare piu' volte
+    // (6 x «bere», soggetti diversi) e non vanno fuse in una sola. A parita' di chiave, la n-esima con la n-esima.
+    const chiave = (it) => (it.label || it.l || '') + '\u0001' + String(it.soggetto || '').trim().toLowerCase();
+    const localByKey = {};
+    merged.items.forEach((item, i) => { (localByKey[chiave(item)] = localByKey[chiave(item)] || []).push(i); });
+    const usate = {}, presi = new Set();
     incoming.items.forEach(bItem => {
-        const label = bItem.label || bItem.l || '';
-        if (label in localByLabel) {
-            merged.items[localByLabel[label]] = { ...merged.items[localByLabel[label]], ...bItem };
+        const k = chiave(bItem);
+        const n = usate[k] || 0;
+        usate[k] = n + 1;
+        let pos = (localByKey[k] || [])[n];
+        if (pos === undefined) {
+            // stessa etichetta ma soggetto assegnato solo da una parte (backup vecchio o set modificato dopo): e' la stessa immagine
+            const label = bItem.label || bItem.l || '';
+            const bS = String(bItem.soggetto || '').trim();
+            // stessa etichetta e stessa immagine: e' la stessa carta, anche se il soggetto e' stato cambiato
+            pos = bItem.url ? merged.items.findIndex((it, i) => !presi.has(i) && (it.label || it.l || '') === label && it.url === bItem.url) : -1;
+            if (pos < 0) pos = merged.items.findIndex((it, i) => !presi.has(i) && (it.label || it.l || '') === label && (!bS || !String(it.soggetto || '').trim()));
+            if (pos < 0) pos = undefined;
+        }
+        if (pos !== undefined) {
+            presi.add(pos);
+            merged.items[pos] = { ...merged.items[pos], ...bItem };
         } else {
             merged.items.push(bItem);
         }

@@ -156,8 +156,11 @@
     return (p.history || []).filter(function (s) {
       if (ms && s.misura !== ms) return false;
       if (target && target.setId) {
-        // anche le sedute di quel set giocate prima che entrasse nel programma
-        return s.targetId ? s.targetId === target.id : (s.setId === setIdDi(target) && s.mode === modoTarget(att, target));
+        // anche le sedute di quel set giocate prima che entrasse nel programma, e quelle del target
+        // scritte a mano prima che fosse collegato al set («Attività · Target», senza targetId)
+        return s.targetId ? s.targetId === target.id
+          : (s.setId === setIdDi(target) && s.mode === modoTarget(att, target)) ||
+            (s.mode === 'quaderno' && s.setName === att.nome + ' · ' + target.testo);
       }
       if (target) return s.targetId ? s.targetId === target.id : (s.mode === 'quaderno' && s.setName === nome);
       return s.attivitaId === att.id || (s.mode === 'quaderno' && (s.setName === att.nome || String(s.setName).indexOf(att.nome + ' · ') === 0));
@@ -323,6 +326,71 @@
     att.modificato = t.modificato;
     return t;
   }
+  // ---------- collegare i target ai set dell'archivio ----------
+  // Collegare (o scollegare) cambia solo setId/setIds/mode del target: stato, storico e testo restano.
+  // Le sedute già registrate restano del target: quelle che lo riconoscevano solo dal nome o dal set
+  // prendono il suo targetId, così nessuna si perde passando da «Set 1» scritto a mano a un set del gioco.
+  function ancoraSedute(p, att, target, prima) {
+    (prima || []).forEach(function (s) { if (!s.targetId) s.targetId = target.id; });
+  }
+  /** Collega il target a uno o più set (insieme); `mode` è il gioco (facoltativo). Restituisce il target. */
+  function collegaSet(p, att, target, ids, mode) {
+    var l = (ids || []).map(String).filter(function (x, i, a) { return x && a.indexOf(x) === i; });
+    if (!target || !l.length) return target;
+    var prima = sedute(p, att, target);
+    target.setId = l[0];
+    if (l.length > 1) target.setIds = l; else delete target.setIds;
+    if (mode) target.mode = String(mode);
+    ancoraSedute(p, att, target, prima);
+    target.modificato = att.modificato = new Date().toISOString();
+    return target;
+  }
+  /** Toglie il collegamento al set: il target resta, con le sue sedute. */
+  function scollegaSet(p, att, target) {
+    if (!target || !target.setId) return target;
+    var prima = sedute(p, att, target);
+    delete target.setId; delete target.setIds; delete target.mode;
+    ancoraSedute(p, att, target, prima);
+    target.modificato = att.modificato = new Date().toISOString();
+    return target;
+  }
+  function norm(x) {
+    return String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  }
+  /**
+   * Un set dell'archivio che potrebbe corrispondere al target (solo un suggerimento da confermare):
+   * stesso nome, nome contenuto, oppure lo stesso numero finale («Set 1» ↔ «Frutta 1»), con un
+   * bonus se la categoria del set è quella indicata in opz.categorie. Senza un candidato chiaro null.
+   * archivio: [{id, name, cat}]; opz: { categorie: [...] (richieste per il solo numero), categorieDeboli: [...] (solo un bonus,
+   es. area e nome dell'attività), esclusi: [id…] }.
+   */
+  function suggerisciSet(testo, archivio, opz) {
+    var o = opz || {}, t = norm(testo), esclusi = o.esclusi || [];
+    var cats = (o.categorie || []).map(norm).filter(Boolean);
+    var deboli = (o.categorieDeboli || []).map(norm).filter(Boolean);
+    var m = /(\d+)\s*$/.exec(t), num = m ? String(parseInt(m[1], 10)) : null;
+    var re = num ? new RegExp('(^|[^0-9])0*' + num + '([^0-9]|$)') : null;
+    var ris = [];
+    (archivio || []).forEach(function (s) {
+      if (esclusi.indexOf(s.id) >= 0) return;
+      var n = norm(s.name), c = norm(s.cat || s.category), sc = 0;
+      if (!n || !t) return;
+      var perCat = cats.some(function (x) { return c && (c === x || c.indexOf(x) >= 0 || x.indexOf(c) >= 0); });
+      var perDebole = !!c && deboli.some(function (x) { return x.indexOf(c) >= 0; });
+      if (n === t) sc = 100;
+      else if (t.length >= 3 && n.indexOf(t) >= 0) sc = 60;
+      else if (n.length >= 3 && t.indexOf(n) >= 0) sc = 50;
+      else if (re && re.test(n) && (perCat || !cats.length)) sc = 30;
+      if (!sc) return;
+      ris.push({ id: s.id, nome: s.name, punti: sc + (perCat ? 20 : 0) + (perDebole ? 10 : 0) });
+    });
+    ris.sort(function (a, b) { return b.punti - a.punti; });
+    if (!ris.length) return null;
+    // due candidati alla pari: nessun suggerimento
+    if (ris[1] && ris[1].punti === ris[0].punti) return null;
+    return ris[0];
+  }
+
   /** Chiude un target e apre il successivo in programma, quello indicato, o nessuno. */
   function chiudiTarget(att, targetId, stato, data, prossimoId) {
     var t = (att.target || []).filter(function (x) { return x.id === targetId; })[0];
@@ -418,6 +486,7 @@
     conAttesa: conAttesa, chiaveAttesa: chiaveAttesa, inAttesaDi: inAttesaDi, dividiLU: dividiLU, contaRisposte: contaRisposte,
     sedute: sedute, criterioRaggiunto: criterioRaggiunto, criterioDi: criterioDi, seduta: seduta,
     setIdsDi: setIdsDi, setIdDi: setIdDi,
+    collegaSet: collegaSet, scollegaSet: scollegaSet, suggerisciSet: suggerisciSet,
     nuovaAttivita: nuovaAttivita, aggiungiTarget: aggiungiTarget,
     chiudiTarget: chiudiTarget, rendiCorrente: rendiCorrente, spostaTarget: spostaTarget,
     attiveOggi: attiveOggi

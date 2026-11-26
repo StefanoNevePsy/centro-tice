@@ -168,6 +168,7 @@ function renderGameMode(mode, items) {
     else if (engine === 'tombola_sonora') renderTombolaSonora(items, stage);
     else if (engine === 'memory') renderMemory(items, stage);
     else if (engine === 'search_find' || engine === 'intraverbal_scenari') renderSearchFind(items, stage);
+    else if (engine === 'chi_lo_fa' || engine === 'cosa_fa') renderAzioneSoggetto(items, stage, engine === 'cosa_fa' ? 'cosa' : 'chi');
     else if (engine === 'pool_random' || engine === 'pool_intraverbal') renderPoolRandom(items, stage);
     else if (engine === 'intruso') renderIntruso(items, stage);
     else if (engine === 'topologia') renderTopologia(items, stage);
@@ -1230,6 +1231,154 @@ window.skipIntrusoRound = () => {
         const nextRound = generateIntrusoRound(state.selectedPoolTags, state.intrusoCardsPerRound);
         if (nextRound) showIntrusoRound(document.getElementById('game-stage'), nextRound);
     }, 300);
+};
+
+
+// --- CHI LO FA? / COSA FA? (la stessa azione fatta da persone diverse) ---
+// 'chi': esce un'azione, il field mostra le immagini di quell'azione (soggetti diversi), il bersaglio e' una di esse.
+// 'cosa': esce un soggetto, il field mostra lo stesso soggetto che fa azioni diverse.
+// Risponde il bambino (indica la carta); chi somministra vede domanda e risposta attesa e segna V / P / X come in Tact.
+function renderAzioneSoggetto(items, stage, modo) {
+    const Z = window.TiceAzioni;
+    clearTimeout(state._azSogg && state._azSogg.timer);
+    state._azSogg = null;
+    const titolo = modo === 'cosa' ? 'Cosa fa?' : 'Chi lo fa?';
+    const icona = modo === 'cosa' ? 'fa-person-running' : 'fa-user-group';
+    const info = Z.preparaGruppi(items, modo);
+    const avvisi = Z.avvisi(info, modo);
+    const nota = avvisi.length ? `<div class="cf-avviso" role="status"><i class="fa-solid fa-triangle-exclamation"></i><span>${avvisi.map(a => escapeHtml(a)).join(' &middot; ')}</span><button type="button" onclick="this.parentNode.remove()" title="Chiudi" aria-label="Chiudi l'avviso"><i class="fa-solid fa-xmark"></i></button></div>` : '';
+    if (!info.gruppi.length) {
+        stage.innerHTML = `
+            <div class="cf-vuoto">
+                <i class="fa-solid ${icona} fa-3x"></i>
+                <p><b>${titolo}</b>: nessun gruppo giocabile in questo set.<br>${modo === 'cosa'
+                    ? 'Servono immagini con il <b>soggetto</b> assegnato (nell&rsquo;editor del set), con almeno 2 azioni diverse per lo stesso soggetto.'
+                    : 'Servono almeno 2 immagini con la <b>stessa parola</b> (la stessa azione) e soggetti diversi.'}</p>
+                ${nota}
+            </div>`;
+        return;
+    }
+    const S = state._azSogg = {
+        modo, info, gruppi: info.gruppi, tutti: Z.bersagli(info.gruppi), mazzo: Z.nuovoMazzo(),
+        turni: [], storico: {}, corrente: null, n: 0, bloccato: false, timer: null, nota
+    };
+    prossimoAzSogg(false);
+}
+
+function prossimoAzSogg(avvia) {
+    const S = state._azSogg, Z = window.TiceAzioni;
+    if (!S) return;
+    const stage = document.getElementById('game-stage');
+    const b = Z.estrai(S.mazzo, S.tutti);
+    const gruppo = S.gruppi[b.gruppo];
+    const bers = b.item;
+    const field = parseInt(document.getElementById('num-stimuli').value) || 0;
+    S.n++;
+    const campo = Z.campo(gruppo, bers, field);
+    S.corrente = { n: S.n, chiave: 'cf_' + S.n, bers, gruppo, campo, dom: Z.domanda(S.modo, bers), scelta: -1, fatto: null };
+    mostraAzSogg(stage);
+    if (avvia !== false) window._startTDCountdown();
+}
+
+function mostraAzSogg(stage) {
+    const S = state._azSogg;
+    if (!S || !S.corrente) return;
+    const c = S.corrente, d = c.dom;
+    const n = c.campo.length;
+    const w = (stage && stage.clientWidth) || window.innerWidth || 800;
+    let cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : n <= 12 ? 4 : 5;
+    if (w < 520) cols = n <= 2 ? n : (n <= 4 ? 2 : (n <= 6 && w >= 430 ? 3 : (n <= 6 ? 2 : 3)));
+    const righe = Math.ceil(n / cols);
+    const icona = S.modo === 'cosa' ? 'fa-person-running' : 'fa-user-group';
+    stage.innerHTML = `
+    <div class="cf-wrap">
+        <div class="cf-bar">
+            <span class="cf-titolo"><i class="fa-solid ${icona}"></i> ${escapeHtml(d.titolo)}</span>
+            <span class="cf-conta">Turno ${c.n}</span>
+            <button class="btn btn-sm btn-ghost" onclick="skipAzSoggRound()" style="padding:3px 10px; font-size:0.7rem;" title="Salta (S)" aria-label="Salta il turno"><i class="fa-solid fa-forward-step"></i></button>
+        </div>
+        ${S.nota || ''}
+        <div class="cf-operatore" aria-label="Per chi somministra">
+            <img src="${imgUrl(c.bers)}" alt="" onerror="handleImgError(this, '${jsAttr(c.bers.label)}')">
+            <div class="cf-testi">
+                <div class="cf-dom">${escapeHtml(d.domanda)}</div>
+                <div class="cf-ris">Risposta attesa: <b>${escapeHtml(d.risposta)}</b></div>
+            </div>
+        </div>
+        <div class="cf-campo" id="cf-campo" style="grid-template-columns:repeat(${cols}, minmax(0, 1fr)); grid-template-rows:repeat(${righe}, minmax(90px, 1fr));">
+            ${c.campo.map((it, i) => `
+                <div class="card-grid cf-carta" id="cf-carta-${i}" onclick="sceltaAzSogg(${i})" role="button" tabindex="0" aria-label="Carta ${i + 1}">
+                    <img src="${imgUrl(it)}" alt="" onerror="handleImgError(this, '${jsAttr(it.label)}')">
+                </div>`).join('')}
+        </div>
+    </div>`;
+    if (c.fatto !== null) coloraAzSogg(c.fatto);
+    if (c.scelta >= 0) { const el = document.getElementById('cf-carta-' + c.scelta); if (el) el.classList.add('cf-scelta'); }
+}
+
+// il bambino ha toccato una carta: si evidenzia (non e' un punteggio: lo segna chi somministra)
+window.sceltaAzSogg = (i) => {
+    const S = state._azSogg;
+    if (!S || !S.corrente || S.bloccato) return;
+    S.corrente.scelta = S.corrente.scelta === i ? -1 : i;
+    document.querySelectorAll('#cf-campo .cf-carta').forEach((el, k) => el.classList.toggle('cf-scelta', k === S.corrente.scelta));
+};
+
+function coloraAzSogg(result) {
+    const S = state._azSogg;
+    if (!S || !S.corrente) return;
+    const k = S.corrente.campo.indexOf(S.corrente.bers);
+    const el = document.getElementById('cf-carta-' + k);
+    if (!el) return;
+    el.classList.remove('cf-giusta', 'cf-aiuto', 'cf-errata');
+    el.classList.add(result === true ? 'cf-giusta' : (result === 'prompt' ? 'cf-aiuto' : 'cf-errata'));
+}
+
+// Registra la risposta del turno (V / P / X). Restituisce false se non c'e' niente da segnare.
+window._azSoggHandleScore = (result) => {
+    const S = state._azSogg, Z = window.TiceAzioni;
+    if (!S || !S.corrente || S.bloccato || !state.session.active) return false;
+    const c = S.corrente, it = c.bers;
+    const turno = { chiave: c.chiave, label: Z.etichetta(it), azione: Z.azioneDi(it), soggetto: Z.soggettoDi(it) };
+    if (it._setId) { turno.setId = it._setId; turno.setName = it._setName; turno.setCat = it._setCat; }
+    S.turni = S.turni.filter(t => t.chiave !== c.chiave).concat([turno]);
+    S.storico[c.chiave] = c;
+    c.fatto = result;
+    state.session.itemResults[c.chiave] = result;
+    if (!state.session.scoreHistory) state.session.scoreHistory = [];
+    if (state.session.scoreHistory[state.session.scoreHistory.length - 1] !== c.chiave) state.session.scoreHistory.push(c.chiave);
+    coloraAzSogg(result);
+    S.bloccato = true;
+    clearTimeout(S.timer);
+    S.timer = setTimeout(() => { S.bloccato = false; prossimoAzSogg(); }, 700);
+    return true;
+};
+
+// Annulla: si torna al turno che si era appena segnato, per rifarlo
+window._azSoggUndone = (chiave) => {
+    const S = state._azSogg;
+    if (!S) return;
+    clearTimeout(S.timer);
+    const c = S.storico[chiave];
+    if (!c) { S.bloccato = false; return; }
+    // il turno gia' estratto ma non segnato torna in cima al mazzo
+    const cur = S.corrente;
+    if (cur && cur !== c && cur.fatto === null) S.mazzo.coda.unshift({ gruppo: S.gruppi.indexOf(cur.gruppo), item: cur.bers });
+    S.turni = S.turni.filter(t => t.chiave !== chiave);
+    delete S.storico[chiave];
+    c.fatto = null; c.scelta = -1;
+    S.corrente = c;
+    S.bloccato = false;
+    mostraAzSogg(document.getElementById('game-stage'));
+    window._startTDCountdown();
+};
+
+window.skipAzSoggRound = () => {
+    const S = state._azSogg;
+    if (!S || !S.corrente || S.bloccato) return;
+    S.bloccato = true;
+    clearTimeout(S.timer);
+    S.timer = setTimeout(() => { S.bloccato = false; prossimoAzSogg(); }, 200);
 };
 
 // --- TOPOLOGIA (Drag & Drop) ---
@@ -2302,6 +2451,7 @@ window.undoLastAction = () => {
         if (state.session.scoreHistory && state.session.scoreHistory.length > 0) {
             removedId = state.session.scoreHistory.pop();
 
+            if ((engine === 'chi_lo_fa' || engine === 'cosa_fa') && typeof window._azSoggUndone === 'function') window._azSoggUndone(removedId);
             const currentIndex = (engine === 'tact') ? state.tactIndex : state.ranIndex;
             if (removedId === currentIndex) {
                 const targetImg = document.querySelector('.tact-card-lg img, .ran-main-img');
